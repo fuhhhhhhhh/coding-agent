@@ -6,7 +6,7 @@ from pydantic import Field
 
 from codepilot.contracts.models import Contract
 from codepilot.tools.base import Tool
-from codepilot.tools.file_common import _validate_write
+from codepilot.tools.file_common import _atomic_write, _check_expected_hash, _validate_write
 from codepilot.tools.workspace import Workspace
 
 
@@ -15,6 +15,7 @@ class WriteFileArguments(Contract):
 
     path: Annotated[str, Field(min_length=1)]
     content: str
+    expected_sha256: Annotated[str | None, Field(pattern=r"^[0-9a-fA-F]{64}$")] = None
 
 
 class WriteFileTool(Tool[WriteFileArguments]):
@@ -34,5 +35,6 @@ class WriteFileTool(Tool[WriteFileArguments]):
         """完成全部边界校验后写入文本，并返回写入字节数。"""
         path = self.workspace.resolve(arguments.path, must_exist=False)
         data = _validate_write(path, arguments.content)
-        path.write_bytes(data)
+        _check_expected_hash(path, arguments.expected_sha256)
+        _atomic_write(path, data)
         return f"written: path={self.workspace.relative(path)} bytes={len(data)}"

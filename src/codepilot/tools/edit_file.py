@@ -6,7 +6,14 @@ from pydantic import Field
 
 from codepilot.contracts.models import Contract
 from codepilot.tools.base import Tool, ToolFailure
-from codepilot.tools.file_common import MAX_FILE_BYTES, _read_text, _validate_write
+from codepilot.tools.file_common import (
+    MAX_FILE_BYTES,
+    _atomic_write,
+    _check_expected_hash,
+    _read_text,
+    _sha256,
+    _validate_write,
+)
 from codepilot.tools.workspace import Workspace
 
 
@@ -16,6 +23,7 @@ class EditFileArguments(Contract):
     path: Annotated[str, Field(min_length=1)]
     old_text: Annotated[str, Field(min_length=1)]
     new_text: str
+    expected_sha256: Annotated[str | None, Field(pattern=r"^[0-9a-fA-F]{64}$")] = None
 
 
 class EditFileTool(Tool[EditFileArguments]):
@@ -34,6 +42,7 @@ class EditFileTool(Tool[EditFileArguments]):
     async def run(self, arguments: EditFileArguments) -> str:
         """拒绝零匹配和多匹配，成功时只替换唯一位置。"""
         path = self.workspace.resolve(arguments.path, must_exist=True)
+        _check_expected_hash(path, arguments.expected_sha256)
         content = _read_text(path, MAX_FILE_BYTES)
         matches = content.count(arguments.old_text)
         # 零匹配可能表示模型依据旧内容操作，多匹配则无法确定修改目标。
@@ -41,5 +50,22 @@ class EditFileTool(Tool[EditFileArguments]):
             raise ToolFailure(f"ambiguous_edit: expected 1 match, found {matches}")
         updated = content.replace(arguments.old_text, arguments.new_text, 1)
         data = _validate_write(path, updated)
-        path.write_bytes(data)
-        return f"edited: path={self.workspace.relative(path)} bytes={len(data)}"
+        # 二次检查覆盖“读取后、写入前”这段窗口，检测外部并发修改。
+        _check_expected_hash(path, arguments.expected_sha256 or _sha256(path))
+        _atomic_write(path, data)
+        diff = _diff(path, content, updated)
+        return f"edited: path={self.workspace.relative(path)} bytes={len(data)}\n{diff}"
+
+
+def _diff(path: object, before: str, after: str) -> str:
+    """生成面向人和轨迹的统一 diff，不参与文件写入判定。"""
+    import difflib
+
+    name = str(path)
+    lines = difflib.unified_diff(
+        before.splitlines(keepends=True),
+        after.splitlines(keepends=True),
+        fromfile=name,
+        tofile=name,
+    )
+    return "".join(lines) or "diff: no changes"

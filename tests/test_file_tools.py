@@ -1,6 +1,7 @@
 """验证文件工具的工作区边界、内容限制和编辑唯一性。"""
 
 import asyncio
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -104,3 +105,64 @@ def test_invalid_arguments_cannot_truncate_existing_file(tmp_path: Path) -> None
     )
     assert result.is_error and result.content.startswith("invalid_arguments:")
     assert path.read_text(encoding="utf-8") == "original"
+
+
+def test_expected_hash_rejects_external_edit_without_overwrite(tmp_path: Path) -> None:
+    """读取后的文件被外部修改时，版本前置条件拒绝编辑并保留外部内容。"""
+    path = tmp_path / "value.txt"
+    path.write_text("old\n", encoding="utf-8")
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    path.write_text("external\n", encoding="utf-8")
+    result = execute(
+        registry_for(tmp_path),
+        "edit_file",
+        path="value.txt",
+        old_text="external",
+        new_text="agent",
+        expected_sha256=expected,
+    )
+    assert result.is_error and "conflict" in result.content
+    assert path.read_text(encoding="utf-8") == "external\n"
+
+
+def test_edit_returns_reviewable_diff_and_write_hash_allows_safe_replace(tmp_path: Path) -> None:
+    """成功编辑返回 unified diff，写入工具也能按当前哈希覆盖。"""
+    path = tmp_path / "value.txt"
+    path.write_text("old\n", encoding="utf-8")
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    edited = execute(
+        registry_for(tmp_path),
+        "edit_file",
+        path="value.txt",
+        old_text="old",
+        new_text="new",
+        expected_sha256=expected,
+    )
+    assert not edited.is_error and "--- " in edited.content and "-old" in edited.content
+    current = hashlib.sha256(path.read_bytes()).hexdigest()
+    written = execute(
+        registry_for(tmp_path),
+        "write_file",
+        path="value.txt",
+        content="final\n",
+        expected_sha256=current,
+    )
+    assert not written.is_error and path.read_text(encoding="utf-8") == "final\n"
+
+
+def test_atomic_replace_failure_keeps_original_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """原子替换失败时不留下半写入内容，也不删除原文件。"""
+    path = tmp_path / "value.txt"
+    path.write_text("original\n", encoding="utf-8")
+
+    def fail_replace(source: str, destination: Path) -> None:
+        """模拟操作系统拒绝最终替换。"""
+        raise OSError("controlled replace failure")
+
+    monkeypatch.setattr("codepilot.tools.file_common.os.replace", fail_replace)
+    with pytest.raises(OSError, match="controlled replace failure"):
+        execute(registry_for(tmp_path), "write_file", path="value.txt", content="new\n")
+    assert path.read_text(encoding="utf-8") == "original\n"
+    assert not list(tmp_path.glob(".value.txt.*"))
