@@ -1,0 +1,77 @@
+$ uv sync --locked
+Resolved 17 packages in 2ms
+Checked 16 packages in 0.42ms
+exit_code=0
+
+$ uv run --locked python --version
+Python 3.14.7
+exit_code=0
+
+$ uv run --locked pytest -q
+..................................................................       [100%]
+66 passed in 1.16s
+exit_code=0
+
+$ uv run --locked ruff check .
+All checks passed!
+exit_code=0
+
+$ uv run --locked ruff format --check .
+29 files already formatted
+exit_code=0
+
+$ uv run --locked mypy
+Success: no issues found in 20 source files
+exit_code=0
+
+$ uv run --locked python -m codepilot.m02_demo
+{"scenario": "baseline", "state": "completed", "reason": "completed", "steps": 2, "tool_calls": 1}
+{"scenario": "repair", "state": "completed", "reason": "completed", "steps": 4, "tool_calls": 3}
+{"scenario": "no_calls", "state": "completed", "reason": "completed", "steps": 1, "tool_calls": 0}
+{"scenario": "repeated_failure", "state": "failed", "reason": "repeated_failure", "steps": 3, "tool_calls": 3}
+{"scenario": "step_limit", "state": "failed", "reason": "step_limit", "steps": 2, "tool_calls": 2}
+{"scenario": "tool_exception", "state": "completed", "reason": "completed", "steps": 2, "tool_calls": 1}
+{"scenario": "provider_error", "state": "failed", "reason": "provider_error", "steps": 1, "tool_calls": 0}
+{"scenario": "argument_error", "state": "completed", "reason": "completed", "steps": 2, "tool_calls": 1}
+{"scenario": "tool_budget", "state": "failed", "reason": "tool_budget", "steps": 1, "tool_calls": 0}
+{"scenario": "time_limit", "state": "failed", "reason": "time_limit", "steps": 1, "tool_calls": 0}
+{"scenario": "cancelled", "state": "cancelled", "reason": "cancelled", "steps": 1, "tool_calls": 0}
+exit_code=0
+
+$ uv build --wheel
+Building wheel...
+Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+exit_code=0
+
+UV_PROJECT_ENVIRONMENT=/tmp/codepilot-m02-checks-knqoyex_/py3.11
+$ uv --no-python-downloads run --locked --python 3.11 python --version
+Python 3.11.16
+Using CPython 3.11.16
+Creating virtual environment at: /tmp/codepilot-m02-checks-knqoyex_/py3.11
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 16 packages in 5.25s
+exit_code=0
+
+$ uv --no-python-downloads run --locked --python 3.11 pytest -q
+..................................................................       [100%]
+66 passed in 1.60s
+exit_code=0
+
+UV_PROJECT_ENVIRONMENT=/tmp/codepilot-m02-checks-knqoyex_/py3.12
+$ uv --no-python-downloads run --locked --python 3.12 python --version
+Python 3.12.12
+Using CPython 3.12.12
+Creating virtual environment at: /tmp/codepilot-m02-checks-knqoyex_/py3.12
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 16 packages in 3.62s
+exit_code=0
+
+$ uv --no-python-downloads run --locked --python 3.12 pytest -q
+..................................................................       [100%]
+66 passed in 1.58s
+exit_code=0
+

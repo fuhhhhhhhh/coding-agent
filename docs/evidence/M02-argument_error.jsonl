@@ -1,0 +1,7 @@
+{"run_id":"m02-argument-error","sequence":1,"step":1,"kind":"model_requested","message":null,"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m02-argument-error","sequence":2,"step":1,"kind":"model_replied","message":{"role":"assistant","content":"","tool_calls":[{"call_id":"invalid-1","name":"write_file","arguments":{"path":"calculator.py"}}],"tool_result":null},"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m02-argument-error","sequence":3,"step":1,"kind":"tool_requested","message":null,"call":{"call_id":"invalid-1","name":"write_file","arguments":{"path":"calculator.py"}},"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m02-argument-error","sequence":4,"step":1,"kind":"tool_result","message":null,"call":null,"result":{"call_id":"invalid-1","content":"invalid_arguments: only calculator.py and the exact keys are allowed","is_error":true},"state":null,"reason":null,"detail":""}
+{"run_id":"m02-argument-error","sequence":5,"step":2,"kind":"model_requested","message":null,"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m02-argument-error","sequence":6,"step":2,"kind":"model_replied","message":{"role":"assistant","content":"Invalid arguments received.","tool_calls":[],"tool_result":null},"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m02-argument-error","sequence":7,"step":2,"kind":"run_stopped","message":null,"call":null,"result":null,"state":"completed","reason":"completed","detail":""}

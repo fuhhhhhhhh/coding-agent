@@ -1,0 +1,2 @@
+{"session_id":"demo-session","run_id":"demo-run","turn_id":"turn-1","sequence":1,"kind":"message_received","message":{"role":"assistant","content":"M01 fake: ready to inspect a file.","tool_calls":[],"tool_result":null}}
+{"session_id":"demo-session","run_id":"demo-run","turn_id":"turn-2","sequence":2,"kind":"message_received","message":{"role":"assistant","content":"","tool_calls":[{"call_id":"call-1","name":"read_file","arguments":{"path":"README.md"}}],"tool_result":null}}

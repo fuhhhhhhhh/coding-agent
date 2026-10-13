@@ -1,0 +1,29 @@
+$ uv sync --locked
+Resolved 17 packages in 3ms
+Checked 16 packages in 0.53ms
+exit_code=0
+
+$ uv run --locked python --version
+Python 3.14.7
+exit_code=0
+
+$ uv run --locked pytest -q
+..............................                                           [100%]
+30 passed in 0.11s
+exit_code=0
+
+$ uv run --locked ruff check .
+All checks passed!
+exit_code=0
+
+$ uv run --locked ruff format --check .
+18 files already formatted
+exit_code=0
+
+$ uv run --locked mypy
+Success: no issues found in 11 source files
+exit_code=0
+
+$ git diff --check
+exit_code=0
+

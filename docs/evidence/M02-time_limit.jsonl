@@ -1,0 +1,2 @@
+{"run_id":"m02-time-limit","sequence":1,"step":1,"kind":"model_requested","message":null,"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m02-time-limit","sequence":2,"step":1,"kind":"run_stopped","message":null,"call":null,"result":null,"state":"failed","reason":"time_limit","detail":""}

@@ -1,0 +1,3 @@
+{"run_id":"m02-tool-budget","sequence":1,"step":1,"kind":"model_requested","message":null,"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m02-tool-budget","sequence":2,"step":1,"kind":"model_replied","message":{"role":"assistant","content":"","tool_calls":[{"call_id":"read-0","name":"read_file","arguments":{"path":"calculator.py"}}],"tool_result":null},"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m02-tool-budget","sequence":3,"step":1,"kind":"run_stopped","message":null,"call":null,"result":null,"state":"failed","reason":"tool_budget","detail":""}
