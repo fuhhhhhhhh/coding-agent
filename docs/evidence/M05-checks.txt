@@ -1,0 +1,16 @@
+$ uv run --locked ruff format --check .
+64 files already formatted
+$ uv run --locked ruff check .
+All checks passed!
+$ uv run --locked mypy src tests
+Success: no issues found in 47 source files
+$ uv run --locked pytest -q
+........................................................................ [ 73%]
+..........................                                               [100%]
+98 passed in 3.87s
+$ uv run --locked python -m codepilot.m05_demo
+{"scenario": "read_only_denied", "error": true, "content": "permission_denied: policy_default", "audit": [{"sequence": 1, "request_id": "5a816100-10be-4269-8449-65d2acb9d6ae", "call_id": "write_file", "tool_name": "write_file", "decision": "deny", "outcome": "denied", "reason": "policy_default"}]}
+{"scenario": "approval_cancelled", "error": true, "content": "permission_cancelled: approval declined", "audit": [{"sequence": 1, "request_id": "76044fb4-04b2-447a-9dc9-8c76b3a5d900", "call_id": "write_file", "tool_name": "write_file", "decision": "ask", "outcome": "cancelled", "reason": "approval_cancelled"}]}
+{"scenario": "approval_granted", "error": false, "content": "written: path=x bytes=3", "audit": [{"sequence": 1, "request_id": "54ccc20b-d895-4fc4-80a1-2ae16d147583", "call_id": "write_file", "tool_name": "write_file", "decision": "ask", "outcome": "approved", "reason": "matched_ask_rule"}]}
+{"scenario": "container_mode_rejected", "error": true, "content": "permission_denied: container_mode_not_implemented", "audit": [{"sequence": 1, "request_id": "200f6a64-2cb8-4a0f-b5e0-1854a25d6ce1", "call_id": "read_file", "tool_name": "read_file", "decision": "deny", "outcome": "denied", "reason": "container_mode_not_implemented"}]}
+$ git diff --check

@@ -1,7 +1,7 @@
 # CodePilot
 
-逐阶段实现 Python 终端 Coding Agent。当前完成通用工具注册与六个基础工具，
-可在受控临时工作区演示读、写、编辑、发现、搜索和 Shell；尚未接入真实模型或权限引擎。
+逐阶段实现 Python 终端 Coding Agent。当前完成通用工具注册、六个基础工具和独立权限审批层，
+可在受控临时工作区演示读、写、编辑、发现、搜索、Shell，以及 allow/deny/ask 权限决策；尚未接入真实模型。
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
 需要 Python 3.11+ 和 uv。在本目录执行：
@@ -12,6 +12,7 @@ uv run --locked python -m codepilot.demo codepilot.example.toml
 uv run --locked python -m codepilot.m02_demo
 uv run --locked python -m codepilot.m03_demo
 uv run --locked python -m codepilot.m04_demo
+uv run --locked python -m codepilot.m05_demo
 uv run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
@@ -28,13 +29,15 @@ M03 演示让 Fake Provider 通过通用注册表调用六个基础工具，并�
 超时和输出上限，但权限审批和系统隔离仍属于后续阶段。
 M04 演示文件哈希冲突、原子编辑 diff 和 Shell 超时；写入失败不会留下半成品，POSIX 进程组清理
 会终止命令启动的运行中后代。
+M05 演示只读拒绝、审批取消、审批通过和未实现容器模式的明确拒绝；审批层记录完整工具参数、决策和结果，
+拒绝或取消发生在工具执行前。CLI 审批只批准明确输入的 y/yes，离线验收使用 fake provider 和脚本化审批。
 全程使用 fake provider，未调用真实模型；仓库中的故意错误 fixture 不会被修改。
 配置只支持 fake；省略配置路径使用默认值，显式路径不存在则报错。
 `.env.example` 仅说明无需密钥，程序不加载 `.env`。
 
 M02 验收时 Linux 上 Python 3.11.16、3.12.12、3.14.7 均通过 66 个测试；
-M03 通过 88 个测试，M04 当前环境通过 93 个测试。检查记录见
-[docs/evidence/M04-checks.txt](docs/evidence/M04-checks.txt)。
+M03 通过 88 个测试，M04 通过 93 个测试，M05 当前环境通过 98 个测试。检查记录见
+[docs/evidence/M05-checks.txt](docs/evidence/M05-checks.txt)。
 M02 wheel 构建通过，本轮未重复独立安装；M01 独立安装记录保留。
 Windows/macOS、Python 3.13 和真实模型协议尚未验证。
 
@@ -44,7 +47,7 @@ Windows/macOS、Python 3.13 和真实模型协议尚未验证。
 或者重新引入纯英文 docstring 和行注释。
 
 进度见 [docs/STATUS.md](docs/STATUS.md)，
-机制与取舍见 [docs/design/M04.md](docs/design/M04.md)，
-阅读路径与执行解释见 [docs/learning/M04.md](docs/learning/M04.md)。
+机制与取舍见 [docs/design/M05.md](docs/design/M05.md)，
+阅读路径与执行解释见 [docs/learning/M05.md](docs/learning/M05.md)。
 按用户要求不再留动手题；原 M01 命名修改已直接实现并验证。
 
