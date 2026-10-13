@@ -11,6 +11,7 @@ uv sync --locked
 uv run --locked python -m codepilot.demo codepilot.example.toml
 uv run --locked python -m codepilot.m02_demo
 uv run --locked python -m codepilot.m03_demo
+uv run --locked python -m codepilot.m04_demo
 uv run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
@@ -24,13 +25,16 @@ M02 演示需在仓库根目录运行，将 examples/fixture_repo 复制到临�
 同时验证错误反馈、停止上限、超时和取消等故障，保存 11 组 JSONL 到 docs/evidence。
 M03 演示让 Fake Provider 通过通用注册表调用六个基础工具，并保存参数错误、路径越界、
 编辑歧义和二进制读取失败轨迹。文件工具限制在显式工作区；Shell 有固定 cwd、当前进程取消、
-超时和输出上限，但权限审批、进程树清理和系统隔离仍属于后续阶段。
+超时和输出上限，但权限审批和系统隔离仍属于后续阶段。
+M04 演示文件哈希冲突、原子编辑 diff 和 Shell 超时；写入失败不会留下半成品，POSIX 进程组清理
+会终止命令启动的运行中后代。
 全程使用 fake provider，未调用真实模型；仓库中的故意错误 fixture 不会被修改。
 配置只支持 fake；省略配置路径使用默认值，显式路径不存在则报错。
 `.env.example` 仅说明无需密钥，程序不加载 `.env`。
 
 M02 验收时 Linux 上 Python 3.11.16、3.12.12、3.14.7 均通过 66 个测试；
-M03 当前环境通过 88 个测试。检查记录见 [docs/evidence/M03-checks.txt](docs/evidence/M03-checks.txt)。
+M03 通过 88 个测试，M04 当前环境通过 93 个测试。检查记录见
+[docs/evidence/M04-checks.txt](docs/evidence/M04-checks.txt)。
 M02 wheel 构建通过，本轮未重复独立安装；M01 独立安装记录保留。
 Windows/macOS、Python 3.13 和真实模型协议尚未验证。
 
@@ -40,7 +44,7 @@ Windows/macOS、Python 3.13 和真实模型协议尚未验证。
 或者重新引入纯英文 docstring 和行注释。
 
 进度见 [docs/STATUS.md](docs/STATUS.md)，
-机制与取舍见 [docs/design/M03.md](docs/design/M03.md)，
-阅读路径与执行解释见 [docs/learning/M03.md](docs/learning/M03.md)。
+机制与取舍见 [docs/design/M04.md](docs/design/M04.md)，
+阅读路径与执行解释见 [docs/learning/M04.md](docs/learning/M04.md)。
 按用户要求不再留动手题；原 M01 命名修改已直接实现并验证。
 

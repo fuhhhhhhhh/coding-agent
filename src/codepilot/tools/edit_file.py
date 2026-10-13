@@ -53,7 +53,7 @@ class EditFileTool(Tool[EditFileArguments]):
         # 二次检查覆盖“读取后、写入前”这段窗口，检测外部并发修改。
         _check_expected_hash(path, arguments.expected_sha256 or _sha256(path))
         _atomic_write(path, data)
-        diff = _diff(path, content, updated)
+        diff = _diff(self.workspace.relative(path), content, updated)
         return f"edited: path={self.workspace.relative(path)} bytes={len(data)}\n{diff}"
 
 

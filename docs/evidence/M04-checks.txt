@@ -1,0 +1,18 @@
+$ uv run --locked ruff format --check .
+55 files already formatted
+$ uv run --locked ruff check .
+All checks passed!
+$ uv run --locked mypy src tests
+Success: no issues found in 40 source files
+$ uv run --locked pytest -q
+........................................................................ [ 77%]
+.....................                                                    [100%]
+93 passed in 2.94s
+$ uv run --locked python -m codepilot.m04_demo
+{"scenario": "atomic_edit", "error": false, "content": "edited: path=value.txt bytes=4\n--- value.txt\n+++ value.txt\n@@ -1 +1 @@\n-old\n+new\n"}
+{"scenario": "hash_conflict", "error": true, "content": "tool_error: conflict: expected_sha256=01d09d19c2139a46aebfb577780d123d7396e97201bc7ead210a2ebff8239dee actual_sha256=1b665050c87b37aa6ac165e4d12580794f99fa769fc6a87d482923a5be8465bb"}
+{"scenario": "shell_timeout", "error": true, "content": "tool_timeout: 0.05s"}
+$ uv build --wheel
+Building wheel...
+Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+$ git diff --check

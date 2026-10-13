@@ -1,0 +1,1 @@
+{"scenario": "atomic_edit", "error": false, "content": "edited: path=value.txt bytes=4\n--- value.txt\n+++ value.txt\n@@ -1 +1 @@\n-old\n+new\n"}
