@@ -1,6 +1,9 @@
 """实现固定工作目录、有界输出且可取消的基础 Shell 工具。"""
 
 import asyncio
+import os
+import signal
+import subprocess
 from typing import Annotated
 
 from pydantic import Field
@@ -32,6 +35,31 @@ async def _read_limited(stream: asyncio.StreamReader | None, limit: int) -> tupl
     return bytes(collected), truncated
 
 
+async def _stop_process_group(process: asyncio.subprocess.Process) -> None:
+    """终止当前进程及其同组后代，并等待直接进程完成回收。"""
+    if process.returncode is not None:
+        return
+    try:
+        if os.name == "nt":
+            process.terminate()
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        # 进程可能已退出，或平台拒绝组信号；后续仍等待直接子进程。
+        pass
+    try:
+        await asyncio.wait_for(process.wait(), timeout=0.5)
+    except TimeoutError:
+        try:
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        await process.wait()
+
+
 class ShellTool(Tool[ShellArguments]):
     """在工作区启动一个 Shell 进程并返回退出码及有界输出。"""
 
@@ -51,12 +79,24 @@ class ShellTool(Tool[ShellArguments]):
         """运行命令；取消时终止当前进程并等待其回收。"""
         if not arguments.command.strip():
             raise ToolFailure("invalid_command: command cannot be blank")
-        process = await asyncio.create_subprocess_shell(
-            arguments.command,
-            cwd=self.workspace.root,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        if os.name == "nt":
+            # Windows 用新的进程组标志，便于取消时向命令组发送终止信号。
+            process = await asyncio.create_subprocess_shell(
+                arguments.command,
+                cwd=self.workspace.root,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+            )
+        else:
+            # POSIX 用新会话建立独立进程组，killpg 才不会波及 Agent 自身。
+            process = await asyncio.create_subprocess_shell(
+                arguments.command,
+                cwd=self.workspace.root,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
         self.active_process = process
         stdout_task = asyncio.create_task(_read_limited(process.stdout, arguments.max_output_bytes))
         stderr_task = asyncio.create_task(_read_limited(process.stderr, arguments.max_output_bytes))
@@ -64,14 +104,8 @@ class ShellTool(Tool[ShellArguments]):
             return_code = await process.wait()
             stdout_result, stderr_result = await asyncio.gather(stdout_task, stderr_task)
         except asyncio.CancelledError:
-            # M03 保证回收当前 Shell；任意后代进程树的可靠清理由 M04 实现。
-            if process.returncode is None:
-                try:
-                    process.kill()
-                except ProcessLookupError:
-                    # 进程可能在返回码检查和发送信号之间自行退出。
-                    pass
-                await process.wait()
+            # 独立进程组让取消可以覆盖命令主动启动的后代进程。
+            await _stop_process_group(process)
             for task in (stdout_task, stderr_task):
                 task.cancel()
             await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)

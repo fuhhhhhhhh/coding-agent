@@ -1,9 +1,13 @@
 """验证基础 Shell 的工作目录、输出、超时和取消清理。"""
 
 import asyncio
+import os
 import shlex
 import sys
+import time
 from pathlib import Path
+
+import pytest
 
 from codepilot.contracts import ToolCall
 from codepilot.tools import ShellTool, ToolRegistry, Workspace
@@ -64,5 +68,42 @@ def test_registry_timeout_reaps_current_shell_process(tmp_path: Path) -> None:
         )
         assert result.is_error and result.content.startswith("tool_timeout:")
         assert tool.active_process is not None and tool.active_process.returncode is not None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.skipif(os.name == "nt", reason="本测试检查 POSIX 进程组")
+def test_timeout_terminates_child_process_group(tmp_path: Path) -> None:
+    """命令启动子进程后超时，子进程组也必须被终止。"""
+
+    async def scenario() -> None:
+        """记录子进程 PID，超时后确认 PID 已不再存在。"""
+        tool = ShellTool(Workspace(tmp_path))
+        tool.default_timeout = 0.1
+        pid_file = tmp_path / "child.pid"
+        child_code = (
+            f"import os,time; open({str(pid_file)!r}, 'w').write(str(os.getpid())); time.sleep(60)"
+        )
+        command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
+            "import subprocess,time; "
+            f"subprocess.Popen([{sys.executable!r}, '-c', {child_code!r}]); "
+            "time.sleep(60)"
+        )
+        result = await ToolRegistry((tool,)).execute(
+            ToolCall(call_id="shell", name="shell", arguments={"command": command})
+        )
+        assert result.is_error and "tool_timeout" in result.content
+        child_pid = int(pid_file.read_text(encoding="utf-8"))
+        # 被终止的后代可能短暂处于僵尸态，但不得继续运行或产生输出。
+        for _ in range(20):
+            proc_stat = Path(f"/proc/{child_pid}/stat")
+            if not proc_stat.exists():
+                break
+            state = proc_stat.read_text(encoding="utf-8").split()[2]
+            if state == "Z":
+                break
+            time.sleep(0.01)
+        else:
+            pytest.fail("child process is still running after process-group cleanup")
 
     asyncio.run(scenario())
