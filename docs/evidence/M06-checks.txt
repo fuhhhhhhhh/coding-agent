@@ -1,0 +1,13 @@
+$ uv run --locked ruff format --check .
+72 files already formatted
+$ uv run --locked ruff check .
+All checks passed!
+$ uv run --locked mypy src tests
+Success: no issues found in 53 source files
+$ uv run --locked pytest -q
+........................................................................ [ 70%]
+..............................                                           [100%]
+102 passed in 1.81s
+$ uv run --locked python -m codepilot.m06_demo
+{"task_id": "add-fix", "status": "success", "attempts": 2, "verification": ["failed", "passed"], "changed_files": ["calculator.py"], "detail": "independent verifier passed"}
+$ git diff --check
