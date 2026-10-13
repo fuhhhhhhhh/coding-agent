@@ -27,6 +27,13 @@ class ToolFailure(Exception):
     """表示可预期且适合反馈给模型的工具业务失败。"""
 
 
+class ToolOutput(Contract):
+    """允许工具在保留正文时标记命令退出等业务失败。"""
+
+    content: str
+    is_error: bool = False
+
+
 class Tool(ABC, Generic[ArgumentsT]):
     """把一份参数模型同时用于公开 Schema 和执行前校验。"""
 
@@ -54,6 +61,6 @@ class Tool(ABC, Generic[ArgumentsT]):
         )
 
     @abstractmethod
-    async def run(self, arguments: ArgumentsT) -> str:
+    async def run(self, arguments: ArgumentsT) -> str | ToolOutput:
         """执行已经通过对应 Pydantic 模型校验的参数并返回文本结果。"""
         raise NotImplementedError

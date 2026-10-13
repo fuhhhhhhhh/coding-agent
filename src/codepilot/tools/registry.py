@@ -8,7 +8,7 @@ from typing import Any, cast
 from pydantic import BaseModel, ValidationError
 
 from codepilot.contracts import ToolCall, ToolResult
-from codepilot.tools.base import Tool, ToolFailure, ToolSpec
+from codepilot.tools.base import Tool, ToolFailure, ToolOutput, ToolSpec
 
 
 class ToolRegistry:
@@ -48,15 +48,20 @@ class ToolRegistry:
             return self._error(call, f"invalid_arguments: {details}")
         try:
             async with asyncio.timeout(tool.default_timeout):
-                content = await self._run(tool, arguments)
+                output = await self._run(tool, arguments)
         except TimeoutError:
             # timeout 上下文会先取消工具协程，再把超时转换为可反馈结果。
             return self._error(call, f"tool_timeout: {tool.default_timeout:g}s")
         except ToolFailure as error:
             return self._error(call, f"tool_error: {error}")
-        return ToolResult(call_id=call.call_id, content=content)
+        # 普通字符串表示成功；ToolOutput 可携带非零退出等带正文的业务失败。
+        if isinstance(output, ToolOutput):
+            return ToolResult(
+                call_id=call.call_id, content=output.content, is_error=output.is_error
+            )
+        return ToolResult(call_id=call.call_id, content=output)
 
-    async def _run(self, tool: Tool[Any], arguments: BaseModel) -> str:
+    async def _run(self, tool: Tool[Any], arguments: BaseModel) -> str | ToolOutput:
         """在参数类型由注册项确定后调用工具，集中隔离泛型擦除。"""
         return await tool.run(cast(Any, arguments))
 
