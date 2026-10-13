@@ -66,7 +66,11 @@ class ShellTool(Tool[ShellArguments]):
         except asyncio.CancelledError:
             # M03 保证回收当前 Shell；任意后代进程树的可靠清理由 M04 实现。
             if process.returncode is None:
-                process.kill()
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    # 进程可能在返回码检查和发送信号之间自行退出。
+                    pass
                 await process.wait()
             for task in (stdout_task, stderr_task):
                 task.cancel()

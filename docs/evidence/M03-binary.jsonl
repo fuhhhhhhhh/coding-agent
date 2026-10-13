@@ -1,0 +1,7 @@
+{"run_id":"m03-binary","sequence":1,"step":1,"kind":"model_requested","message":null,"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-binary","sequence":2,"step":1,"kind":"model_replied","message":{"role":"assistant","content":"","tool_calls":[{"call_id":"binary","name":"read_file","arguments":{"path":"binary.dat"}}],"tool_result":null},"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-binary","sequence":3,"step":1,"kind":"tool_requested","message":null,"call":{"call_id":"binary","name":"read_file","arguments":{"path":"binary.dat"}},"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-binary","sequence":4,"step":1,"kind":"tool_result","message":null,"call":null,"result":{"call_id":"binary","content":"tool_error: binary_file: NUL byte detected","is_error":true},"state":null,"reason":null,"detail":""}
+{"run_id":"m03-binary","sequence":5,"step":2,"kind":"model_requested","message":null,"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-binary","sequence":6,"step":2,"kind":"model_replied","message":{"role":"assistant","content":"Binary input rejected.","tool_calls":[],"tool_result":null},"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-binary","sequence":7,"step":2,"kind":"run_stopped","message":null,"call":null,"result":null,"state":"completed","reason":"completed","detail":""}

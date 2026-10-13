@@ -1,0 +1,20 @@
+$ uv run --locked ruff format --check .
+47 files already formatted
+$ uv run --locked ruff check .
+All checks passed!
+$ uv run --locked mypy src tests
+Success: no issues found in 34 source files
+$ uv run --locked pytest -q
+........................................................................ [ 81%]
+................                                                         [100%]
+88 passed in 1.55s
+$ uv run --locked python -m codepilot.m03_demo
+{"scenario": "happy", "state": "completed", "reason": "completed", "steps": 7, "tool_calls": 6}
+{"scenario": "invalid_arguments", "state": "completed", "reason": "completed", "steps": 2, "tool_calls": 1}
+{"scenario": "path_escape", "state": "completed", "reason": "completed", "steps": 2, "tool_calls": 1}
+{"scenario": "ambiguous_edit", "state": "completed", "reason": "completed", "steps": 2, "tool_calls": 1}
+{"scenario": "binary", "state": "completed", "reason": "completed", "steps": 2, "tool_calls": 1}
+$ uv build --wheel
+Building wheel...
+Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+$ git diff --check

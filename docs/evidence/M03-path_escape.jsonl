@@ -1,0 +1,7 @@
+{"run_id":"m03-path-escape","sequence":1,"step":1,"kind":"model_requested","message":null,"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-path-escape","sequence":2,"step":1,"kind":"model_replied","message":{"role":"assistant","content":"","tool_calls":[{"call_id":"escape","name":"read_file","arguments":{"path":"../outside.txt"}}],"tool_result":null},"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-path-escape","sequence":3,"step":1,"kind":"tool_requested","message":null,"call":{"call_id":"escape","name":"read_file","arguments":{"path":"../outside.txt"}},"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-path-escape","sequence":4,"step":1,"kind":"tool_result","message":null,"call":null,"result":{"call_id":"escape","content":"tool_error: invalid_path: parent and empty segments are not allowed","is_error":true},"state":null,"reason":null,"detail":""}
+{"run_id":"m03-path-escape","sequence":5,"step":2,"kind":"model_requested","message":null,"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-path-escape","sequence":6,"step":2,"kind":"model_replied","message":{"role":"assistant","content":"Path escape rejected.","tool_calls":[],"tool_result":null},"call":null,"result":null,"state":null,"reason":null,"detail":""}
+{"run_id":"m03-path-escape","sequence":7,"step":2,"kind":"run_stopped","message":null,"call":null,"result":null,"state":"completed","reason":"completed","detail":""}
