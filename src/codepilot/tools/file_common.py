@@ -11,8 +11,8 @@ MAX_FILE_BYTES = 1_048_576
 DEFAULT_READ_BYTES = 65_536
 
 
-def _read_text(path: Path, max_bytes: int) -> str:
-    """有界读取 UTF-8 文本，并明确区分过大、二进制和编码错误。"""
+def _read_text_with_hash(path: Path, max_bytes: int) -> tuple[str, str]:
+    """一次读取同时返回 UTF-8 文本及同一份字节的 SHA-256。"""
     if not path.is_file():
         raise ToolFailure("not_a_file: requested path is not a regular file")
     with path.open("rb") as file:
@@ -23,9 +23,16 @@ def _read_text(path: Path, max_bytes: int) -> str:
     if b"\x00" in data:
         raise ToolFailure("binary_file: NUL byte detected")
     try:
-        return data.decode("utf-8")
+        content = data.decode("utf-8")
     except UnicodeDecodeError as error:
         raise ToolFailure("encoding_error: file is not valid UTF-8") from error
+    return content, hashlib.sha256(data).hexdigest()
+
+
+def _read_text(path: Path, max_bytes: int) -> str:
+    """有界读取 UTF-8 文本，并明确区分过大、二进制和编码错误。"""
+    content, _ = _read_text_with_hash(path, max_bytes)
+    return content
 
 
 def _validate_write(path: Path, content: str) -> bytes:

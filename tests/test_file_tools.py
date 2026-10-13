@@ -125,6 +125,16 @@ def test_expected_hash_rejects_external_edit_without_overwrite(tmp_path: Path) -
     assert path.read_text(encoding="utf-8") == "external\n"
 
 
+def test_read_can_return_hash_for_later_version_precondition(tmp_path: Path) -> None:
+    """按需读取哈希，使 Agent 能把版本前置条件传给后续写工具。"""
+    path = tmp_path / "value.txt"
+    path.write_text("content\n", encoding="utf-8")
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    result = execute(registry_for(tmp_path), "read_file", path="value.txt", include_sha256=True)
+    assert not result.is_error
+    assert result.content == f"sha256={expected}\ncontent:\ncontent\n"
+
+
 def test_edit_returns_reviewable_diff_and_write_hash_allows_safe_replace(tmp_path: Path) -> None:
     """成功编辑返回 unified diff，写入工具也能按当前哈希覆盖。"""
     path = tmp_path / "value.txt"
