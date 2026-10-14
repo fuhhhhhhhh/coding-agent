@@ -10,6 +10,7 @@ from typing import Literal, cast
 from codepilot.contracts import Message
 from codepilot.evals.models import AttemptRecord, TaskSpec, TrialResult
 from codepilot.evals.verifier import IndependentVerifier
+from codepilot.observability.trace import EventRecorder
 from codepilot.providers.base import Provider
 from codepilot.providers.stream import StreamingProvider
 from codepilot.runtime import Runner, ToolExecutor
@@ -24,10 +25,13 @@ class LocalHarness:
         self,
         verifier: IndependentVerifier,
         executor_factory: Callable[[Path], ToolExecutor],
+        *,
+        trace_directory: Path,
     ) -> None:
-        """保存验证器和每次试验的工具执行器工厂。"""
+        """保存验证器、工具工厂和位于任务工作区外的必选 Trace 目录。"""
         self.verifier = verifier
         self.executor_factory = executor_factory
+        self.trace_directory = trace_directory.resolve()
 
     async def run(self, task: TaskSpec, provider_factory: ProviderFactory) -> TrialResult:
         """从干净目录开始运行一个任务，并循环传递验证反馈。"""
@@ -46,6 +50,7 @@ class LocalHarness:
                     provider,
                     self.executor_factory(workspace),
                     task.limits,
+                    recorder=EventRecorder(self.trace_directory),
                 ).run((Message(role="user", content=task.description),))
                 development = await self._development_feedback(task, workspace)
                 verification = await self.verifier.verify(workspace)

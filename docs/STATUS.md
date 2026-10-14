@@ -15,15 +15,16 @@
 
 ## M07 当前通过证据
 
-- 内部流式契约、按索引隔离的分片组装；整个回复完整校验后才允许工具执行。
+- 内部流式契约拒绝跨类型载荷并按索引隔离组装；整个回复完整校验后才允许工具执行。
 - Runner 兼容完整回复和流式 Provider；记录文本/工具分片、调用就绪、工具开始/结束、审批、用量与回合/运行终态。
-- 默认 JSONL 仅元数据，省略提示词、参数和正文；保存摘要，未知 usage 与费用使用 null。
+- 默认 JSONL 仅元数据，省略提示词、参数和正文；JSONL 与摘要均为 0600，未知 usage 与费用使用 null。
+- 底层 Runner 可只保留内存事件；正式 Local Harness 强制指定工作区外 Trace 目录，每次尝试均落盘。
 - 支持固定 fake 脚本回放，规范化 ID/时间比较；这不等于模型解题成功率。
-- `uv run --locked pytest -q`：120 passed；Ruff、格式检查、mypy 通过。
+- `uv run --locked pytest -q`：121 passed；Ruff、格式检查、mypy 通过。
 - DeepSeek 官方 SDK（openai 2.54.0）适配；共享请求额度，关闭 SDK 自动重试。
 - 用户授权小范围真实验证：DeepSeek Flash 非推理模式，三次请求上限，每次最多 256 输出 Token。
   实际两次请求、一次只读工具，最终结果正确；输入 834、输出 39 Token，未计算费用。
-- 证据：`docs/evidence/M07-checks.txt`、`M07-live-checks.json`、`M07-traces/`。
+- 证据：`docs/evidence/M07-checks.txt`、`M07-review-fixes.txt`、`M07-live-checks.json`、`M07-traces/`。
 
 ## M06 当前通过证据
 

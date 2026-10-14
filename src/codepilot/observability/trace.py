@@ -1,6 +1,7 @@
 """记录关联事件，默认持久化元数据而不保存提示词、参数和工具正文。"""
 
 import json
+import os
 import time
 from contextvars import ContextVar
 from pathlib import Path
@@ -78,8 +79,10 @@ class EventRecorder:
             "cost_is_estimate": None,
             "content_policy": "metadata_only",
         }
-        # 摘要同样使用独占创建；不把完整 RunReport 中的历史直接序列化。
-        with self._path.with_suffix(".summary.json").open("x", encoding="utf-8") as stream:
+        # 摘要也含运行 ID 和用量元数据，因此使用与 JSONL 相同的仅所有者权限。
+        summary_path = self._path.with_suffix(".summary.json")
+        descriptor = os.open(summary_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             json.dump(summary, stream, ensure_ascii=False, indent=2)
 
     def normalized(self) -> tuple[dict[str, Any], ...]:

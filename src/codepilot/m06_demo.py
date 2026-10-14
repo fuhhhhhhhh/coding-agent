@@ -58,6 +58,7 @@ def main() -> None:
             LocalHarness(
                 IndependentVerifier((sys.executable, "-I", "-c", verifier_code)),
                 create_basic_registry,
+                trace_directory=Path(".codepilot-traces/evals"),
             ).run(task, _provider)
         )
         print(

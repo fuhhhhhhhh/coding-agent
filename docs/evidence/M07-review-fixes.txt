@@ -1,0 +1,28 @@
+$ uv run --locked ruff format --check .
+83 files already formatted
+$ uv run --locked ruff check .
+All checks passed!
+$ uv run --locked mypy src tests
+Success: no issues found in 62 source files
+$ uv run --locked pytest -q
+........................................................................ [ 59%]
+.................................................                        [100%]
+121 passed in 2.63s
+$ uv run --locked python -m codepilot.m06_demo
+{"task_id": "add-fix", "status": "success", "attempts": 2, "verification": ["failed", "passed"], "changed_files": ["calculator.py"], "detail": "independent verifier passed"}
+$ uv run --locked python -m codepilot.m07_demo --trace-dir <temporary>
+{"scenario": "approved", "reason": "completed", "tool_calls": 1, "events": 14}
+{"scenario": "replay", "reason": "completed", "tool_calls": 1, "events": 14}
+{"scenario": "interrupted", "reason": "provider_error", "tool_calls": 0, "events": 5}
+{"scenario": "cancelled", "reason": "completed", "tool_calls": 1, "events": 13}
+{"replay_equal": true, "note": "behavior replay, not model task accuracy"}
+$ find <temporary> -type f -printf permissions
+600 trace-<id>.jsonl
+600 trace-<id>.summary.json
+600 trace-<id>.jsonl
+600 trace-<id>.summary.json
+600 trace-<id>.jsonl
+600 trace-<id>.summary.json
+600 trace-<id>.jsonl
+600 trace-<id>.summary.json
+$ git diff --check

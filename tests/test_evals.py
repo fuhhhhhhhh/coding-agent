@@ -64,7 +64,8 @@ def test_harness_retries_after_independent_failure(tmp_path: Path) -> None:
     async def scenario() -> None:
         """运行两次候选并检查补丁和状态。"""
         task = _task(tmp_path / "source")
-        harness = LocalHarness(_verifier(), create_basic_registry)
+        trace_directory = tmp_path / "traces"
+        harness = LocalHarness(_verifier(), create_basic_registry, trace_directory=trace_directory)
         result = await harness.run(task, _provider_factory)
         assert result.status == "success"
         assert len(result.attempts) == 2
@@ -72,6 +73,8 @@ def test_harness_retries_after_independent_failure(tmp_path: Path) -> None:
         assert "return a + b" in result.patch
         assert result.attempts[0].verification.status == "failed"
         assert result.attempts[1].verification.passed
+        assert len(list(trace_directory.glob("*.jsonl"))) == 2
+        assert len(list(trace_directory.glob("*.summary.json"))) == 2
 
     asyncio.run(scenario())
 
@@ -87,7 +90,9 @@ def test_harness_distinguishes_empty_unresolved_patch(tmp_path: Path) -> None:
             """返回没有修改工作区的提前结束回复。"""
             return FakeProvider((Message(role="assistant", content="done"),))
 
-        result = await LocalHarness(_verifier(), create_basic_registry).run(task, provider_factory)
+        result = await LocalHarness(
+            _verifier(), create_basic_registry, trace_directory=tmp_path / "traces"
+        ).run(task, provider_factory)
         assert result.status == "unresolved"
         assert result.changed_files == ()
         assert result.patch == ""
@@ -103,7 +108,9 @@ def test_harness_marks_verifier_failure_as_unevaluable(tmp_path: Path) -> None:
         """执行一个能修改代码但无法启动验证器的任务。"""
         task = _task(tmp_path / "source", attempts=1)
         verifier = IndependentVerifier((str(tmp_path / "missing-verifier"),))
-        result = await LocalHarness(verifier, create_basic_registry).run(task, _provider_factory)
+        result = await LocalHarness(
+            verifier, create_basic_registry, trace_directory=tmp_path / "traces"
+        ).run(task, _provider_factory)
         assert result.status == "unevaluable"
         assert result.attempts[0].verification.status == "error"
 
@@ -119,7 +126,9 @@ def test_harness_marks_verifier_timeout_separately(tmp_path: Path) -> None:
         verifier = IndependentVerifier(
             (sys.executable, "-c", "import time; time.sleep(1)"), timeout_seconds=0.01
         )
-        result = await LocalHarness(verifier, create_basic_registry).run(task, _provider_factory)
+        result = await LocalHarness(
+            verifier, create_basic_registry, trace_directory=tmp_path / "traces"
+        ).run(task, _provider_factory)
         assert result.status == "timeout"
         assert len(result.attempts) == 1
         assert result.attempts[0].verification.status == "timeout"

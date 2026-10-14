@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import stat
 from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 
@@ -88,11 +89,13 @@ def test_interleaved_calls_and_redacted_trace(tmp_path: Path) -> None:
         assert [event.sequence for event in recorder.events] == list(range(1, len(kinds) + 1))
         traces = list((tmp_path / "traces").glob("*.jsonl"))
         assert len(traces) == 1
+        assert stat.S_IMODE(traces[0].stat().st_mode) == 0o600
         disk = traces[0].read_text()
         assert "secret" not in disk and "a.txt" not in disk
         persisted = [json.loads(line) for line in disk.splitlines()]
         assert len(persisted) == len(kinds)
         summary = json.loads(traces[0].with_suffix(".summary.json").read_text())
+        assert stat.S_IMODE(traces[0].with_suffix(".summary.json").stat().st_mode) == 0o600
         assert summary["cost"] is None
         usages = summary["usage_by_turn"]
         assert usages[0]["usage"]["source"] == "provider"
@@ -100,6 +103,20 @@ def test_interleaved_calls_and_redacted_trace(tmp_path: Path) -> None:
         assert CURRENT_RECORDER.get() is None
 
     asyncio.run(scenario())
+
+
+def test_stream_chunk_rejects_payload_for_another_kind() -> None:
+    """拒绝会被组装器静默忽略的跨类型载荷组合。"""
+    invalid = (
+        {"kind": "text_delta", "text": "ok", "arguments_delta": "{}"},
+        {"kind": "tool_call_delta", "call_id": "a", "finish_reason": "tool_calls"},
+        {"kind": "usage_updated", "usage": Usage(), "text": "hidden"},
+        {"kind": "turn_finished", "finish_reason": "stop", "usage": Usage()},
+    )
+    for payload in invalid:
+        # 每类分片只接受自己的载荷，避免正文、参数或用量无声丢失。
+        with pytest.raises(ValueError):
+            StreamChunk.model_validate(payload)
 
 
 @pytest.mark.parametrize(
