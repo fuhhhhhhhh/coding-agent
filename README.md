@@ -54,3 +54,15 @@ Windows/macOS、Python 3.13 和真实模型协议尚未验证。
 阅读路径与执行解释见 [docs/learning/M06.md](docs/learning/M06.md)。
 按用户要求不再留动手题；原 M01 命名修改已直接实现并验证。
 
+
+## M07：流式与 Trace
+
+`uv run --locked python -m codepilot.m07_demo` 离线演示分片工具调用、审批、断流与规范化回放。
+默认轨迹写入 `.codepilot-traces/`，只保存元数据，费用未知不按零处理。
+
+真实 DeepSeek 测试需要显式授权和 `DEEPSEEK_API_KEY`：
+`uv run --locked --env-file .env python -m codepilot.m07_demo --live`。
+每次启动最多三次请求、每次最多 256 输出 Token，关闭推理与自动重试。
+本轮实际两次请求、一次只读工具，最小闭环通过；这不是完整编程任务评测。
+
+阅读：[机制与边界](docs/design/M07.md)、[阅读说明](docs/learning/M07.md)。

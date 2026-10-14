@@ -1,6 +1,7 @@
 """将权限判定、CLI 审批、审计和工具注册表组合为执行入口。"""
 
 from codepilot.contracts import ToolCall, ToolResult
+from codepilot.observability.trace import emit
 from codepilot.permissions.approval import ApprovalProvider
 from codepilot.permissions.models import ApprovalRequest, AuditOutcome, Decision, PermissionAudit
 from codepilot.permissions.policy import PermissionEngine
@@ -38,7 +39,13 @@ class PermissionedExecutor:
             if self.approval is None:
                 self._audit(request, decision, "cancelled", "approval_provider_missing")
                 return self._error(call, "permission_cancelled: approval provider unavailable")
+            emit("approval_requested", call_id=call.call_id)
             approved = await self.approval.approve(request)
+            emit(
+                "approval_resolved",
+                call_id=call.call_id,
+                outcome="approved" if approved else "cancelled",
+            )
             if not approved:
                 self._audit(request, decision, "cancelled", "approval_cancelled")
                 return self._error(call, "permission_cancelled: approval declined")

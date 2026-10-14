@@ -1,0 +1,27 @@
+M07 验收日期：2026-10-14（Asia/Shanghai）
+环境：Linux，当前 uv 锁定环境；未验证 Windows/macOS。
+
+$ uv run --locked ruff check .
+All checks passed!
+$ uv run --locked ruff format --check .
+83 files already formatted
+$ uv run --locked mypy
+Success: no issues found in 62 source files
+$ uv run --locked pytest -q
+120 passed
+$ git diff --check
+通过，无输出。
+
+$ uv run --locked python -m codepilot.m07_demo --trace-dir docs/evidence/M07-traces
+{"scenario": "approved", "reason": "completed", "tool_calls": 1, "events": 14}
+{"scenario": "replay", "reason": "completed", "tool_calls": 1, "events": 14}
+{"scenario": "interrupted", "reason": "provider_error", "tool_calls": 0, "events": 5}
+{"scenario": "cancelled", "reason": "completed", "tool_calls": 1, "events": 13}
+{"replay_equal": true, "note": "behavior replay, not model task accuracy"}
+
+真实验证（本轮已执行，不在自动测试中重放付费请求）：
+模型 deepseek-flash，非推理；额度 3 次，实际 2 次；每次 max_tokens=256；SDK max_retries=0。
+read_file 读取临时 number.txt，最终回复 17；passed=true。
+第 1 次 input_tokens=391, output_tokens=38；第 2 次 input_tokens=443, output_tokens=1。
+费用尚未计算，不记为零。详情见 M07-live-checks.json 和 M07-traces/live/。
+脱敏 Trace 只保留元数据，原始请求及密钥没有作为证据落盘。

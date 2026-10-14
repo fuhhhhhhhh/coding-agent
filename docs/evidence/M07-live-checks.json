@@ -1,0 +1,16 @@
+{
+  "mode": "live",
+  "model": "deepseek-flash",
+  "thinking": "disabled",
+  "requests": 2,
+  "max_requests": 3,
+  "max_output_tokens_per_request": 256,
+  "reason": "completed",
+  "tool_calls": 1,
+  "passed": true,
+  "input_tokens": 834,
+  "output_tokens": 39,
+  "usage_source": "provider",
+  "cost": null,
+  "checked_date": "2026-10-14"
+}

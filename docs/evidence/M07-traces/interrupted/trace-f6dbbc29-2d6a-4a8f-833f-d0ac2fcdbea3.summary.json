@@ -1,0 +1,28 @@
+{
+  "run_id": "f25a5bbf-3467-403a-b15d-f6fb83d69cd1",
+  "reason": "provider_error",
+  "duration_seconds": 0.0003624977543950081,
+  "events": 5,
+  "usage_by_turn": [
+    {
+      "run_id": "f25a5bbf-3467-403a-b15d-f6fb83d69cd1",
+      "turn_id": "f25a5bbf-3467-403a-b15d-f6fb83d69cd1:1",
+      "sequence": 3,
+      "kind": "usage_updated",
+      "call_id": "",
+      "call_index": null,
+      "usage": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "unknown"
+      },
+      "duration_seconds": null,
+      "outcome": ""
+    }
+  ],
+  "cost": null,
+  "price_source": null,
+  "price_date": null,
+  "cost_is_estimate": null,
+  "content_policy": "metadata_only"
+}

@@ -1,0 +1,43 @@
+{
+  "run_id": "13e0ecd2-1862-428b-9cf7-12b45c4a63a3",
+  "reason": "completed",
+  "duration_seconds": 0.0023734457790851593,
+  "events": 13,
+  "usage_by_turn": [
+    {
+      "run_id": "13e0ecd2-1862-428b-9cf7-12b45c4a63a3",
+      "turn_id": "13e0ecd2-1862-428b-9cf7-12b45c4a63a3:1",
+      "sequence": 3,
+      "kind": "usage_updated",
+      "call_id": "",
+      "call_index": null,
+      "usage": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "unknown"
+      },
+      "duration_seconds": null,
+      "outcome": ""
+    },
+    {
+      "run_id": "13e0ecd2-1862-428b-9cf7-12b45c4a63a3",
+      "turn_id": "13e0ecd2-1862-428b-9cf7-12b45c4a63a3:2",
+      "sequence": 11,
+      "kind": "usage_updated",
+      "call_id": "",
+      "call_index": null,
+      "usage": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "source": "unknown"
+      },
+      "duration_seconds": null,
+      "outcome": ""
+    }
+  ],
+  "cost": null,
+  "price_source": null,
+  "price_date": null,
+  "cost_is_estimate": null,
+  "content_policy": "metadata_only"
+}

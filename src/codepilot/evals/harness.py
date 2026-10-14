@@ -11,9 +11,10 @@ from codepilot.contracts import Message
 from codepilot.evals.models import AttemptRecord, TaskSpec, TrialResult
 from codepilot.evals.verifier import IndependentVerifier
 from codepilot.providers.base import Provider
+from codepilot.providers.stream import StreamingProvider
 from codepilot.runtime import Runner, ToolExecutor
 
-ProviderFactory = Callable[[TaskSpec, int, str], Provider]
+ProviderFactory = Callable[[TaskSpec, int, str], Provider | StreamingProvider]
 
 
 class LocalHarness:

@@ -2,13 +2,17 @@
 
 import asyncio
 import json
+import time
 from collections.abc import Sequence
 from typing import Literal, Protocol
 from uuid import uuid4
 
 from codepilot.contracts import Message, RunState, ToolCall, ToolResult
 from codepilot.contracts.run import RunLimits, RunObservation, RunReport, StopReason
+from codepilot.contracts.stream import StreamChunk, Usage
+from codepilot.observability.trace import CURRENT_RECORDER, CURRENT_TURN, EventRecorder, emit
 from codepilot.providers.base import Provider
+from codepilot.providers.stream import StreamContractError, StreamingProvider, collect_reply
 
 LiteralObservation = Literal[
     "model_requested", "model_replied", "tool_requested", "tool_result", "run_stopped"
@@ -37,14 +41,19 @@ class Runner:
 
     def __init__(
         self,
-        provider: Provider,
+        provider: Provider | StreamingProvider,
         executor: ToolExecutor,
         limits: RunLimits | None = None,
         *,
         run_id: str | None = None,
+        recorder: EventRecorder | None = None,
     ) -> None:
         """为一次运行创建隔离状态，并拒绝不可用的显式运行 ID。"""
         self.provider = provider
+        self.recorder = recorder if recorder is not None else EventRecorder()
+        self._turn_started = 0.0
+        self._turn_open = False
+        self._turn_usage = False
         self.executor = executor
         self.limits = limits if limits is not None else RunLimits()
         self.run_id = run_id if run_id is not None else str(uuid4())
@@ -99,6 +108,8 @@ class Runner:
             if reason == "cancelled"
             else RunState.FAILED
         )
+        self._finish_turn(reason)
+        self.recorder.finish(reason, detail)
         self._observe("run_stopped", state=self.state, reason=reason, detail=detail)
         self.report = RunReport(
             run_id=self.run_id,
@@ -130,6 +141,9 @@ class Runner:
         self._messages = [Message.model_validate(message.model_dump()) for message in messages]
         self.state = RunState.RUNNING
         self._deadline = asyncio.get_running_loop().time() + self.limits.timeout_seconds
+        self.recorder.start(self.run_id)
+        recorder_token = CURRENT_RECORDER.set(self.recorder)
+        turn_token = CURRENT_TURN.set("")
         try:
             async with asyncio.timeout_at(self._deadline):
                 await self._loop()
@@ -143,7 +157,11 @@ class Runner:
         except _Stop as stop:
             # 预期限制与契约失败共用一个集中的终态转换入口。
             return self._finish(stop.reason, stop.detail)
-        return self._finish("completed")
+        else:
+            return self._finish("completed")
+        finally:
+            CURRENT_TURN.reset(turn_token)
+            CURRENT_RECORDER.reset(recorder_token)
 
     async def _loop(self) -> None:
         """交替执行 Provider 请求与顺序工具调用，直到满足停止条件。"""
@@ -153,11 +171,24 @@ class Runner:
             if self._steps >= self.limits.max_steps:
                 raise _Stop("step_limit")
             self._steps += 1
+            CURRENT_TURN.set(f"{self.run_id}:{self._steps}")
+            self._turn_started = time.monotonic()
+            self._turn_open = True
+            self._turn_usage = False
+            emit("model_requested")
             self._observe("model_requested")
             try:
-                reply = await self.provider.complete(
-                    tuple(message.model_copy(deep=True) for message in self._messages)
-                )
+                history = tuple(message.model_copy(deep=True) for message in self._messages)
+                if isinstance(self.provider, StreamingProvider):
+                    reply, usage = await collect_reply(self.provider, history, self._chunk)
+                else:
+                    reply = await self.provider.complete(history)
+                    usage = Usage()
+                if not self._turn_usage:
+                    emit("usage_updated", usage=usage)
+                    self._turn_usage = True
+            except StreamContractError as error:
+                raise _Stop("contract_error", type(error).__name__) from error
             except Exception as error:
                 # 不泄露 Provider 异常正文，其中可能包含凭据。
                 raise _Stop("provider_error", type(error).__name__) from error
@@ -175,8 +206,11 @@ class Runner:
                 raise _Stop("contract_error", type(error).__name__) from error
             self._messages.append(reply)
             self._observe("model_replied", message=reply)
+            for ready_call in reply.tool_calls:
+                emit("tool_call_ready", call_id=ready_call.call_id, call=ready_call)
             # 在 M02 中，不含工具调用的回复就是模型正常结束信号。
             if not reply.tool_calls:
+                self._finish_turn("completed")
                 return
             # 整批调用超出额度时，在执行第一个调用前整体拒绝。
             if self._tool_calls + len(reply.tool_calls) > self.limits.max_tool_calls:
@@ -186,8 +220,17 @@ class Runner:
                 await self._checkpoint()
                 self._tool_calls += 1
                 self._observe("tool_requested", call=call)
+                tool_started = time.monotonic()
                 try:
                     result = await self.executor.execute(call.model_copy(deep=True))
+                except asyncio.CancelledError:
+                    emit(
+                        "tool_finished",
+                        call_id=call.call_id,
+                        outcome="cancelled",
+                        duration_seconds=time.monotonic() - tool_started,
+                    )
+                    raise
                 except Exception as error:
                     # 普通异常转换为模型可见反馈；取消异常不会进入此分支。
                     result = ToolResult(
@@ -202,10 +245,50 @@ class Runner:
                         raise ValueError("executor returned a mismatched call ID")
                 except Exception as error:
                     # 无法配对的执行结果不能写入对话历史。
+                    emit(
+                        "tool_finished",
+                        call_id=call.call_id,
+                        outcome="contract_error",
+                        duration_seconds=time.monotonic() - tool_started,
+                    )
                     raise _Stop("contract_error", type(error).__name__) from error
                 self._messages.append(Message(role="tool", tool_result=result))
                 self._observe("tool_result", result=result)
+                emit(
+                    "tool_finished",
+                    call_id=call.call_id,
+                    outcome="error" if result.is_error else "success",
+                    duration_seconds=time.monotonic() - tool_started,
+                )
                 self._track_failure(call, result)
+            self._finish_turn("tools_completed")
+
+    def _chunk(self, chunk: StreamChunk) -> None:
+        """实时转发增量；结束事件要等完整校验和本回合工具结束后发布。"""
+        if chunk.kind == "text_delta":
+            emit("text_delta", text=chunk.text)
+        elif chunk.kind == "usage_updated":
+            emit("usage_updated", usage=chunk.usage)
+            self._turn_usage = True
+        elif chunk.kind == "tool_call_delta":
+            emit(
+                "tool_call_delta",
+                call_id=chunk.call_id,
+                call_index=chunk.index,
+                text=chunk.arguments_delta,
+            )
+
+    def _finish_turn(self, outcome: str) -> None:
+        """每个已开始回合只发布一次终态，包含失败和取消。"""
+        if self._turn_open:
+            if not self._turn_usage:
+                emit("usage_updated", usage=Usage())
+            emit(
+                "turn_finished",
+                outcome=outcome,
+                duration_seconds=time.monotonic() - self._turn_started,
+            )
+            self._turn_open = False
 
     def _track_failure(self, call: ToolCall, result: ToolResult) -> None:
         """同名同参数连续失败时停止；变化的调用 ID 不影响判断。"""

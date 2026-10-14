@@ -8,6 +8,7 @@ from typing import Any, cast
 from pydantic import BaseModel, ValidationError
 
 from codepilot.contracts import ToolCall, ToolResult
+from codepilot.observability.trace import emit
 from codepilot.tools.base import Tool, ToolFailure, ToolOutput, ToolSpec
 
 
@@ -47,6 +48,7 @@ class ToolRegistry:
             details = json.dumps(error.errors(include_input=False), ensure_ascii=False)
             return self._error(call, f"invalid_arguments: {details}")
         try:
+            emit("tool_started", call_id=call.call_id)
             async with asyncio.timeout(tool.default_timeout):
                 output = await self._run(tool, arguments)
         except TimeoutError:

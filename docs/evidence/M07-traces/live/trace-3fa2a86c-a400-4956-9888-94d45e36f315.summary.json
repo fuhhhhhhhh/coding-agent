@@ -1,0 +1,43 @@
+{
+  "run_id": "4b707c52-c605-4e6c-89ba-3c12a7973165",
+  "reason": "completed",
+  "duration_seconds": 2.2758705760352314,
+  "events": 22,
+  "usage_by_turn": [
+    {
+      "run_id": "4b707c52-c605-4e6c-89ba-3c12a7973165",
+      "turn_id": "4b707c52-c605-4e6c-89ba-3c12a7973165:1",
+      "sequence": 13,
+      "kind": "usage_updated",
+      "call_id": "",
+      "call_index": null,
+      "usage": {
+        "input_tokens": 391,
+        "output_tokens": 38,
+        "source": "provider"
+      },
+      "duration_seconds": null,
+      "outcome": ""
+    },
+    {
+      "run_id": "4b707c52-c605-4e6c-89ba-3c12a7973165",
+      "turn_id": "4b707c52-c605-4e6c-89ba-3c12a7973165:2",
+      "sequence": 20,
+      "kind": "usage_updated",
+      "call_id": "",
+      "call_index": null,
+      "usage": {
+        "input_tokens": 443,
+        "output_tokens": 1,
+        "source": "provider"
+      },
+      "duration_seconds": null,
+      "outcome": ""
+    }
+  ],
+  "cost": null,
+  "price_source": null,
+  "price_date": null,
+  "cost_is_estimate": null,
+  "content_policy": "metadata_only"
+}
