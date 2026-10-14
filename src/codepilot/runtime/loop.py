@@ -216,52 +216,83 @@ class Runner:
             if self._tool_calls + len(reply.tool_calls) > self.limits.max_tool_calls:
                 raise _Stop("tool_budget")
             self._call_ids.update(call.call_id for call in reply.tool_calls)
-            for call in reply.tool_calls:
+            await self._execute_calls(reply.tool_calls)
+            self._finish_turn("tools_completed")
+
+    async def _execute_calls(self, calls: Sequence[ToolCall]) -> None:
+        """按执行器能力顺序或并发执行，并按模型调用顺序写回结果。"""
+        if not getattr(self.executor, "supports_parallel", False) or len(calls) == 1:
+            for call in calls:
                 await self._checkpoint()
                 self._tool_calls += 1
                 self._observe("tool_requested", call=call)
-                tool_started = time.monotonic()
-                try:
-                    result = await self.executor.execute(call.model_copy(deep=True))
-                except asyncio.CancelledError:
-                    emit(
-                        "tool_finished",
-                        call_id=call.call_id,
-                        outcome="cancelled",
-                        duration_seconds=time.monotonic() - tool_started,
-                    )
-                    raise
-                except Exception as error:
-                    # 普通异常转换为模型可见反馈；取消异常不会进入此分支。
-                    result = ToolResult(
-                        call_id=call.call_id,
-                        is_error=True,
-                        content=f"tool_exception: {type(error).__name__}",
-                    )
-                try:
-                    result = ToolResult.model_validate(result.model_dump())
-                    # ID 不匹配可能把副作用或错误错误关联到另一个请求。
-                    if result.call_id != call.call_id:
-                        raise ValueError("executor returned a mismatched call ID")
-                except Exception as error:
-                    # 无法配对的执行结果不能写入对话历史。
-                    emit(
-                        "tool_finished",
-                        call_id=call.call_id,
-                        outcome="contract_error",
-                        duration_seconds=time.monotonic() - tool_started,
-                    )
-                    raise _Stop("contract_error", type(error).__name__) from error
-                self._messages.append(Message(role="tool", tool_result=result))
-                self._observe("tool_result", result=result)
-                emit(
-                    "tool_finished",
-                    call_id=call.call_id,
-                    outcome="error" if result.is_error else "success",
-                    duration_seconds=time.monotonic() - tool_started,
-                )
-                self._track_failure(call, result)
-            self._finish_turn("tools_completed")
+                self._record_tool_result(call, await self._execute_call(call))
+            return
+        # 并发批次中的每个调用都会立即进入调度器，因此统一计为已尝试。
+        for call in calls:
+            self._tool_calls += 1
+            self._observe("tool_requested", call=call)
+        tasks = [asyncio.create_task(self._execute_call(call)) for call in calls]
+        try:
+            # gather 保持输入顺序，完成事件仍由各任务按真实结束时间发布。
+            results = await asyncio.gather(*tasks)
+        except (asyncio.CancelledError, Exception):
+            # 任一契约故障或外部取消都要停止仍排队或运行中的同批调用。
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        for call, result in zip(calls, results, strict=True):
+            self._record_tool_result(call, result)
+
+    def _record_tool_result(self, call: ToolCall, result: ToolResult) -> None:
+        """按模型调用顺序追加结果，并应用连续失败停止规则。"""
+        self._messages.append(Message(role="tool", tool_result=result))
+        self._observe("tool_result", result=result)
+        self._track_failure(call, result)
+
+    async def _execute_call(self, call: ToolCall) -> ToolResult:
+        """执行一个调用，验证结果配对并发布真实完成顺序事件。"""
+        tool_started = time.monotonic()
+        try:
+            result = await self.executor.execute(call.model_copy(deep=True))
+        except asyncio.CancelledError:
+            emit(
+                "tool_finished",
+                call_id=call.call_id,
+                outcome="cancelled",
+                duration_seconds=time.monotonic() - tool_started,
+            )
+            raise
+        except Exception as error:
+            # 普通异常转换为模型可见反馈；取消异常不会进入此分支。
+            result = ToolResult(
+                call_id=call.call_id,
+                is_error=True,
+                content=f"tool_exception: {type(error).__name__}",
+            )
+        try:
+            result = ToolResult.model_validate(result.model_dump())
+            # ID 不匹配可能把副作用或错误错误关联到另一个请求。
+            if result.call_id != call.call_id:
+                raise ValueError("executor returned a mismatched call ID")
+        except Exception as error:
+            # 无法配对的执行结果不能写入对话历史。
+            emit(
+                "tool_finished",
+                call_id=call.call_id,
+                outcome="contract_error",
+                duration_seconds=time.monotonic() - tool_started,
+            )
+            raise _Stop("contract_error", type(error).__name__) from error
+        emit(
+            "tool_finished",
+            call_id=call.call_id,
+            outcome="error" if result.is_error else "success",
+            duration_seconds=time.monotonic() - tool_started,
+        )
+        return result
 
     def _chunk(self, chunk: StreamChunk) -> None:
         """实时转发增量；结束事件要等完整校验和本回合工具结束后发布。"""

@@ -35,11 +35,17 @@ class ScriptedApproval(ApprovalProvider):
 class ConsoleApproval(ApprovalProvider):
     """通过标准输入逐次询问用户，非明确 y/yes 均视为取消。"""
 
+    def __init__(self) -> None:
+        """创建单终端输入锁，避免并发工具把审批提示交错显示。"""
+        self._lock = asyncio.Lock()
+
     async def approve(self, request: ApprovalRequest) -> bool:
         """显示工具、影响、参数和理由，并等待一次终端回答。"""
         prompt = (
             f"允许工具 {request.tool.name} ({request.tool.effect})? "
             f"参数={request.call.arguments} 原因={request.reason} [y/N] "
         )
-        answer = await asyncio.to_thread(input, prompt)
+        # 一个终端同一时间只能可靠回答一个完整审批问题。
+        async with self._lock:
+            answer = await asyncio.to_thread(input, prompt)
         return answer.strip().lower() in {"y", "yes"}

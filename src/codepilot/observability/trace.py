@@ -57,7 +57,13 @@ class EventRecorder:
     @staticmethod
     def redacted(event: RuntimeEvent) -> dict[str, Any]:
         """正文与参数采用整字段省略，避免依赖关键词猜测秘密。"""
-        return event.model_dump(exclude={"text", "call"}, mode="json")
+        record = event.model_dump(exclude={"text", "call"}, mode="json")
+        # 动态资源键可能包含文件路径，磁盘只保留资源类型而不保存实际参数。
+        record["resources"] = [
+            "path:<redacted>" if resource.startswith("path:") else resource
+            for resource in event.resources
+        ]
+        return record
 
     def finish(self, reason: str, error_type: str = "") -> None:
         """发出唯一运行终态并保存摘要；费用和缺失用量不按零计算。"""

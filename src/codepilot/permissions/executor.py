@@ -1,4 +1,6 @@
-"""将权限判定、CLI 审批、审计和工具注册表组合为执行入口。"""
+"""将权限判定、CLI 审批、审计和下游工具执行器组合为执行入口。"""
+
+from typing import Protocol
 
 from codepilot.contracts import ToolCall, ToolResult
 from codepilot.observability.trace import emit
@@ -6,7 +8,19 @@ from codepilot.permissions.approval import ApprovalProvider
 from codepilot.permissions.models import ApprovalRequest, AuditOutcome, Decision, PermissionAudit
 from codepilot.permissions.policy import PermissionEngine
 from codepilot.tools.base import ToolSpec
-from codepilot.tools.registry import ToolRegistry
+
+
+class CatalogExecutor(Protocol):
+    """约束权限层需要的工具声明和执行能力。"""
+
+    @property
+    def specs(self) -> tuple[ToolSpec, ...]:
+        """返回权限判定所需的工具声明。"""
+        ...
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        """执行已经通过权限层的单次工具调用。"""
+        ...
 
 
 class PermissionedExecutor:
@@ -14,7 +28,7 @@ class PermissionedExecutor:
 
     def __init__(
         self,
-        registry: ToolRegistry,
+        registry: CatalogExecutor,
         engine: PermissionEngine,
         approval: ApprovalProvider | None = None,
     ) -> None:
@@ -23,6 +37,11 @@ class PermissionedExecutor:
         self.engine = engine
         self.approval = approval
         self.audits: list[PermissionAudit] = []
+
+    @property
+    def supports_parallel(self) -> bool:
+        """仅在下游调度器明确保证资源安全时允许 Runner 并发。"""
+        return bool(getattr(self.registry, "supports_parallel", False))
 
     async def execute(self, call: ToolCall) -> ToolResult:
         """先判定并按需审批，只有允许路径才委托给真实工具注册表。"""

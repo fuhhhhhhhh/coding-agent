@@ -66,6 +66,9 @@ class RuntimeEvent(Contract):
         "tool_finished",
         "approval_requested",
         "approval_resolved",
+        "tool_queued",
+        "tool_scheduled",
+        "tool_queue_cancelled",
         "usage_updated",
         "turn_finished",
         "run_finished",
@@ -74,6 +77,7 @@ class RuntimeEvent(Contract):
     call_index: int | None = None
     text: str = ""
     call: ToolCall | None = None
+    resources: tuple[str, ...] = ()
     usage: Usage | None = None
     duration_seconds: float | None = None
     outcome: str = ""

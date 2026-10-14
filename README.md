@@ -15,6 +15,7 @@ uv run --locked python -m codepilot.m04_demo
 uv run --locked python -m codepilot.m05_demo
 uv run --locked python -m codepilot.m06_demo
 uv run --locked python -m codepilot.m07_demo
+uv run --locked python -m codepilot.m08_demo
 uv run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
@@ -36,13 +37,15 @@ M05 演示只读拒绝、审批取消、审批通过和未实现容器模式的�
 M06 演示首次候选未通过独立验证后接收反馈并修正，另有空补丁、验证器错误和验证器超时分类；每项任务从干净临时副本开始，
 独立验证代码不在 Agent 工作区内，正式 Harness 要求指定工作区外 Trace 目录。
 M07 演示分片工具调用、审批、断流和规范化回放；流式参数完整校验后才执行，JSONL 与摘要使用 0600 权限。
+M08 演示独立读取受限并发、同路径写入串行和排队取消；权限先于调度，Shell 与未知资源工具保守独占，
+结果按调用 ID 和原始顺序回传。
 M01—M06 使用 fake provider；M07 另完成受限真实 DeepSeek 验证。仓库中的故意错误 fixture 不会被修改。
 基础配置入口仍只支持 fake；M07 live 演示只从进程环境读取 `DEEPSEEK_API_KEY`，不加载或提交密钥文件。
 
 M02 验收时 Linux 上 Python 3.11.16、3.12.12、3.14.7 均通过 66 个测试；
 M03 通过 88 个测试，M04 通过 93 个测试，M05 通过 98 个测试，M06 通过 102 个测试，
-M07 审查修正后当前环境通过 121 个测试。检查记录见
-[docs/evidence/M07-review-fixes.txt](docs/evidence/M07-review-fixes.txt)。
+M07 审查修正后通过 121 个测试，M08 当前环境通过 130 个测试。检查记录见
+[docs/evidence/M08-checks.txt](docs/evidence/M08-checks.txt)。
 M02 wheel 构建通过，本轮未重复独立安装；M01 独立安装记录保留。
 Windows/macOS、Python 3.13 尚未验证；真实模型只覆盖 DeepSeek 非推理流式只读闭环。
 
@@ -52,8 +55,8 @@ Windows/macOS、Python 3.13 尚未验证；真实模型只覆盖 DeepSeek 非推
 或者重新引入纯英文 docstring 和行注释。
 
 进度见 [docs/STATUS.md](docs/STATUS.md)，
-机制与取舍见 [docs/design/M07.md](docs/design/M07.md)，
-阅读路径与执行解释见 [docs/learning/M07.md](docs/learning/M07.md)。
+机制与取舍见 [docs/design/M08.md](docs/design/M08.md)，
+阅读路径与执行解释见 [docs/learning/M08.md](docs/learning/M08.md)。
 按用户要求不再留动手题；原 M01 命名修改已直接实现并验证。
 ## M07：流式与 Trace
 

@@ -1,0 +1,15 @@
+$ uv run --locked ruff format --check .
+90 files already formatted
+$ uv run --locked ruff check .
+All checks passed!
+$ uv run --locked mypy src tests
+Success: no issues found in 67 source files
+$ uv run --locked pytest -q
+........................................................................ [ 55%]
+..........................................................               [100%]
+130 passed in 2.76s
+$ uv run --locked python -m codepilot.m08_demo
+{"scenario": "parallel_reads", "max_concurrency": 2, "observed_parallel": 2, "elapsed_seconds": 0.081}
+{"scenario": "same_path_writes", "resource": "path:same.txt", "observed_parallel": 1, "elapsed_seconds": 0.161}
+{"scenario": "queued_cancel", "started": ["first"], "cancelled_started": false}
+$ git diff --check
