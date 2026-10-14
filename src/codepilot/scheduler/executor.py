@@ -4,12 +4,25 @@ import asyncio
 import time
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from typing import Protocol
 
 from codepilot.contracts import ToolCall, ToolResult
 from codepilot.observability.trace import emit
 from codepilot.scheduler.models import ExecutionPlan
 from codepilot.tools.base import ToolSpec
-from codepilot.tools.registry import ToolRegistry
+
+
+class SchedulableExecutor(Protocol):
+    """声明调度器下游所需的工具目录和执行能力。"""
+
+    @property
+    def specs(self) -> tuple[ToolSpec, ...]:
+        """返回资源规划所需的工具声明。"""
+        ...
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        """执行已获得调度资源的一次工具调用。"""
+        ...
 
 
 @dataclass(frozen=True)
@@ -25,7 +38,7 @@ class ScheduledExecutor:
 
     supports_parallel = True
 
-    def __init__(self, registry: ToolRegistry, max_concurrency: int = 4) -> None:
+    def __init__(self, registry: SchedulableExecutor, max_concurrency: int = 4) -> None:
         """绑定工具注册表并设置整个执行器的并发硬上限。"""
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")

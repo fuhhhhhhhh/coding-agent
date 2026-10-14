@@ -18,6 +18,7 @@ from codepilot.permissions import (
     read_only_policy,
 )
 from codepilot.tools import create_basic_registry
+from codepilot.workspace import LocalExecutionBackend
 
 
 def run(executor: PermissionedExecutor, call: ToolCall) -> ToolResult:
@@ -65,14 +66,39 @@ def test_controlled_edit_allows_files_but_asks_shell(tmp_path: Path) -> None:
     assert len(approval.requests) == 1 and approval.requests[0].tool.name == "shell"
 
 
-def test_deny_rule_wins_and_container_mode_is_explicitly_rejected(tmp_path: Path) -> None:
-    """拒绝规则优先，未实现容器模式即使有允许规则也拒绝。"""
+def test_container_mode_rejects_local_backend(tmp_path: Path) -> None:
+    """策略要求容器时，本地注册表即使有允许规则也必须拒绝。"""
     registry = create_basic_registry(tmp_path)
     policy = read_only_policy().model_copy(update={"container_mode": True})
     executor = PermissionedExecutor(registry, PermissionEngine(policy))
     result = run(executor, call("read_file", path="missing.txt"))
-    assert result.is_error and "container_mode_not_implemented" in result.content
-    assert executor.audits[0].reason == "container_mode_not_implemented"
+    assert result.is_error and "container_backend_unavailable" in result.content
+    assert executor.audits[0].reason == "container_backend_unavailable"
+
+
+def test_container_mode_accepts_explicit_container_backend(tmp_path: Path) -> None:
+    """执行链明确提供容器能力时，容器要求不应覆盖原有允许规则。"""
+
+    class ContainerProbeBackend(LocalExecutionBackend):
+        """仅用于验证能力发现，并复用 Local 的工具契约。"""
+
+        @property
+        def is_container(self) -> bool:
+            """向权限层声明测试执行链具有容器边界。"""
+            return True
+
+    async def scenario() -> None:
+        """启动能力探针并通过权限包装器执行允许的读取。"""
+        (tmp_path / "value.txt").write_text("ok", encoding="utf-8")
+        backend = ContainerProbeBackend(tmp_path)
+        policy = read_only_policy().model_copy(update={"container_mode": True})
+        executor = PermissionedExecutor(backend, PermissionEngine(policy))
+        async with backend:
+            result = await executor.execute(call("read_file", path="value.txt"))
+        assert not result.is_error
+        assert result.content.startswith("ok")
+
+    asyncio.run(scenario())
 
 
 def test_path_rule_and_deny_priority_are_explicit(tmp_path: Path) -> None:

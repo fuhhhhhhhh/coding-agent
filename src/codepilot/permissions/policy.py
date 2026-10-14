@@ -41,11 +41,13 @@ class PermissionEngine:
         """保存不可变策略快照，后续审批不会改变既有请求内容。"""
         self.policy = policy
 
-    def decide(self, spec: ToolSpec, call: ToolCall) -> tuple[Decision, str]:
+    def decide(
+        self, spec: ToolSpec, call: ToolCall, *, container_available: bool = False
+    ) -> tuple[Decision, str]:
         """返回决策及可写入审计记录的理由。"""
-        # 容器后端尚未实现时拒绝启用，不能把策略名伪装成系统隔离。
-        if self.policy.container_mode:
-            return "deny", "container_mode_not_implemented"
+        # 请求容器模式但执行链没有真实容器后端时继续拒绝，不能只相信策略名称。
+        if self.policy.container_mode and not container_available:
+            return "deny", "container_backend_unavailable"
         matches = [rule for rule in self.policy.rules if _rule_matches(rule, spec, call)]
         # 任意匹配到的 deny 都优先于 allow 或 ask，避免规则顺序意外放权。
         for rule in matches:

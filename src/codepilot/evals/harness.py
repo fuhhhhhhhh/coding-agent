@@ -5,17 +5,26 @@ import shutil
 import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, Protocol, cast
 
 from codepilot.contracts import Message
-from codepilot.evals.models import AttemptRecord, TaskSpec, TrialResult
+from codepilot.evals.models import AttemptRecord, TaskSpec, TrialResult, VerificationResult
 from codepilot.evals.verifier import IndependentVerifier
 from codepilot.observability.trace import EventRecorder
 from codepilot.providers.base import Provider
 from codepilot.providers.stream import StreamingProvider
 from codepilot.runtime import Runner, ToolExecutor
+from codepilot.workspace import ExecutionBackend, find_backend
 
 ProviderFactory = Callable[[TaskSpec, int, str], Provider | StreamingProvider]
+
+
+class Verifier(Protocol):
+    """声明 Harness 所需的最小独立验证接口。"""
+
+    async def verify(self, workspace: Path) -> VerificationResult:
+        """验证候选工作区并返回可分类结果。"""
+        ...
 
 
 class LocalHarness:
@@ -23,7 +32,7 @@ class LocalHarness:
 
     def __init__(
         self,
-        verifier: IndependentVerifier,
+        verifier: Verifier,
         executor_factory: Callable[[Path], ToolExecutor],
         *,
         trace_directory: Path,
@@ -44,56 +53,44 @@ class LocalHarness:
             before = _snapshot(workspace)
             feedback = ""
             records: list[AttemptRecord] = []
-            for attempt in range(1, task.max_attempts + 1):
-                provider = provider_factory(task, attempt, feedback)
-                report = await Runner(
-                    provider,
-                    self.executor_factory(workspace),
-                    task.limits,
-                    recorder=EventRecorder(self.trace_directory),
-                ).run((Message(role="user", content=task.description),))
-                development = await self._development_feedback(task, workspace)
-                verification = await self.verifier.verify(workspace)
-                feedback = "\n".join(item for item in (development, verification.detail) if item)[
-                    -4000:
-                ]
-                records.append(
-                    AttemptRecord(
-                        attempt=attempt,
-                        report=report,
-                        verification=verification,
-                        feedback=feedback,
+            executor = self.executor_factory(workspace)
+            backend = find_backend(executor)
+            if backend is not None:
+                await backend.start()
+            try:
+                for attempt in range(1, task.max_attempts + 1):
+                    provider = provider_factory(task, attempt, feedback)
+                    report = await Runner(
+                        provider,
+                        executor,
+                        task.limits,
+                        recorder=EventRecorder(self.trace_directory),
+                    ).run((Message(role="user", content=task.description),))
+                    development = await self._development_feedback(task, workspace, backend)
+                    verification = await self.verifier.verify(workspace)
+                    feedback = "\n".join(
+                        item for item in (development, verification.detail) if item
+                    )[-4000:]
+                    records.append(
+                        AttemptRecord(
+                            attempt=attempt,
+                            report=report,
+                            verification=verification,
+                            feedback=feedback,
+                        )
                     )
+                    result = self._classify_attempt(
+                        task, records, before, workspace, report.reason, verification
+                    )
+                    if result is not None:
+                        return result
+                return self._result(
+                    task, records, before, workspace, "unresolved", "attempt budget exhausted"
                 )
-                # 模型提前结束不代表任务通过，必须先看独立验证器。
-                if verification.passed:
-                    return TrialResult(
-                        task_id=task.task_id,
-                        status="success",
-                        attempts=tuple(records),
-                        changed_files=tuple(_changed_files(before, _snapshot(workspace))),
-                        patch=_patch(before, _snapshot(workspace)),
-                        detail="independent verifier passed",
-                    )
-                # 验证器不可评测或运行超时，不应伪装成可继续修复的代码反馈。
-                if verification.status == "error":
-                    status = "unevaluable"
-                    detail = "independent verifier error"
-                    return self._result(task, records, before, workspace, status, detail)
-                if verification.status == "timeout":
-                    return self._result(
-                        task, records, before, workspace, "timeout", "verifier timeout"
-                    )
-                # Runner 已经因为资源或 Provider 故障停止，继续请求只会掩盖根因。
-                if report.reason in {"time_limit", "cancelled"}:
-                    return self._result(task, records, before, workspace, "timeout", report.reason)
-                if report.reason in {"provider_error", "contract_error"}:
-                    return self._result(
-                        task, records, before, workspace, "infrastructure_error", report.reason
-                    )
-            return self._result(
-                task, records, before, workspace, "unresolved", "attempt budget exhausted"
-            )
+            finally:
+                # 每个 trial 只有一个任务后端，所有尝试共享工作区并最终强制清理。
+                if backend is not None:
+                    await backend.close()
 
     async def run_batch(
         self, tasks: Sequence[TaskSpec], provider_factory: ProviderFactory
@@ -104,14 +101,61 @@ class LocalHarness:
             results.append(await self.run(task, provider_factory))
         return tuple(results)
 
-    async def _development_feedback(self, task: TaskSpec, workspace: Path) -> str:
+    async def _development_feedback(
+        self,
+        task: TaskSpec,
+        workspace: Path,
+        backend: ExecutionBackend | None = None,
+    ) -> str:
         """运行可被 Agent 修改的开发测试，并只把结果作为下一次反馈。"""
         if not task.development_command:
             return ""
-        result = await IndependentVerifier(
+        if backend is not None:
+            command_result = await backend.run_argv(
+                task.development_command,
+                timeout_seconds=task.development_timeout_seconds,
+            )
+            if command_result.timed_out:
+                status = "timeout"
+            else:
+                status = "passed" if command_result.exit_code == 0 else "failed"
+            detail = (command_result.stdout + command_result.stderr)[-4000:]
+            return f"development_tests: {status}\n{detail}"
+        verification = await IndependentVerifier(
             task.development_command, task.development_timeout_seconds
         ).verify(workspace)
-        return f"development_tests: {result.status}\n{result.detail}"
+        return f"development_tests: {verification.status}\n{verification.detail}"
+
+    def _classify_attempt(
+        self,
+        task: TaskSpec,
+        records: Sequence[AttemptRecord],
+        before: dict[str, str],
+        workspace: Path,
+        stop_reason: str,
+        verification: VerificationResult,
+    ) -> TrialResult | None:
+        """在一次尝试后决定成功、终止故障或继续纠错。"""
+        # 模型提前结束不代表任务通过，必须先看独立验证器。
+        if verification.passed:
+            return self._result(
+                task, records, before, workspace, "success", "independent verifier passed"
+            )
+        # 验证器不可评测或运行超时，不应伪装成可继续修复的代码反馈。
+        if verification.status == "error":
+            return self._result(
+                task, records, before, workspace, "unevaluable", "independent verifier error"
+            )
+        if verification.status == "timeout":
+            return self._result(task, records, before, workspace, "timeout", "verifier timeout")
+        # Runner 已经因为资源或 Provider 故障停止，继续请求只会掩盖根因。
+        if stop_reason in {"time_limit", "cancelled"}:
+            return self._result(task, records, before, workspace, "timeout", stop_reason)
+        if stop_reason in {"provider_error", "contract_error"}:
+            return self._result(
+                task, records, before, workspace, "infrastructure_error", stop_reason
+            )
+        return None
 
     def _result(
         self,

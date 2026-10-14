@@ -22,7 +22,7 @@ class PermissionRule(Contract):
 
 
 class PermissionPolicy(Contract):
-    """保存默认决策、优先规则和未实现容器模式的拒绝开关。"""
+    """保存默认决策、优先规则和是否强制要求容器后端。"""
 
     name: Identifier
     default_decision: Decision = "deny"

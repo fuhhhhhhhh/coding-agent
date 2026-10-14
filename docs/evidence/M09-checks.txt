@@ -1,0 +1,20 @@
+uv run --locked pytest -q
+144 passed in 2.97s
+
+uv run --locked ruff check .
+All checks passed!
+
+uv run --locked ruff format --check .
+101 files already formatted
+
+uv run --locked mypy
+Success: no issues found in 76 source files
+
+uv build --wheel
+Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+
+uv run --locked python -m compileall -q src tests
+passed
+
+git diff --check
+passed

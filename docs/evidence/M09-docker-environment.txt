@@ -1,0 +1,32 @@
+M09 Rootless Docker 真实验收（2026-10-14）
+
+环境：Linux 6.8、Docker 29.1.3、cgroup v2、RootlessKit 3.2.0、slirp4netns 1.2.1。
+用户 daemon socket：/run/user/1016/docker.sock
+用户数据目录：/home/fuxiangyu/.local/share/docker
+用户服务：docker.service enabled、active；SecurityOptions 包含 rootless 与 cgroupns。
+Docker CLI 当前用户上下文：rootless；后续项目命令无需 sudo 或全局 DOCKER_HOST。
+
+公共环境核对：docker.service/docker.socket 始终 active；系统 dockerd MainPID 始终为 2311；
+/var/run/docker.sock 始终为 root:docker 0660。未使用 sudo，未修改 /etc/docker，未重启公共 Docker。
+
+镜像构建：
+DOCKER_HOST=unix:///run/user/1016/docker.sock docker build -f docker/sandbox.Dockerfile -t codepilot-sandbox:0.1.0 .
+结果：通过；基础镜像摘要 sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c。
+
+真实测试：
+DOCKER_HOST=unix:///run/user/1016/docker.sock CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_workspace_docker_live.py
+结果：3 passed。
+
+完整离线回归：uv run --locked pytest -q
+结果：146 passed, 3 skipped；3 项 skip 均为需要显式开启的真实 Docker 测试。
+静态检查：ruff check、ruff format --check、mypy 全部通过。
+
+覆盖：同工作区写入/读取、产物导出和清理；断网；宿主合成凭据不可见；只读根层；
+CapEff 为 0；NoNewPrivs 为 1；CPU 超时；64 MiB cgroup 下固定 argv 与 Shell 工具的
+512 MiB 分配均可识别为 OOM；
+取消后容器无残留；同 owner 且过期的遗留容器被清理；资源采样事件存在。
+
+真实测试推动的修复：Docker 29 bind mount 语法移除无效 rw 字段；按 rootful/rootless daemon
+选择容器身份；exec 子进程 OOM 改用 cgroup memory.events 增量识别。
+
+未验证：bind 工作区磁盘硬配额、rootful daemon、Windows、macOS。

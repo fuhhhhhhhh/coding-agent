@@ -8,6 +8,7 @@ from codepilot.permissions.approval import ApprovalProvider
 from codepilot.permissions.models import ApprovalRequest, AuditOutcome, Decision, PermissionAudit
 from codepilot.permissions.policy import PermissionEngine
 from codepilot.tools.base import ToolSpec
+from codepilot.workspace import find_backend
 
 
 class CatalogExecutor(Protocol):
@@ -49,7 +50,12 @@ class PermissionedExecutor:
         if spec is None:
             # 注册表负责 unknown_tool 语义；权限层不应为未知工具创建审批。
             return await self.registry.execute(call)
-        decision, reason = self.engine.decide(spec, call)
+        backend = find_backend(self.registry)
+        decision, reason = self.engine.decide(
+            spec,
+            call,
+            container_available=backend is not None and backend.is_container,
+        )
         request = self.engine.request(spec, call, reason)
         if decision == "deny":
             self._audit(request, decision, "denied", reason)

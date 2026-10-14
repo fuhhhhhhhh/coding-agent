@@ -1,0 +1,10 @@
+.git
+.venv
+.env
+.env.*
+.codepilot-traces
+docs
+tests
+dist
+__pycache__
+*.pyc

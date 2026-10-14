@@ -8,6 +8,7 @@ from codepilot.contracts import Message, ToolCall
 from codepilot.evals import IndependentVerifier, LocalHarness, TaskSpec
 from codepilot.providers.fake import FakeProvider
 from codepilot.tools.factory import create_basic_registry
+from codepilot.workspace import LocalExecutionBackend
 
 
 def _task(root: Path, attempts: int = 2) -> TaskSpec:
@@ -132,5 +133,41 @@ def test_harness_marks_verifier_timeout_separately(tmp_path: Path) -> None:
         assert result.status == "timeout"
         assert len(result.attempts) == 1
         assert result.attempts[0].verification.status == "timeout"
+
+    asyncio.run(scenario())
+
+
+def test_harness_manages_backend_lifecycle_across_attempts(tmp_path: Path) -> None:
+    """Harness 应为整个 trial 只启动一个后端，并在返回前完成清理。"""
+
+    async def scenario() -> None:
+        """通过工厂捕获后端，运行纠错后检查唯一启停事件。"""
+        task = _task(tmp_path / "source")
+        task = task.model_copy(
+            update={
+                "development_command": (
+                    sys.executable,
+                    "-c",
+                    "from pathlib import Path; print(Path('calculator.py').exists())",
+                )
+            }
+        )
+        backends: list[LocalExecutionBackend] = []
+
+        def factory(root: Path) -> LocalExecutionBackend:
+            """保存 Harness 创建的后端，供生命周期断言。"""
+            backend = LocalExecutionBackend(root)
+            backends.append(backend)
+            return backend
+
+        result = await LocalHarness(_verifier(), factory, trace_directory=tmp_path / "traces").run(
+            task, _provider_factory
+        )
+        assert result.status == "success"
+        assert len(backends) == 1
+        kinds = [event.kind for event in backends[0].events]
+        assert kinds.count("backend_started") == 1
+        assert kinds.count("command_executed") == 2
+        assert kinds[-1] == "backend_closed"
 
     asyncio.run(scenario())

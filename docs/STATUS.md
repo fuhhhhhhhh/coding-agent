@@ -1,10 +1,10 @@
 # 开发状态
 
-当前里程碑：M08（实现完成）
+当前里程碑：M09（实现与真实 Rootless Docker 验收完成）
 
-最近通过：受限并发与取消传播；M01—M07 已通过
+最近完整通过：M08 受限并发与取消传播；M01—M07 已通过
 
-实现状态：通过离线验收及 DeepSeek 非推理流式最小真实验证
+实现状态：M09 通过 Local、Docker 控制器离线验收和用户级 Rootless Docker 真实验收
 
 学习状态：用户报告已阅读 M01、M03、M04、M05 核心代码；M02—M08 阅读说明已交付，未验证独立掌握程度。
 
@@ -12,6 +12,18 @@
 原 M01 命名修改已由 AI 实施并验证，不记作用户独立贡献。
 
 日期：2026-10-14（Asia/Shanghai）
+
+## M09 当前证据
+
+- `ExecutionBackend` 统一工具执行、固定 argv 命令、取消、产物导出和清理；Local 后端真实验证同工作区状态、CPU 循环超时、活动命令取消和工作区外产物导出。
+- Docker 后端固定启动时解析的镜像 ID，并读取 daemon 安全模式。rootful 使用宿主普通 UID/GID；rootless 使用容器 `0:0`，该身份映射为宿主普通用户，因而可写用户拥有的 bind 工作区。两者都默认断网、使用只读根层、删除全部 capability、启用 `no-new-privileges` 及 CPU/内存/PID 限制；不挂 Docker socket、不转发宿主环境。
+- 权限与调度包装链可发现底层后端；`container_mode` 只在真实容器能力存在时放行，Harness 负责启动和清理被包装的后端。
+- 容器启动执行完整 ToolSpec 握手；取消会 kill 整个任务容器；固定 argv 与 Shell 工具的 OOM 用 cgroup v2 `memory.events` 的增量与 SIGKILL/137 共同识别，容器主进程退出时再读取 Docker 状态；owner/expiry 标签支持清理明确过期的遗留容器。
+- 后端事件不含参数、命令、环境或输出正文，可写入工作区外 0600 JSONL；产物限制来源类型、目标位置与容量。
+- `IsolatedVerifier` 从可信初始源应用候选差异，再注入 Agent 未见材料；拒绝候选符号链接和预占验证目录。
+- Docker fake transport 覆盖隔离参数、rootful/rootless 身份选择、工具协议、取消、OOM 和遗留清理；真实 Rootless Docker 覆盖同工作区、只读根层、零 capability、`NoNewPrivs`、CPU 超时、64 MiB 内存 OOM、断网、宿主合成凭据不可见、资源采样、产物导出、取消无残留和过期容器清理。
+- 用户级 daemon 使用 `/run/user/1016/docker.sock` 与 `~/.local/share/docker`，用户 CLI 当前上下文为 `rootless`；公共 daemon 在验收前后均保持 PID 2311、`/var/run/docker.sock` 权限 `root:docker 0660`。没有使用 sudo、没有修改 `/etc/docker`、没有重启公共 Docker。
+- `CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_workspace_docker_live.py`：3 passed；完整离线套件为 146 passed、3 个显式 live skip；Ruff、格式检查和 mypy 通过。详情见 `docs/evidence/M09-docker-environment.txt`。
 
 ## M08 当前通过证据
 
@@ -50,7 +62,7 @@
 - `PermissionEngine` 支持 allow/deny/ask、按工具/影响类型/路径前缀匹配和拒绝优先。
 - 只读、逐次审批、受控编辑三个预设已实现；审批绑定完整 ToolCall 参数，取消或拒绝发生在工具执行前。
 - `ConsoleApproval` 提供 CLI 标准输入审批；离线测试使用 ScriptedApproval，不调用真实终端。
-- `PermissionAudit` 记录每次判定、审批和结果；容器模式未实现时返回明确拒绝。
+- `PermissionAudit` 记录每次判定、审批和结果；M05 当时尚无容器后端，因此容器模式会明确拒绝。
 - `uv run --locked pytest -q`：98 passed；Ruff、格式检查、mypy 和 diff 检查通过。
 - `uv run --locked python -m codepilot.m05_demo`：只读拒绝、审批取消、审批通过和容器模式拒绝通过。
 
@@ -110,7 +122,7 @@
 
 ## 未完成与未验证
 
-- M09 及以后未实现；没有 Docker 后端、会话持久化或完整 CLI/TUI 框架。
+- 宿主 bind mount 尚无经验证的磁盘硬配额；输出与产物容量限制不能替代磁盘配额。M10 及以后未实现；没有会话持久化或完整 CLI/TUI 框架。
 - 未运行 Windows/macOS、Python 3.13、sdist 安装验证；真实 API 只覆盖 DeepSeek 非推理流式只读闭环。
 - M01 的 wheel 安装证据只证明当时构建可安装与运行，不证明构建字节完全可复现；
   项目锁也没有完整固定隔离构建环境依赖。
@@ -121,7 +133,7 @@
 - M02 本轮只构建 wheel，未重复独立安装；M01 的安装证据不能代替 M02 安装验证。
 - 未验证 Windows/macOS 的进程组行为；POSIX 后代终止可能短暂留下僵尸记录；M04 旧演示轨迹在结束后写盘；M07 JSONL 逐事件追加，但不提供崩溃恢复。
 
-当前阻碍：无。
+当前阻碍：M09 没有阻断项。存储硬配额仍是明确的未实现边界，不影响本阶段已经声明的验收范围。
 
-下一增量：进入 M09，定义统一 ExecutionBackend 并实现 Local/Docker 同工作区执行和隔离评测。
+下一增量：按路线图进入 M10 两层上下文治理与按需代码定位；本轮没有提前实现。
 
