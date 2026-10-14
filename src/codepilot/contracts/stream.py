@@ -70,6 +70,9 @@ class RuntimeEvent(Contract):
         "tool_scheduled",
         "tool_queue_cancelled",
         "usage_updated",
+        "context_artifact_written",
+        "context_compacted",
+        "context_degraded",
         "turn_finished",
         "run_finished",
     ]
@@ -80,5 +83,9 @@ class RuntimeEvent(Contract):
     resources: tuple[str, ...] = ()
     usage: Usage | None = None
     duration_seconds: float | None = None
+    artifact_id: str = ""
+    original_bytes: int | None = None
+    prompt_tokens_before: int | None = None
+    prompt_tokens_after: int | None = None
     outcome: str = ""
     error_type: str = ""

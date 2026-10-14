@@ -1,0 +1,78 @@
+M10 两层上下文治理验收记录
+日期：2026-10-14
+平台：Linux / CPython 3.14.7 / uv 0.12.21
+
+1. 上下文与 Runtime 聚焦测试
+
+命令：
+uv run --locked pytest -q tests/test_context.py tests/test_runtime.py
+
+结果：
+34 passed in 0.58s
+
+覆盖：
+- 仓库规则与任务信息分角色装配
+- 110KB 大输出落盘、短引用、中段错误线索和范围读取
+- 磁盘写入失败保留原始结果
+- 自动/手动压缩、摘要成本、规范历史与 prompt 视图分离
+- 摘要失败、摘要仍超目标、单条消息超硬预算
+- 工具调用/结果 ID 错配拒绝并产生可观察记录
+- artifact_written、context_compacted、context_degraded Runtime 事件
+
+2. 基础策略与治理策略受控对照
+
+命令：
+uv run --locked python -m codepilot.m10_demo
+
+结果：
+{
+  "run_reason": "completed",
+  "baseline_run_reason": "completed",
+  "baseline_solved": true,
+  "governed_solved": true,
+  "tool_calls": 2,
+  "raw_bytes": 110039,
+  "artifact_bytes": 110039,
+  "baseline_total_estimated_prompt_tokens": 27657,
+  "governed_total_estimated_prompt_tokens": 1001,
+  "governed_largest_prompt_tokens": 562,
+  "middle_error_read": true,
+  "compacted": true,
+  "compacted_roles": ["system", "user", "system", "assistant", "tool"],
+  "context_records": ["artifact_written", "artifact_read", "compacted"],
+  "summary_usage": {"input_tokens": 96, "output_tokens": 38, "source": "estimate"}
+}
+
+说明：两条路径都使用确定性 fake provider 并完成同一中段错误定位任务。Token 是同一
+本地估算器的对照结果，不是供应商计费，也不代表真实模型成功率。
+
+3. 完整回归
+
+命令：
+uv run --locked pytest -q
+
+结果：
+157 passed, 3 skipped in 3.94s
+
+三个跳过项均为 tests/test_workspace_docker_live.py；它们要求显式设置
+CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon。本轮上下文实现不需要 Docker，且此前
+M09 已保存真实 Rootless Docker 验收证据。
+
+4. 静态检查、类型检查与构建
+
+命令与结果：
+- uv run --locked ruff check .：All checks passed
+- uv run --locked ruff format --check .：112 files already formatted
+- uv run --locked mypy：Success，85 个源文件无问题
+- uv run --locked python -m compileall -q src：通过
+- uv build --wheel：成功生成 dist/codepilot-0.1.0-py3-none-any.whl
+- git diff --check：通过
+
+实际通过：fake provider 正常流程、重要故障、元数据轨迹、受控 Token 对照、完整回归、
+静态检查、类型检查、字节码编译和 wheel 构建。
+
+未运行：本轮未重复 Docker live 测试、Windows/macOS、Python 3.12/3.13/3.14、sdist 及
+wheel 独立安装。
+
+需要真实环境验证：真实模型摘要质量、真实 tokenizer 误差、摘要实际 usage/费用、跨进程
+artifact 恢复和部署文件系统硬配额。本轮未调用 DeepSeek 或其他真实模型，未消耗 API 额度。

@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from typing import Literal, Protocol
 from uuid import uuid4
 
+from codepilot.context import ContextManager, ContextPreparationError
 from codepilot.contracts import Message, RunState, ToolCall, ToolResult
 from codepilot.contracts.run import RunLimits, RunObservation, RunReport, StopReason
 from codepilot.contracts.stream import StreamChunk, Usage
@@ -47,10 +48,12 @@ class Runner:
         *,
         run_id: str | None = None,
         recorder: EventRecorder | None = None,
+        context: ContextManager | None = None,
     ) -> None:
-        """为一次运行创建隔离状态，并拒绝不可用的显式运行 ID。"""
+        """为一次运行创建隔离状态，并绑定可选的 prompt 上下文治理器。"""
         self.provider = provider
         self.recorder = recorder if recorder is not None else EventRecorder()
+        self.context = context
         self._turn_started = 0.0
         self._turn_open = False
         self._turn_usage = False
@@ -170,15 +173,25 @@ class Runner:
             # 在递增前检查，使 ``steps`` 始终只统计真正尝试过的请求。
             if self._steps >= self.limits.max_steps:
                 raise _Stop("step_limit")
-            self._steps += 1
-            CURRENT_TURN.set(f"{self.run_id}:{self._steps}")
+            next_step = self._steps + 1
+            CURRENT_TURN.set(f"{self.run_id}:{next_step}")
             self._turn_started = time.monotonic()
             self._turn_open = True
             self._turn_usage = False
+            try:
+                # ContextManager 只生成 Provider 视图，不修改报告持有的规范历史。
+                history = (
+                    (await self.context.prepare(self._messages)).messages
+                    if self.context is not None
+                    else tuple(message.model_copy(deep=True) for message in self._messages)
+                )
+            except ContextPreparationError as error:
+                # 预算或摘要失败发生在网络请求前，因此不计入 Provider 步数。
+                raise _Stop("context_limit", str(error)) from error
+            self._steps = next_step
             emit("model_requested")
             self._observe("model_requested")
             try:
-                history = tuple(message.model_copy(deep=True) for message in self._messages)
                 if isinstance(self.provider, StreamingProvider):
                     reply, usage = await collect_reply(self.provider, history, self._chunk)
                 else:
