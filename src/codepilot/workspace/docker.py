@@ -1,4 +1,9 @@
-"""通过 Docker CLI 实现受限、可取消且可清理的任务执行后端。"""
+"""通过 Docker CLI 实现受限、可取消且可清理的任务执行后端。
+
+本模块是控制器一侧的 Docker 适配层。真正的工具代码运行在容器内
+`codepilot.workspace.worker`，本模块只负责构造边界、传输内部契约、记录轨迹
+以及在异常和取消时回收资源。这样可以把“允许执行什么”和“在哪里执行”分开。
+"""
 
 import asyncio
 import json
@@ -20,7 +25,13 @@ DockerRunner = Callable[[tuple[str, ...], bytes | None, int], Awaitable[tuple[in
 
 
 class DockerExecutionBackend:
-    """让全部工具在一个非特权、默认断网的任务容器中执行。"""
+    """让一项任务的全部工具在同一个受限容器中执行。
+
+    一个 backend 对应一个 task/trial，而不是一个单独的工具调用。容器持续存在
+    的意义是：先写文件、再运行测试时，两个动作看到同一个 `/workspace`；取消时
+    也能以整个容器为边界停止当前命令和它产生的子进程。容器不挂载 Docker socket，
+    不继承控制器环境变量，默认使用断网、只读根层和资源限制。
+    """
 
     def __init__(
         self,
@@ -34,7 +45,14 @@ class DockerExecutionBackend:
         runner: DockerRunner | None = None,
         audit_directory: Path | None = None,
     ) -> None:
-        """保存显式镜像和隔离策略；直到 start 才创建容器。"""
+        """校验并保存任务配置，但暂不访问 Docker daemon。
+
+        `root` 是控制器和容器共同看到的唯一工作区；`image` 是用户选择的镜像
+        标签，真正创建容器前会解析成不可变的 image ID。`runner` 是 Docker CLI
+        的可替换传输，生产环境使用 `_run_docker`，单元测试用 fake runner，避免
+        测试依赖真实 daemon。所有状态字段先初始化为“尚未启动”，因此构造对象
+        本身不会产生容器或副作用。
+        """
         self.root = root.resolve(strict=True)
         if not self.root.is_dir():
             raise ValueError("workspace root must be a directory")
@@ -63,21 +81,41 @@ class DockerExecutionBackend:
 
     @property
     def is_container(self) -> bool:
-        """说明工具和命令在 Docker 容器边界内执行。"""
+        """返回当前后端是否提供真实容器边界。
+
+        权限层和评测 Harness 会读取这个属性，区分 Docker 后端与只能提供进程
+        级约束的 Local 后端。它不是对容器“绝对安全”的承诺；Docker 仍共享宿主
+        内核，具体限制由 `_create_command` 和真实验收共同定义。
+        """
         return True
 
     @property
     def specs(self) -> tuple[ToolSpec, ...]:
-        """公开与容器内同版本基础工具一致的声明。"""
+        """返回控制器侧向模型公开的工具声明。
+
+        这些声明来自控制器里的基础注册表，启动时还会和容器 worker 的声明逐项
+        比较。调用方因此可以在容器启动后使用同一份 `ToolSpec`，而不会出现模型
+        看到新参数、容器却运行旧工具实现的版本漂移。
+        """
         return self._specs
 
     @property
     def events(self) -> tuple[BackendEvent, ...]:
-        """返回控制器侧不可变的生命周期事件。"""
+        """返回按发生顺序冻结的后端事件快照。
+
+        事件只保存状态、结果、耗时和资源采样，不保存工具参数、命令正文、环境
+        变量或输出内容；调用者拿到 tuple 后不能修改内部事件列表。
+        """
         return tuple(self._events)
 
     async def start(self) -> None:
-        """解析镜像为不可变 ID，清理过期任务后创建并启动容器。"""
+        """完成一次幂等启动，并在工具执行前验证 worker 契约。
+
+        顺序很重要：先清理同 owner 的过期容器，再把镜像标签解析为 digest/ID，
+        然后查询 daemon 类型、构造受限 `docker create` 参数、启动容器，最后发送
+        `describe` 握手。任何一步失败都不把 backend 标成 started；如果容器已经
+        创建但启动或握手失败，立即强制删除，避免泄漏无人管理的容器。
+        """
         if self._closed:
             raise RuntimeError("backend is closed")
         if self._started:
@@ -112,7 +150,13 @@ class DockerExecutionBackend:
         self._record("backend_started", outcome="ready")
 
     async def execute(self, call: ToolCall) -> ToolResult:
-        """把完整工具调用经 stdin 发送给容器内同版本 worker。"""
+        """把一个完整 `ToolCall` 交给容器内 worker，并校验配对结果。
+
+        控制器只发送 JSON 请求，工具参数的最终校验仍在容器内注册表执行。worker
+        返回的 `ToolResult` 必须带回相同 call ID；Docker exec 自身失败会被转换成
+        稳定错误，协程取消则不仅停止本地 CLI，还会调用 `cancel()` 杀死整个任务
+        容器，防止容器内的 Shell 继续运行。
+        """
         self._ensure_ready()
         started = time.monotonic()
         payload = json.dumps(
@@ -145,7 +189,13 @@ class DockerExecutionBackend:
     async def run_argv(
         self, command: tuple[str, ...], *, timeout_seconds: float | None = None
     ) -> CommandResult:
-        """在同一容器中执行固定 argv，超时会杀死整个任务容器。"""
+        """在同一容器中执行不经过 Shell 展开的固定 argv 命令。
+
+        该入口主要给测试和独立验证器使用，因此参数会作为数组传给 worker，不会
+        重新拼接成 Shell 字符串。worker 返回结构化 `CommandResult`；控制器外层
+        还设置一个比 worker 时限略长的 asyncio 超时，用来处理 worker 卡死或
+        Docker CLI 无响应。超时和取消都会停止整个 backend，后续调用被拒绝。
+        """
         self._ensure_ready()
         if not command:
             raise ValueError("command must not be empty")
@@ -202,7 +252,13 @@ class DockerExecutionBackend:
         return result
 
     async def cancel(self) -> None:
-        """杀死整个任务容器，确保 exec 后代不会在取消后继续执行。"""
+        """取消任务并封闭后续执行入口。
+
+        `docker exec` 是控制器启动的客户端进程，容器内命令是另一棵进程树；只
+        取消客户端不能证明命令已经停止。因此这里设置 `_cancelled` 后发送
+        `docker kill`，让容器及其后代一起退出。kill 失败会保留失败事件并抛出
+        错误，因为此时不能假装资源已经清理。
+        """
         if self._cancelled or self._closed:
             return
         self._cancelled = True
@@ -214,14 +270,24 @@ class DockerExecutionBackend:
         self._record("backend_cancelled", outcome="killed")
 
     async def export_artifact(self, relative_path: str, destination: Path) -> Path:
-        """从唯一绑定工作区导出普通文件并记录结果。"""
+        """把工作区内的普通文件复制到控制器指定的产物位置。
+
+        路径规范化、符号链接检查、目标必须位于工作区外以及文件大小上限都由
+        `export_file` 负责；本方法只保证导出发生在已启动且未取消的 backend 中，
+        并把成功事实写入后端轨迹。
+        """
         self._ensure_ready()
         target = export_file(self.root, relative_path, destination, self.limits.artifact_bytes)
         self._record("artifact_exported", outcome="success")
         return target
 
     async def sample_resources(self) -> None:
-        """尽力采集一次 CPU 与内存快照；采样失败不改变工具结果。"""
+        """读取一次容器级 CPU/内存快照并写入可观察轨迹。
+
+        资源采样是诊断信息，不是执行结果的一部分。容器刚被取消、已经被清理或
+        daemon 暂时无法返回 stats 时直接跳过，不能因为监控失败而把一个已经成功
+        的工具调用改成失败；解析失败也只丢弃本次样本。
+        """
         if not self._container_id or self._cancelled:
             return
         code, stdout, _ = await self._docker(
@@ -238,7 +304,13 @@ class DockerExecutionBackend:
         self._record("resource_sampled", outcome="sampled", cpu_percent=cpu, memory_bytes=memory)
 
     async def close(self) -> None:
-        """强制删除任务容器和匿名卷；任意先前状态下都可重复调用。"""
+        """删除当前 backend 拥有的容器和匿名卷，并使关闭操作幂等。
+
+        `rm -f -v` 同时覆盖运行中、已停止和带匿名卷的容器。关闭失败时不设置
+        `_closed`，因为资源可能仍然存在，调用方可以根据错误重试；成功后才记录
+        `backend_closed`。上下文管理器的 `__aexit__` 会调用本方法，所以正常返回、
+        异常和取消都走同一个清理出口。
+        """
         if self._closed:
             return
         if self._container_id:
@@ -250,7 +322,7 @@ class DockerExecutionBackend:
         self._record("backend_closed", outcome="removed")
 
     async def __aenter__(self) -> Self:
-        """创建并启动任务容器。"""
+        """进入异步上下文时启动并返回当前 backend。"""
         await self.start()
         return self
 
@@ -260,7 +332,11 @@ class DockerExecutionBackend:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """退出任务范围时强制删除容器。"""
+        """离开异步上下文时无条件尝试清理任务容器。
+
+        `exc_type`、`exc` 和 `traceback` 由 Python 传入，清理策略不依赖异常类型；
+        即使任务内部抛错，也不能把容器留给下一次进程误用。
+        """
         await self.close()
 
     @staticmethod
@@ -269,7 +345,13 @@ class DockerExecutionBackend:
         owner: str,
         on_removed: Callable[[str], None] | None = None,
     ) -> tuple[str, ...]:
-        """查找同控制器所有者且已经过期的遗留容器并强制删除。"""
+        """按 managed/owner/expiry 标签清理本控制器留下的过期容器。
+
+        这是崩溃恢复路径：上一个控制器可能来不及执行 `close()`。查询只筛选本
+        协议的 managed 标签和同一个 owner；每行必须同时包含合法容器 ID 与数字化
+        过期时间，标签缺失、损坏或尚未到期都跳过，避免误删公共 Docker 中的其他
+        容器。删除成功后才通过 `on_removed` 把清理事实交给当前 backend 记录。
+        """
         code, stdout, _ = await runner(
             (
                 "ps",
@@ -302,7 +384,14 @@ class DockerExecutionBackend:
         return tuple(removed)
 
     def _create_command(self, image_id: str, container_user: str) -> tuple[str, ...]:
-        """构造不转发宿主环境、断网、只读根层和受资源限制的创建命令。"""
+        """把隔离策略编码为完整的 `docker create` 参数数组。
+
+        这里刻意使用 tuple 而不是 Shell 字符串：每个参数保持独立，避免引号和
+        空格被重新解释。策略包括默认断网、只读根层、删除全部 capability、
+        `no-new-privileges`、CPU/内存/PID 上限、固定工作目录和唯一 bind mount。
+        `container_user` 由 `_container_user` 决定；镜像使用已解析的 ID，避免同一
+        标签在任务执行期间漂移到另一份镜像。
+        """
         return (
             "create",
             "--name",
@@ -347,7 +436,14 @@ class DockerExecutionBackend:
         )
 
     async def _container_user(self) -> str:
-        """根据 daemon 是否 rootless 选择能安全访问 bind 工作区的容器身份。"""
+        """读取 daemon 安全模式并选择容器内 UID/GID。
+
+        rootful daemon 中必须显式降权为控制器 UID/GID，避免容器 root 写宿主工作区；
+        rootless daemon 的用户命名空间会把容器 `0:0` 映射为宿主启动用户，把普通
+        容器 UID 映射成 subordinate UID。后者通常无法写入宿主用户拥有的 bind
+        目录，因此 rootless 分支反而使用 namespace 内 root；这仍不会获得宿主 root
+        权限，因为 daemon 本身就是普通用户运行的。
+        """
         code, stdout, stderr = await self._docker(("info", "--format", "{{json .SecurityOptions}}"))
         if code != 0:
             # 身份模式未知时拒绝创建，避免在 rootful daemon 中意外使用 root。
@@ -368,11 +464,20 @@ class DockerExecutionBackend:
     async def _docker(
         self, arguments: tuple[str, ...], stdin: bytes | None = None
     ) -> tuple[int, bytes, bytes]:
-        """调用可替换的 Docker 传输并统一输出容量上限。"""
+        """通过 runner 执行一条 Docker CLI 调用，并统一限制 stdout/stderr。
+
+        所有 Docker 操作都经过这里，生产 runner 和 fake runner 因而共享同一个
+        参数、输入和输出契约；输出上限防止 daemon 的错误信息或 stats 无限增长。
+        """
         return await self._runner(arguments, stdin, self.limits.output_bytes)
 
     async def _was_oom_killed(self) -> bool:
-        """从容器状态读取内核 OOM 标记，避免依赖错误文本猜测。"""
+        """读取容器主进程的 Docker OOM 标记。
+
+        该检查只能覆盖容器主进程被内核 OOM 杀死的情况。常驻主进程仍在运行时，
+        `docker exec` 里的子进程 OOM 不一定反映到这里；worker 会额外比较 cgroup
+        `memory.events`，所以本方法不能单独作为所有 OOM 场景的判断依据。
+        """
         if not self._container_id:
             return False
         code, stdout, _ = await self._docker(
@@ -381,7 +486,12 @@ class DockerExecutionBackend:
         return code == 0 and stdout.decode().strip().lower() == "true"
 
     async def _verify_worker(self) -> None:
-        """启动时比较工具声明，拒绝控制器与沙箱镜像版本漂移。"""
+        """用 describe 握手比较控制器和容器内的完整工具 Schema。
+
+        worker 返回 JSON 数组，控制器逐项还原为 `ToolSpec` 后与本地注册表比较。
+        只要 worker 不可用、返回格式损坏或工具顺序/参数声明不同，启动就失败并由
+        `start()` 删除容器；宁可整项任务停止，也不让模型按错误 Schema 发起调用。
+        """
         code, stdout, stderr = await self._docker(
             ("exec", "-i", self._container_id, "python", "-m", "codepilot.workspace.worker"),
             b'{"kind":"describe"}',
@@ -402,7 +512,12 @@ class DockerExecutionBackend:
             raise RuntimeError("sandbox tool specs do not match controller")
 
     def _decode_tool_result(self, call: ToolCall, payload: bytes) -> ToolResult:
-        """校验 worker 回包并把协议损坏转成与调用配对的错误。"""
+        """把 worker 的 JSON 回包转换成受信任的 `ToolResult`。
+
+        Pydantic 校验负责字段类型和必填项，额外的 call ID 检查负责防止旧响应、
+        串线响应或错误容器响应被交给当前调用方。协议损坏会返回带当前 call ID 的
+        结构化错误，而不是把原始响应正文写入日志或继续执行。
+        """
         try:
             result = ToolResult.model_validate_json(payload)
         except ValueError:
@@ -420,7 +535,12 @@ class DockerExecutionBackend:
         return result
 
     def _ensure_ready(self) -> None:
-        """阻止容器启动前、取消后或清理后的新调用。"""
+        """在每个执行入口统一检查 backend 生命周期状态。
+
+        未启动表示还没有合法容器；cancelled 表示容器已经被停止，closed 表示
+        资源已经回收。三种状态都拒绝新调用，避免调用方在错误恢复路径中重新使用
+        已失效的工作区或把结果写入另一项任务。
+        """
         if not self._started:
             raise RuntimeError("backend is not started")
         if self._cancelled:
@@ -429,11 +549,17 @@ class DockerExecutionBackend:
             raise RuntimeError("backend is closed")
 
     def _record_stale(self, container_id: str) -> None:
-        """记录由本次启动清理的过期容器 ID。"""
+        """把 stale cleanup 删除的容器 ID转成当前 backend 的审计事件。"""
         self._record("stale_container_removed", container_id=container_id, outcome="removed")
 
     def _record(self, kind: str, **payload: object) -> None:
-        """追加不包含工具参数、命令和环境内容的后端事件。"""
+        """追加一条脱敏生命周期事件，并同步写入外部审计日志。
+
+        sequence 在控制器内递增，backend/container ID 用于关联资源；调用参数、
+        命令正文、环境变量和输出正文都不会进入事件。先更新内存列表再交给
+        `BackendJournal`，因此调用方可以立即读取本次轨迹，同时日志文件保留持久
+        化审计记录。
+        """
         event = BackendEvent.model_validate(
             {
                 "sequence": len(self._events) + 1,
@@ -450,7 +576,13 @@ class DockerExecutionBackend:
 async def _run_docker(
     arguments: tuple[str, ...], stdin: bytes | None, output_limit: int
 ) -> tuple[int, bytes, bytes]:
-    """执行 Docker CLI，并在协程取消时终止 CLI 子进程。"""
+    """执行不经 Shell 的 Docker CLI，并有界读取 stdout/stderr。
+
+    使用 `create_subprocess_exec` 可以让每个 Docker 参数保持原样，避免 Shell 注入。
+    两个读取任务会持续排空管道，即使只保留前 N 字节也不会因为子进程写满 pipe
+    而死锁。若协程被取消，只终止本地 Docker CLI；上层 `DockerExecutionBackend`
+    随后负责 kill 容器，因为这里无法知道容器内 exec 是否已经结束。
+    """
     process = await asyncio.create_subprocess_exec(
         "docker",
         *arguments,
@@ -486,12 +618,21 @@ async def _run_docker(
 
 
 def _safe_error(stderr: bytes) -> str:
-    """只保留 Docker 错误尾部并折叠换行，防止日志无界扩张。"""
+    """把 Docker stderr 压缩成适合异常和事件的有限错误摘要。
+
+    保留尾部通常能看到真正的失败原因，折叠换行让一条错误不会污染事件格式；
+    只返回摘要，不把完整 stderr 写入模型上下文或持久化轨迹。
+    """
     return stderr.decode("utf-8", errors="replace")[-1000:].replace("\n", " ").strip() or "unknown"
 
 
 def _parse_bytes(value: str) -> int:
-    """解析 docker stats 使用的二进制或十进制容量单位。"""
+    """把 `docker stats` 的内存字符串转换为字节数。
+
+    Docker 可能返回 `MiB` 等二进制单位，也可能返回 `MB` 等十进制单位；按单位
+    长度倒序匹配，避免先把 `MiB` 错误识别成末尾的 `B`。未知格式抛出异常，调用方
+    会丢弃该次采样而不影响工具结果。
+    """
     units = {
         "B": 1,
         "kB": 1000,
@@ -508,10 +649,19 @@ def _parse_bytes(value: str) -> int:
 
 
 def _sandbox_uid() -> int:
-    """沿用非 root 控制器 UID；root 控制器固定降权到无特权 UID。"""
+    """返回 rootful daemon 下容器应使用的 UID。
+
+    普通用户运行时沿用其 UID，让 bind 工作区的宿主所有权保持一致；若控制器
+    意外以 root 启动，则使用 65532 这一无特权回退值，避免把宿主 root 直接暴露
+    给任务容器。rootless 分支不使用此值，而由 `_container_user` 选择 `0:0`。
+    """
     return os.getuid() or 65532
 
 
 def _sandbox_gid() -> int:
-    """沿用非 root 控制器 GID；root 主组固定降权到无特权 GID。"""
+    """返回 rootful daemon 下容器应使用的 GID。
+
+    规则与 `_sandbox_uid` 对称：普通用户沿用主组，root 控制器回退到 65532，
+    确保任务不会以宿主 root 主组访问工作区。
+    """
     return os.getgid() or 65532
