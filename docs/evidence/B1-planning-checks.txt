@@ -1,0 +1,32 @@
+B1 大阶段规划落盘检查
+日期：2026-10-15（Asia/Shanghai）
+基线：c1b2918 docs: detail product maturity increments and acceptance gates
+用户授权：按大阶段交付，计划必须写文档，ROADMAP 可以纳入 Git，无需特殊排除。
+范围：仅文档，没有修改产品 Python、配置或依赖，没有修复取消问题或实现持久化。
+
+检查与结果：
+- git status / git log：开始时只有 ROADMAP 用户已有修改。
+- 阅读 AGENTS、开发指南、ROADMAP 当前/历史段、产品计划、STATUS、上轮修订设计与学习。
+- uv run --locked python 文档一致性检查：PASS。
+  * B1—B5 五大阶段出现在产品计划与 ROADMAP。
+  * 25 项 P3—P8 技术清单保留，改为大阶段内部验收索引。
+  * 移除当前计划中“下一轮只实施 P3.1”和“不修改或提交 ROADMAP”。
+  * AGENTS、开发指南、STATUS 统一下一大阶段 B1。
+  * B1 设计/学习明确待实现，学习记录含三道理解题及答案。
+  * 已引用的主要现有产品入口文件存在。
+  * ROADMAP 用户原有正文逐字保留，新增当前路线头部与历史区说明。
+    原正文 Git blob = b885f117b5833f944426c303d6cc1adfe43b604e，与修改前一致。
+  * ROADMAP、产品计划、B1 设计的基本私钥/token 模式检查未发现匹配。
+    此检查不代表完整秘密扫描，不读取用户凭据。
+- git diff --check：PASS。
+
+计划变化：
+B1 合并取消清理修复、截断前输出、配额及基础会话持久化、连续追问、列表/查看/保守重开。
+B2 受控工作区与安全执行；B3 长任务、完整恢复与 Provider 可靠性；
+B4 扩展与后台协作；B5 真实任务评测与发布。
+
+未运行：pytest、Ruff/mypy、wheel、Rootless Docker、真实模型。
+原因：本次是用户明确要求的规划文档同步，未修改运行行为；不重复运行无关测试。
+上轮 201 passed/4 skipped 及一次取消测试失败属于上轮证据，不作为本轮通过结果。
+需后续真实验证：B1 联合验收全部仍待实施，含进程取消、磁盘失败、崩溃、重开、
+Rootless Docker 输出及低成本真实多轮会话；不得用本文档完成替代产品完成。
