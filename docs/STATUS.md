@@ -27,12 +27,13 @@
 - 写入复验的成功 run 使用 5 次模型请求、4 次工具调用，输入 9,122、输出 371 Token。成功前的三个独立 run 遇到网关 `APIConnectionError`：一次发生在首轮请求，两次发生在首个只读工具结果后的下一轮；它们均未修改文件并完成容器清理。
 - 真实运行发现网关会发送只有 index 的空 tool-call 占位项；适配层现在丢弃不推进状态的占位项，MockTransport 回归测试固定覆盖。冲突 ID、非法 JSON 和错误结束原因仍被拒绝。
 - 覆盖非法配置无副作用、Provider 初始化失败清理、后端部分启动失败清理、外部取消传播和唯一 cancelled 终态。
-- `uv run --locked pytest -q`：187 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall 和 wheel 构建通过。
+- `uv run --locked pytest -q`：本次扩大上下文预算后的完整结果为 189 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall 和 wheel 构建通过。
 - `CODEPILOT_DOCKER_LIVE=1` 的 3 个 Rootless Docker 测试通过，运行后无 `io.codepilot.managed=true` 活动容器；新建 Python 3.11 环境安装 wheel 后，`codepilot run` fake 闭环通过。
 - 当前用户已通过 editable `uv tool` 安装 `codepilot`；从仓库外直接启动提示符、安装后单次 fake Local 任务和交互式 fake Rootless Docker 任务均通过，退出后无受管容器残留。
 - 清除 `CODEPILOT_YJT_API_KEY` 后，安装版 CLI 已从固定凭据 YAML 完成一次真实 `qwen3.5-flash` 无工具回答；返回预期文本、正常终止、stderr 为空且无容器残留。
-- 用户真实快速排序任务暴露了 512 Token 输出上限：第二轮 `write_file` 参数在结束前被截断，Runtime 保持零写入但旧界面只显示 `contract_error`。现在产品配置上限为 2048，并把供应商 `length` 独立分类为 `output_limit`，终端明确提示未执行半截调用。一次性空目录真实重试成功创建 `quick_sort.py`、运行模型请求的 Shell 测试，并通过控制器独立排序检查。
-- 详细设计与真实证据见 `docs/design/P1.md`、`docs/evidence/P1-live-checks.json`、`docs/evidence/P1-real-write-shell.json`、`docs/evidence/P1-credential-file.json`、`docs/evidence/P1-output-limit-recovery.json`；完整离线命令结果见 `docs/evidence/P1-checks.txt`。
+- 用户真实快速排序任务暴露了 512 Token 输出上限：第二轮 `write_file` 参数在结束前被截断，Runtime 保持零写入但旧界面只显示 `contract_error`。现在供应商 `length` 独立分类为 `output_limit`，终端明确提示未执行半截调用。一次性空目录真实重试成功创建 `quick_sort.py`、运行模型请求的 Shell 测试，并通过控制器独立排序检查。
+- Qwen3.5-Flash 用户级配置现在按公开规格使用 1,000,000 Token 总上下文、65,536 Token 最大输出和 934,464 Token 可用输入预算；Provider 与配置契约拒绝更高输出值，流式累计硬限制提高到 16 MiB。真实短请求确认中转站接受 `max_tokens=65536` 并返回预期文本；没有实际生成 64K 输出或发送 1M 输入，当前近似 Token 估算也不等同于模型 tokenizer。
+- 详细设计与真实证据见 `docs/design/P1.md`、`docs/evidence/P1-live-checks.json`、`docs/evidence/P1-real-write-shell.json`、`docs/evidence/P1-credential-file.json`、`docs/evidence/P1-output-limit-recovery.json`、`docs/evidence/P1-million-context-config.json`；完整离线命令结果见 `docs/evidence/P1-checks.txt`。
 
 ## M10 当前证据
 

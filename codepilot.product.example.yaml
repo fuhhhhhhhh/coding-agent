@@ -5,9 +5,9 @@ provider:
   base_url: https://api.yunjintao.com/v1
   api_key_env: CODEPILOT_YJT_API_KEY
   api_key_file: ~/.config/codepilot/credentials.yaml
-  max_tokens: 2048
+  max_tokens: 65536
   max_requests: 8
-  timeout_seconds: 60
+  timeout_seconds: 600
 
 # Shell 和文件工具在用户级 Rootless Docker 中运行，避免直接执行在宿主机。
 backend:
@@ -21,5 +21,13 @@ scheduler_concurrency: 4
 runtime:
   max_steps: 12
   max_tool_calls: 24
-  timeout_seconds: 300
+  timeout_seconds: 900
   max_consecutive_failures: 3
+
+# Qwen3.5-Flash 总上下文为 1M；为最大输出预留 65,536 Token。
+context:
+  max_prompt_tokens: 1000000
+  response_reserve_tokens: 65536
+  compact_trigger_tokens: 850000
+  compact_target_tokens: 700000
+  recent_rounds: 4

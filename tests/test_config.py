@@ -135,3 +135,27 @@ def test_real_provider_requires_compatible_url() -> None:
         ProductConfig.model_validate({"provider": {"kind": "openai-compatible", "model": "qwen"}})
     with pytest.raises(ValidationError):
         ProductConfig.model_validate({"provider": {"model": "qwen"}})
+
+
+def test_qwen_scale_context_and_output_limits_are_accepted() -> None:
+    """产品配置应容纳 1M 总上下文和 Qwen 支持的 64K 最大输出。"""
+    config = ProductConfig.model_validate(
+        {
+            "provider": {"max_tokens": 65_536},
+            "context": {
+                "max_prompt_tokens": 1_000_000,
+                "response_reserve_tokens": 65_536,
+                "compact_trigger_tokens": 850_000,
+                "compact_target_tokens": 700_000,
+            },
+        }
+    )
+
+    assert config.provider.max_tokens == 65_536
+    assert config.context.usable_prompt_tokens == 934_464
+
+
+def test_output_limit_above_supported_model_maximum_is_rejected() -> None:
+    """超过当前 Provider 边界的输出值应在网络请求前被拒绝。"""
+    with pytest.raises(ValidationError):
+        ProductConfig.model_validate({"provider": {"max_tokens": 65_537}})

@@ -48,6 +48,12 @@ uv build --wheel
 权限为 `0600` 的 `~/.config/codepilot/credentials.yaml`，不会进入仓库、Trace 或容器。临时设置
 `CODEPILOT_YJT_API_KEY` 时，环境变量优先于文件，适合 CI 或单次覆盖。
 
+当前 Qwen3.5-Flash 配置按模型公开规格使用 1,000,000 Token 总上下文，并为单次回答预留
+65,536 Token，因此输入侧可用预算是 934,464 Token。`max_tokens: 65536` 只是输出硬上限，短回答
+不会为了填满上限而额外生成。Context 当前使用近似估算器而非 Qwen 官方 tokenizer，所以这组配置
+提供保守的治理边界，尚不等于已经完成百万 Token 实际压力测试。模型规格见
+[阿里云百炼 Qwen3.5-Flash 文档](https://help.aliyun.com/zh/model-studio/qwen3-5-flash)。
+
 直接运行 `codepilot` 后，输入任务并回车即可执行；`/help` 查看提示，`/exit` 或 Ctrl-D 退出。
 当前进程内多条任务共享 session ID，但各自拥有 task/run ID 和 Trace。持久历史与进程重启后的
 恢复属于后续会话阶段，目前输入下一条任务不会携带上一条任务的模型消息。

@@ -46,8 +46,8 @@ class OpenAICompatibleProvider:
         """绑定客户端、工具目录和有界输出，不在构造阶段发起网络请求。"""
         if not model.strip():
             raise ValueError("model must not be empty")
-        if not 1 <= max_tokens <= 4096:
-            raise ValueError("max_tokens must be between 1 and 4096")
+        if not 1 <= max_tokens <= 65_536:
+            raise ValueError("max_tokens must be between 1 and 65536")
         # SDK 自动重试会绕过显式请求额度，因此在适配边界统一关闭。
         self.client = client.with_options(max_retries=0)
         self.tools = tuple(tool.model_copy(deep=True) for tool in tools)

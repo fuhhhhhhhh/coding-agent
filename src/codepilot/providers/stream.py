@@ -9,6 +9,8 @@ from pydantic import ValidationError
 from codepilot.contracts import Message, ToolCall
 from codepilot.contracts.stream import StreamChunk, Usage
 
+_MAX_STREAM_BYTES = 16 * 1024 * 1024
+
 
 @runtime_checkable
 class StreamingProvider(Protocol):
@@ -64,8 +66,8 @@ async def collect_reply(
             if finished:
                 raise StreamContractError("chunk after turn finished")
             size += len(chunk.model_dump_json().encode("utf-8"))
-            # 限制累计片段而不是单片段，避免无限流耗尽内存。
-            if size > 1_048_576:
+            # 64K 输出模型会产生大量小分片；仍以 16 MiB 累计硬限制阻止无限流耗尽内存。
+            if size > _MAX_STREAM_BYTES:
                 raise StreamContractError("stream size limit exceeded")
             on_chunk(chunk)
             if chunk.kind == "text_delta":

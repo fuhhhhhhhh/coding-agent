@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-15",
+  "model": "qwen3.5-flash",
+  "source": "https://help.aliyun.com/zh/model-studio/qwen3-5-flash",
+  "published_limits": {
+    "context_tokens": 1000000,
+    "max_input_tokens": 991808,
+    "max_output_tokens": 65536
+  },
+  "configured_limits": {
+    "max_prompt_tokens": 1000000,
+    "response_reserve_tokens": 65536,
+    "usable_prompt_tokens": 934464,
+    "max_output_tokens": 65536,
+    "stream_bytes": 16777216,
+    "request_timeout_seconds": 600,
+    "run_timeout_seconds": 900
+  },
+  "real_gateway_smoke": {
+    "exit_code": 0,
+    "expected_text_returned": true,
+    "stderr_empty": true,
+    "tool_calls": 0,
+    "terminal_status": "completed"
+  },
+  "not_run": [
+    "one-million-token prompt stress test",
+    "65536-token output generation",
+    "exact Qwen tokenizer accounting"
+  ]
+}
