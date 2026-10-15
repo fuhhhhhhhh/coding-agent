@@ -1,6 +1,8 @@
-"""验证统一 CLI 的 JSONL 输出、退出码和副作用前配置失败。"""
+"""验证统一 CLI 的交互、JSONL 输出、退出码和副作用前配置失败。"""
 
+import argparse
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -85,3 +87,117 @@ def test_cli_missing_key_fails_before_state_creation(
     assert captured.out == ""
     assert "CODEPILOT_TEST_MISSING_KEY" in captured.err
     assert not state.exists()
+
+
+def test_bare_cli_runs_multiple_tasks_in_one_interactive_session(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """直接运行 codepilot 后应连续接收任务，共用会话 ID 并为每条任务单独执行。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state = tmp_path / "state"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    answers = iter(("检查一次", "检查第二次", "/exit"))
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+
+    code = main(
+        [
+            "--workspace",
+            str(workspace),
+            "--permission",
+            "read-only",
+            "--state-directory",
+            str(state),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    sessions = re.findall(r"会话 (session-[0-9a-f]+)｜任务", captured.out)
+    assert len(sessions) == 2
+    assert sessions[0] == sessions[1]
+    assert captured.out.count("[运行结束] completed") == 2
+
+
+def test_interactive_task_start_failure_does_not_close_prompt(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """一条任务意外启动失败后，交互外壳仍应读取并执行下一条输入。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    answers = iter(("第一条", "第二条", "/exit"))
+    monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
+    calls: list[str] = []
+
+    async def fake_run(arguments: argparse.Namespace, _config: object) -> int:
+        """第一次注入启动异常，第二次返回成功以验证交互循环仍存活。"""
+        task = arguments.task
+        calls.append(task)
+        if len(calls) == 1:
+            raise RuntimeError("synthetic failure")
+        return 0
+
+    monkeypatch.setattr("codepilot.ui.cli._run", fake_run)
+
+    code = main(["--workspace", str(workspace)])
+
+    assert code == 0
+    assert calls == ["第一条", "第二条"]
+    assert "RuntimeError；可以继续输入" in capsys.readouterr().err
+
+
+def test_interactive_eof_exits_without_starting_a_task(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """终端 EOF 应正常退出，不能生成一个空任务或错误终态。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    def end_of_input(_prompt: str) -> str:
+        """模拟 Ctrl-D 或管道输入关闭。"""
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", end_of_input)
+
+    code = main(["--workspace", str(workspace)])
+
+    assert code == 0
+    assert "[运行结束]" not in capsys.readouterr().out
+
+
+def test_run_accepts_shared_options_before_subcommand(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """共享选项放在 run 前也不能被子解析器的默认值覆盖。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state = tmp_path / "state"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    code = main(
+        [
+            "--workspace",
+            str(workspace),
+            "--permission",
+            "read-only",
+            "--state-directory",
+            str(state),
+            "run",
+            "检查目录",
+            "--jsonl",
+        ]
+    )
+
+    assert code == 0
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert records[-1]["kind"] == "product_result"

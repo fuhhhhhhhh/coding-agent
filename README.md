@@ -1,6 +1,6 @@
 # CodePilot
 
-逐阶段实现 Python 终端 Coding Agent。当前已有统一 `codepilot run` 产品入口，并完成非流式与流式 Agent 循环、六个基础工具、权限审批、
+逐阶段实现 Python 终端 Coding Agent。当前已有 `codepilot` 交互入口与 `codepilot run` 单次入口，并完成非流式与流式 Agent 循环、六个基础工具、权限审批、
 Local 评测纠错、脱敏 Trace、Rootless Docker 沙箱和两层上下文治理，并已完成一次受限的
 DeepSeek 流式只读闭环验证。
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
@@ -13,9 +13,13 @@ Git worktree 和可审查补丁交付；受控执行面、上下文完整计量�
 
 ```bash
 uv sync --locked
-uv run --locked codepilot run "检查当前工作区" --workspace . \
-  --config codepilot.product.example.toml --session-id demo-session \
-  --task-id demo-task --run-id demo-run
+# 开发环境直接进入交互界面；自动读取用户级或项目级 config.yaml。
+uv run --locked codepilot
+# 安装为用户级命令后，在任意目标仓库直接运行 codepilot。
+uv tool install --editable .
+codepilot
+# 脚本和 CI 仍可执行单个任务。
+codepilot run "检查当前工作区" --workspace .
 uv run --locked python -m codepilot.demo codepilot.example.toml
 uv run --locked python -m codepilot.m02_demo
 uv run --locked python -m codepilot.m03_demo
@@ -36,6 +40,16 @@ uv run --locked ruff format --check .
 uv run --locked mypy
 uv build --wheel
 ```
+
+配置按默认值、用户级 `~/.config/codepilot/config.yaml`、工作区 `.codepilot/config.yaml`、显式
+`--config`、CLI 覆盖的顺序合并；旧的 `.codepilot.toml` 继续兼容。同一层同时存在多个候选文件会
+直接报错，避免用户修改了一个实际却读取另一个。`codepilot.product.example.yaml` 展示了 Qwen
+网关、Rootless Docker 和受控编辑配置，只保存 `CODEPILOT_YJT_API_KEY` 这个环境变量名。当前机器
+已经把它安装为用户级 `config.yaml`；真实密钥仍需由当前 shell 或可信凭据管理器提供，不能写入 YAML。
+
+直接运行 `codepilot` 后，输入任务并回车即可执行；`/help` 查看提示，`/exit` 或 Ctrl-D 退出。
+当前进程内多条任务共享 session ID，但各自拥有 task/run ID 和 Trace。持久历史与进程重启后的
+恢复属于后续会话阶段，目前输入下一条任务不会携带上一条任务的模型消息。
 
 M01 演示输出文本和工具请求两行 JSON，不执行工具。
 M02 演示需在仓库根目录运行，将 examples/fixture_repo 复制到临时目录，

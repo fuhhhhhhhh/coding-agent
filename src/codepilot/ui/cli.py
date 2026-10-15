@@ -1,4 +1,4 @@
-"""提供统一 ``codepilot run`` 命令，并把所有执行委托给产品装配层。"""
+"""提供交互式 ``codepilot`` 与单次 ``codepilot run`` 产品入口。"""
 
 import argparse
 import asyncio
@@ -17,24 +17,43 @@ from codepilot.ui.renderer import EventRenderer
 def build_parser() -> argparse.ArgumentParser:
     """构造无隐式网络行为的命令行解析器。"""
     parser = argparse.ArgumentParser(prog="codepilot", description="CodePilot 终端 Coding Agent")
-    commands = parser.add_subparsers(dest="command", required=True)
+    _add_shared_arguments(parser)
+    commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="在一个工作区启动新任务")
     run.add_argument("task", help="需要 Agent 完成的任务")
-    run.add_argument("--workspace", type=Path, default=Path.cwd())
-    run.add_argument("--config", type=Path, help="最高优先级 TOML 配置文件")
-    run.add_argument("--provider", choices=("fake", "openai-compatible"))
-    run.add_argument("--model")
-    run.add_argument("--base-url")
-    run.add_argument("--api-key-env")
-    run.add_argument("--backend", choices=("local", "docker"))
-    run.add_argument("--docker-image")
-    run.add_argument("--permission", choices=("read-only", "ask-edits", "controlled-edit"))
-    run.add_argument("--state-directory", type=Path)
+    _add_shared_arguments(run, suppress_defaults=True)
     run.add_argument("--session-id")
     run.add_argument("--task-id")
     run.add_argument("--run-id")
     run.add_argument("--jsonl", action="store_true", help="输出脱敏进度事件和最终 JSON")
     return parser
+
+
+def _add_shared_arguments(
+    parser: argparse.ArgumentParser, *, suppress_defaults: bool = False
+) -> None:
+    """给交互和单次入口添加相同配置覆盖，避免形成两套启动语义。"""
+    missing = argparse.SUPPRESS if suppress_defaults else None
+    workspace_default = argparse.SUPPRESS if suppress_defaults else Path.cwd()
+    parser.add_argument("--workspace", type=Path, default=workspace_default)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=missing,
+        help="最高优先级 YAML 或 TOML 配置文件",
+    )
+    parser.add_argument("--provider", choices=("fake", "openai-compatible"), default=missing)
+    parser.add_argument("--model", default=missing)
+    parser.add_argument("--base-url", default=missing)
+    parser.add_argument("--api-key-env", default=missing)
+    parser.add_argument("--backend", choices=("local", "docker"), default=missing)
+    parser.add_argument("--docker-image", default=missing)
+    parser.add_argument(
+        "--permission",
+        choices=("read-only", "ask-edits", "controlled-edit"),
+        default=missing,
+    )
+    parser.add_argument("--state-directory", type=Path, default=missing)
 
 
 def _overrides(arguments: argparse.Namespace) -> dict[str, object]:
@@ -96,8 +115,57 @@ async def _run(arguments: argparse.Namespace, config: ProductConfig) -> int:
     return 0 if result.report.reason == "completed" else 1
 
 
+def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
+    """持续读取终端任务；单次失败只结束当前任务，不关闭整个交互进程。"""
+    session_id = f"session-{uuid.uuid4().hex}"
+    print("CodePilot 交互模式。输入任务后回车执行；/help 查看帮助，/exit 退出。")
+    print(f"工作区：{arguments.workspace}｜会话：{session_id}")
+    while True:
+        try:
+            task = input("codepilot> ").strip()
+        except EOFError:
+            # 管道关闭或 Ctrl-D 表示调用方已经没有更多任务，应正常退出。
+            print()
+            return 0
+        except KeyboardInterrupt:
+            # 在提示符处按 Ctrl-C 只清空当前输入，第二次仍可继续使用界面。
+            print("\n输入已取消；使用 /exit 退出。")
+            continue
+        # 空行只用于整理输入，不应创建 ID、Trace 或模型请求。
+        if not task:
+            continue
+        # 退出和帮助是交互外壳命令，不能作为不可信任务发送给模型。
+        if task in {"/exit", "/quit"}:
+            return 0
+        if task == "/help":
+            print("直接输入自然语言任务；/exit 或 /quit 退出。每条任务都有独立 Trace。")
+            continue
+        task_arguments = argparse.Namespace(
+            **vars(arguments),
+            task=task,
+            session_id=session_id,
+            task_id=None,
+            run_id=None,
+            jsonl=False,
+        )
+        try:
+            exit_code = asyncio.run(_run(task_arguments, config))
+            if exit_code != 0:
+                # Runtime 的受控失败已经由 renderer 展示；这里说明交互会话仍可继续。
+                print("[任务未完成] 可以检查 Trace 后继续输入下一条任务。", file=sys.stderr)
+        except KeyboardInterrupt:
+            # asyncio.run 已取消当前主任务；交互外壳继续等待下一条用户输入。
+            print("\n当前任务已取消，可以继续输入。", file=sys.stderr)
+        except (FileNotFoundError, NotADirectoryError, ValidationError, ValueError) as error:
+            # 已知配置错误只含字段和环境变量名，应保留正文帮助用户修正启动条件。
+            print(f"当前任务配置错误：{error}；可以继续输入。", file=sys.stderr)
+        except Exception as error:
+            # 未知异常只展示类型，避免 Provider 异常正文携带请求内容或秘密。
+            print(f"当前任务启动失败：{type(error).__name__}；可以继续输入。", file=sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """解析配置后运行唯一产品入口，并为输入错误和中断返回稳定退出码。"""
+    """解析一次配置，再进入交互外壳或执行一个非交互任务。"""
     parser = build_parser()
     arguments = parser.parse_args(argv)
     try:
@@ -107,7 +175,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             explicit_path=arguments.config,
             overrides=_overrides(arguments),
         )
-        return asyncio.run(_run(arguments, config))
+        # 有 run 子命令时执行一次并返回状态；无子命令才进入持续提示符。
+        if arguments.command == "run":
+            return asyncio.run(_run(arguments, config))
+        return _interactive(arguments, config)
     except KeyboardInterrupt:
         # asyncio.run 会先取消主任务；此处只负责稳定的终端退出码。
         print("运行已取消。", file=sys.stderr)

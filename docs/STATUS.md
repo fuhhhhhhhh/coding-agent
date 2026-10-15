@@ -20,12 +20,15 @@
 - `CodePilotApplication` 用 `session_id/task_id/run_id` 关联 Trace、后端审计与资源清单，并通过一个 `AsyncExitStack` 关闭 SDK 客户端、后端和 Context Artifact。
 - fake Provider 在 Local 与真实 Rootless Docker 中均通过统一 CLI 完成两轮请求和一次 `glob`，退出后后端 closed、Context 临时正文已清理。
 - OpenAI-compatible 适配器复用现有内部流契约并关闭 SDK 自动重试。真实网关的 `qwen3.5-flash` 完成两轮流式请求、一次只读 `glob` 和最终中文回答；输入 7,781、输出 136 Token，总耗时约 10.6 秒。
+- 无子命令的 `codepilot` 现在进入持续提示符，支持多条任务、`/help`、`/exit`、EOF 和单条失败后继续；`codepilot run` 保留为脚本入口。进程内任务共享 session ID，并各自生成 task/run ID 与 Trace，尚不共享模型历史。
+- 配置现在自动发现用户级 `~/.config/codepilot/config.yaml` 或项目级 `.codepilot/config.yaml`，继续兼容 TOML；CLI 只需输入任务。YAML 采用安全加载、大小限制、对象顶层和同层唯一文件检查；示例配置只保存密钥环境变量名。
 - 真实写入复验使用一次性临时仓库和 Rootless Docker：模型首次 `edit_file` 因上下文不匹配安全失败，随后主动 `read_file`、重新精确编辑，并在人工批准后用 `shell` 执行 `python -m unittest -q`。Agent 内测试和控制器独立复验均为 1 test passed，最终文件内容核对正确；运行后无残留容器。
 - 写入复验的成功 run 使用 5 次模型请求、4 次工具调用，输入 9,122、输出 371 Token。成功前的三个独立 run 遇到网关 `APIConnectionError`：一次发生在首轮请求，两次发生在首个只读工具结果后的下一轮；它们均未修改文件并完成容器清理。
 - 真实运行发现网关会发送只有 index 的空 tool-call 占位项；适配层现在丢弃不推进状态的占位项，MockTransport 回归测试固定覆盖。冲突 ID、非法 JSON 和错误结束原因仍被拒绝。
 - 覆盖非法配置无副作用、Provider 初始化失败清理、后端部分启动失败清理、外部取消传播和唯一 cancelled 终态。
-- `uv run --locked pytest -q`：169 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall 和 wheel 构建通过。
+- `uv run --locked pytest -q`：177 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall 和 wheel 构建通过。
 - `CODEPILOT_DOCKER_LIVE=1` 的 3 个 Rootless Docker 测试通过，运行后无 `io.codepilot.managed=true` 活动容器；新建 Python 3.11 环境安装 wheel 后，`codepilot run` fake 闭环通过。
+- 当前用户已通过 editable `uv tool` 安装 `codepilot`；从仓库外直接启动提示符、安装后单次 fake Local 任务和交互式 fake Rootless Docker 任务均通过，退出后无受管容器残留。
 - 详细设计与真实证据见 `docs/design/P1.md`、`docs/evidence/P1-live-checks.json`、`docs/evidence/P1-real-write-shell.json`；完整离线命令结果见 `docs/evidence/P1-checks.txt`。
 
 ## M10 当前证据
