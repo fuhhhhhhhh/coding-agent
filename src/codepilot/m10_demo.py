@@ -262,8 +262,10 @@ def _live_history() -> tuple[Message, ...]:
     return tuple(messages)
 
 
-async def run_live() -> dict[str, object]:
-    """用一次 DeepSeek 请求验证真实摘要、用量和原子回合保留行为。"""
+async def run_live(
+    timeout_seconds: float = 45.0, model: str = "deepseek-flash"
+) -> dict[str, object]:
+    """用一次指定 DeepSeek 模型验证真实摘要，并允许覆盖排队总时限。"""
     key = os.environ.get("DEEPSEEK_API_KEY")
     if not key:
         raise SystemExit("DEEPSEEK_API_KEY is not configured; no request sent")
@@ -274,8 +276,8 @@ async def run_live() -> dict[str, object]:
         max_retries=0,
         timeout=20.0,
     ) as client:
-        provider = DeepSeekProvider(client, budget=budget, max_tokens=320)
-        summarizer = ModelSummarizer(provider, timeout_seconds=45.0)
+        provider = DeepSeekProvider(client, model=model, budget=budget, max_tokens=320)
+        summarizer = ModelSummarizer(provider, timeout_seconds=timeout_seconds)
         with tempfile.TemporaryDirectory(prefix="codepilot-m10-live-") as temporary:
             manager = ContextManager(
                 DemoExecutor(),
@@ -300,6 +302,7 @@ async def run_live() -> dict[str, object]:
                     "requests": budget.used,
                     "max_requests": budget.max_requests,
                     "max_output_tokens": provider.max_tokens,
+                    "summary_timeout_seconds": timeout_seconds,
                     "passed": False,
                     "reason": str(error),
                     "usage": None,
@@ -320,6 +323,7 @@ async def run_live() -> dict[str, object]:
                 "requests": budget.used,
                 "max_requests": budget.max_requests,
                 "max_output_tokens": provider.max_tokens,
+                "summary_timeout_seconds": timeout_seconds,
                 "compacted": view.compacted,
                 "estimated_tokens_after": view.estimated_tokens,
                 "roles": [message.role for message in view.messages],
@@ -335,8 +339,22 @@ def main() -> None:
     """默认运行离线演示；显式 --live 时只执行一次有预算的真实摘要。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true")
+    parser.add_argument(
+        "--live-timeout",
+        type=float,
+        default=45.0,
+        help="真实摘要的墙钟总时限；DeepSeek 高峰排队可能需要显式增大",
+    )
+    parser.add_argument(
+        "--live-model",
+        choices=("deepseek-flash", "deepseek-v4-pro"),
+        default="deepseek-flash",
+        help="真实摘要使用的 DeepSeek 官方模型",
+    )
     arguments = parser.parse_args()
-    result = asyncio.run(run_live() if arguments.live else run_demo())
+    result = asyncio.run(
+        run_live(arguments.live_timeout, arguments.live_model) if arguments.live else run_demo()
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if arguments.live and not result["passed"]:
         raise SystemExit(1)

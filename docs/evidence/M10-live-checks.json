@@ -8,6 +8,7 @@
   "connectivity": {
     "authenticated": true,
     "deepseek_flash_available": true,
+    "balance_available": true,
     "method": "GET /models"
   },
   "generation_attempts": [
@@ -26,6 +27,26 @@
       "result": "summary_failed:TimeoutError",
       "usage": null,
       "cost": null
+    },
+    {
+      "command": "uv run --locked --env-file .env python -m codepilot.m10_demo --live --live-timeout 600",
+      "model": "deepseek-flash",
+      "request_budget": 1,
+      "max_output_tokens": 320,
+      "summary_wall_timeout_seconds": 600,
+      "result": "summary_failed:TimeoutError",
+      "usage": null,
+      "cost": null
+    },
+    {
+      "command": "uv run --locked --env-file .env python -m codepilot.m10_demo --live --live-model deepseek-v4-pro --live-timeout 600",
+      "model": "deepseek-v4-pro",
+      "request_budget": 1,
+      "max_output_tokens": 320,
+      "summary_wall_timeout_seconds": 600,
+      "result": "summary_failed:TimeoutError",
+      "usage": null,
+      "cost": null
     }
   ],
   "passed": false,
@@ -40,5 +61,5 @@
     "provider token usage",
     "provider billing cost"
   ],
-  "note": "未知 usage 与费用没有按零记录；没有发送真实仓库代码或用户数据。"
+  "note": "认证、余额和短 API 请求正常；两个生成模型都只收到服务端 keep-alive，用户随后确认 DeepSeek 服务异常。未知 usage 与费用没有按零记录；没有发送真实仓库代码或用户数据。"
 }
