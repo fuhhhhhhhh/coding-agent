@@ -18,6 +18,8 @@ uv run --locked python -m codepilot.m06_demo
 uv run --locked python -m codepilot.m07_demo
 uv run --locked python -m codepilot.m08_demo
 uv run --locked python -m codepilot.m10_demo
+# 显式执行一次有预算的真实 DeepSeek 摘要
+uv run --locked --env-file .env python -m codepilot.m10_demo --live
 uv run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
@@ -43,14 +45,15 @@ M08 演示独立读取受限并发、同路径写入串行和排队取消；权�
 结果按调用 ID 和原始顺序回传。
 M09 使用用户级 Rootless Docker 验证同工作区、断网、资源限制、取消和遗留清理。
 M10 演示 110KB 工具输出落盘、错误线索与范围读取，并以完整工具回合为单位自动或手动压缩；
-规范历史与 Provider prompt 视图分离，摘要用量和压缩前后估算可观察。
+规范历史与 Provider prompt 视图分离，摘要用量和压缩前后估算可观察。`--live` 只发送合成历史，
+固定一次 DeepSeek 请求和输出上限；服务端长时间无分片时由摘要总时限明确停止。
 M01—M06 使用 fake provider；M07 另完成受限真实 DeepSeek 验证。仓库中的故意错误 fixture 不会被修改。
 基础配置入口仍只支持 fake；M07 live 演示只从进程环境读取 `DEEPSEEK_API_KEY`，不加载或提交密钥文件。
 
 M02 验收时 Linux 上 Python 3.11.16、3.12.12、3.14.7 均通过 66 个测试；
 M03 通过 88 个测试，M04 通过 93 个测试，M05 通过 98 个测试，M06 通过 102 个测试，
 M07 审查修正后通过 121 个测试，M08 当前环境通过 130 个测试，M10 当前环境通过
-157 个测试并显式跳过 3 个需要隔离 Docker daemon 的 live 测试。最新结果见
+158 个测试并显式跳过 3 个需要隔离 Docker daemon 的 live 测试。最新结果见
 [docs/STATUS.md](docs/STATUS.md) 和 `docs/evidence/`。
 M02 wheel 构建通过，本轮未重复独立安装；M01 独立安装记录保留。
 Windows/macOS、Python 3.13 尚未验证；真实模型只覆盖 DeepSeek 非推理流式只读闭环。

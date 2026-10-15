@@ -15,6 +15,7 @@ from codepilot.context import (
     ContextPreparationError,
     ContextSeed,
     ContextView,
+    ModelSummarizer,
     RepositoryRule,
     SummaryResult,
     assemble_initial_context,
@@ -88,6 +89,15 @@ class RecordingProvider:
         """记录深拷贝 prompt 后消费一条回复。"""
         self.requests.append(tuple(message.model_copy(deep=True) for message in messages))
         return self.responses.pop(0)
+
+
+class HangingProvider:
+    """模拟已经开始但始终不能在摘要总时限内完成的 Provider。"""
+
+    async def complete(self, messages: Sequence[Message]) -> Message:
+        """等待足够长时间，使 ModelSummarizer 的墙钟时限先触发。"""
+        await asyncio.sleep(60)
+        return Message(role="assistant", content="不应完成")
 
 
 def limits(**updates: int) -> ContextLimits:
@@ -408,6 +418,18 @@ def test_context_limit_order_is_validated() -> None:
         ContextLimits(max_prompt_tokens=128, response_reserve_tokens=100)
     with pytest.raises(ValueError):
         ContextLimits(compact_target_tokens=1_000, compact_trigger_tokens=1_000)
+
+
+def test_model_summarizer_has_whole_request_timeout() -> None:
+    """独立摘要调用即使不经过 Runner，也必须受整次墙钟时限约束。"""
+
+    async def scenario() -> None:
+        """运行挂起 Provider，并确认超时取消发生在短测试期限内。"""
+        summarizer = ModelSummarizer(HangingProvider(), timeout_seconds=0.01)
+        with pytest.raises(TimeoutError):
+            await summarizer.summarize((Message(role="user", content="旧历史"),), 100)
+
+    asyncio.run(scenario())
 
 
 def test_invalid_tool_pairing_is_observable_and_never_summarized(tmp_path: Path) -> None:

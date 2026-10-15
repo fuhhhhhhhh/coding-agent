@@ -1,5 +1,6 @@
 """定义历史摘要协议，并提供复用现有 Provider 的摘要适配器。"""
 
+import asyncio
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -21,9 +22,14 @@ class Summarizer(Protocol):
 class ModelSummarizer:
     """使用独立的无工具 Provider 请求生成结构化历史摘要。"""
 
-    def __init__(self, provider: Provider | StreamingProvider) -> None:
-        """保存专用于摘要的 Provider；调用预算仍由 Provider 自己强制执行。"""
+    def __init__(
+        self, provider: Provider | StreamingProvider, *, timeout_seconds: float = 60.0
+    ) -> None:
+        """保存专用 Provider 和整次摘要总时限；请求额度仍由 Provider 强制执行。"""
+        if timeout_seconds <= 0:
+            raise ValueError("summary timeout must be positive")
         self.provider = provider
+        self.timeout_seconds = timeout_seconds
 
     async def summarize(self, messages: Sequence[Message], target_tokens: int) -> SummaryResult:
         """请求模型保留目标、约束、待办、修改与测试证据，并拒绝工具回复。"""
@@ -42,12 +48,14 @@ class ModelSummarizer:
                 content=f"目标不超过约 {target_tokens} Token。以下是待压缩历史：\n{transcript}",
             ),
         )
-        if isinstance(self.provider, StreamingProvider):
-            # 摘要流不转发到主 Runtime，避免把内部压缩文本显示成 Agent 正式回答。
-            reply, usage = await collect_reply(self.provider, request, lambda chunk: None)
-        else:
-            reply = await self.provider.complete(request)
-            usage = Usage()
+        # SDK 的读超时通常按单次网络操作计算；这里额外限制整个摘要调用的墙钟时间。
+        async with asyncio.timeout(self.timeout_seconds):
+            if isinstance(self.provider, StreamingProvider):
+                # 摘要流不转发到主 Runtime，避免把内部压缩文本显示成 Agent 正式回答。
+                reply, usage = await collect_reply(self.provider, request, lambda chunk: None)
+            else:
+                reply = await self.provider.complete(request)
+                usage = Usage()
         if reply.role != "assistant" or reply.tool_calls or not reply.content.strip():
             raise ValueError("summarizer must return nonempty assistant text without tools")
         return SummaryResult(content=reply.content, usage=usage)

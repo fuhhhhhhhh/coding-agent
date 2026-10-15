@@ -11,7 +11,7 @@
 学习偏好：用户于 2026-10-13 明确要求不再留动手题，由 AI 直接完成修改。
 原 M01 命名修改已由 AI 实施并验证，不记作用户独立贡献。
 
-日期：2026-10-14（Asia/Shanghai）
+日期：2026-10-15（Asia/Shanghai）
 
 ## M10 当前证据
 
@@ -22,8 +22,9 @@
 - 摘要 usage、压缩前后估算、artifact 写入/读取和降级均有元数据轨迹；默认 JSONL 不保存原始输出、摘要、参数或 prompt 正文。
 - 覆盖 artifact 不存在、磁盘写入失败、错误只在 110KB 输出中段、摘要异常、摘要仍超目标、单条消息超硬预算、历史调用结果错配和自动压缩；失败不会静默删约束或发送超预算请求。
 - 固定 fake 对照中，基础策略和治理策略均定位中段错误；基础 prompt 合计估算 27,657 Token，治理策略含按需读取的三轮合计 1,001，最大单轮 562。该结果是同一估算器下的控制流证据，不是供应商账单或模型成功率。
-- `ModelSummarizer` 可复用现有完整或流式 Provider，但本阶段没有再次调用真实 API；验收使用确定性摘要器。完整命令结果见 `docs/evidence/M10-checks.txt`。
-- `uv run --locked pytest -q`：157 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall、wheel 构建和 diff 检查通过。
+- `ModelSummarizer` 可复用现有完整或流式 Provider；确定性验收使用 fake 摘要器，真实受限复验结果单独记录，避免把模型随机输出作为核心正确性依据。完整离线命令结果见 `docs/evidence/M10-checks.txt`。
+- `uv run --locked pytest -q`：158 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall、wheel 构建和 diff 检查通过。
+- 2026-10-15 真实 DeepSeek 复验确认认证和模型可用；两次受限流式摘要均长时间无可用分片，最终以 `summary_failed:TimeoutError` 停止。已增加摘要调用的独立墙钟总时限；真实摘要质量、usage 和费用仍标记为未验证，不能声称真实路径通过。
 
 ## M09 当前证据
 
@@ -136,7 +137,7 @@
 
 - 宿主 bind mount 和 Context ArtifactStore 尚无经验证的磁盘硬配额；输出与产物容量限制不能替代磁盘配额。M11 及以后未实现；没有会话持久化或完整 CLI/TUI 框架。
 - Artifact 索引只存在当前进程，Runner 结束后由调用方决定保留或显式 cleanup；跨进程恢复和保留策略留给会话恢复阶段。
-- Token 估算不是任一模型 tokenizer 的精确值；真实摘要质量、真实摘要用量与成本尚未验证。
+- Token 估算不是任一模型 tokenizer 的精确值，也未计入工具 Schema 等完整请求开销；真实摘要质量、真实摘要用量与成本尚未通过验证。
 - 未运行 Windows/macOS、Python 3.13、sdist 安装验证；真实 API 只覆盖 DeepSeek 非推理流式只读闭环。
 - M01 的 wheel 安装证据只证明当时构建可安装与运行，不证明构建字节完全可复现；
   项目锁也没有完整固定隔离构建环境依赖。

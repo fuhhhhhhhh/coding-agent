@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-15",
+  "provider": "DeepSeek",
+  "model": "deepseek-flash",
+  "base_url": "https://api.deepseek.com",
+  "input_policy": "synthetic_history_only",
+  "credential_exposed": false,
+  "connectivity": {
+    "authenticated": true,
+    "deepseek_flash_available": true,
+    "method": "GET /models"
+  },
+  "generation_attempts": [
+    {
+      "request_budget": 1,
+      "max_output_tokens": 512,
+      "result": "manually_cancelled_after_more_than_60_seconds_without_completed_summary",
+      "usage": null,
+      "cost": null
+    },
+    {
+      "command": "uv run --locked --env-file .env python -m codepilot.m10_demo --live",
+      "request_budget": 1,
+      "max_output_tokens": 320,
+      "summary_wall_timeout_seconds": 45,
+      "result": "summary_failed:TimeoutError",
+      "usage": null,
+      "cost": null
+    }
+  ],
+  "passed": false,
+  "verified": [
+    "API key authentication",
+    "deepseek-flash model availability",
+    "stream-wide summary timeout",
+    "clear context compaction failure"
+  ],
+  "not_verified": [
+    "real summary content quality",
+    "provider token usage",
+    "provider billing cost"
+  ],
+  "note": "未知 usage 与费用没有按零记录；没有发送真实仓库代码或用户数据。"
+}

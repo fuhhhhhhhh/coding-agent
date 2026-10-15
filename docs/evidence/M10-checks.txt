@@ -8,7 +8,7 @@ M10 两层上下文治理验收记录
 uv run --locked pytest -q tests/test_context.py tests/test_runtime.py
 
 结果：
-34 passed in 0.58s
+35 passed in 0.59s
 
 覆盖：
 - 仓库规则与任务信息分角色装配
@@ -52,7 +52,7 @@ uv run --locked python -m codepilot.m10_demo
 uv run --locked pytest -q
 
 结果：
-157 passed, 3 skipped in 3.94s
+158 passed, 3 skipped in 3.27s
 
 三个跳过项均为 tests/test_workspace_docker_live.py；它们要求显式设置
 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon。本轮上下文实现不需要 Docker，且此前
