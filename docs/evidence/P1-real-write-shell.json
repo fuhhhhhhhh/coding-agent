@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-15",
+  "model": "qwen3.5-flash",
+  "gateway": "https://api.yunjintao.com/v1",
+  "workspace": "controller_created_temporary_fixture",
+  "backend": "rootless_docker",
+  "permission": "controlled-edit",
+  "credential_policy": "controller_environment_only_not_forwarded_to_container",
+  "failed_runs_before_success": [
+    {
+      "stage": "first_model_request",
+      "reason": "provider_error",
+      "error_type": "APIConnectionError",
+      "tool_calls": 0,
+      "workspace_modified": false,
+      "backend_cleaned": true
+    },
+    {
+      "stage": "second_model_request_after_search",
+      "reason": "provider_error",
+      "error_type": "APIConnectionError",
+      "tool_calls": 1,
+      "workspace_modified": false,
+      "backend_cleaned": true
+    },
+    {
+      "stage": "second_model_request_after_read_file",
+      "reason": "provider_error",
+      "error_type": "APIConnectionError",
+      "tool_calls": 1,
+      "workspace_modified": false,
+      "backend_cleaned": true
+    }
+  ],
+  "successful_run": {
+    "terminal_reason": "completed",
+    "steps": 5,
+    "tool_calls": 4,
+    "tool_sequence": [
+      {
+        "name": "edit_file",
+        "outcome": "error",
+        "effect": "no_write"
+      },
+      {
+        "name": "read_file",
+        "outcome": "success"
+      },
+      {
+        "name": "edit_file",
+        "outcome": "success"
+      },
+      {
+        "name": "shell",
+        "approval": "approved",
+        "command": "python -m unittest -q",
+        "outcome": "success"
+      }
+    ],
+    "input_tokens_by_turn": [1606, 1697, 1796, 1964, 2059],
+    "output_tokens_by_turn": [119, 48, 86, 43, 75],
+    "input_tokens_total": 9122,
+    "output_tokens_total": 371,
+    "duration_seconds_approx": 37.9,
+    "agent_test": "1 test passed",
+    "independent_test": "1 test passed",
+    "file_content_verified": true,
+    "managed_containers_after_run": 0
+  },
+  "limitations": [
+    "The fixture contains one deterministic Python defect and does not measure general coding success.",
+    "The gateway pricing endpoint was unavailable, so exact monetary cost is unknown.",
+    "Local-backend shell was not used because controller API credentials would otherwise require a separate environment-scrubbing guarantee."
+  ]
+}

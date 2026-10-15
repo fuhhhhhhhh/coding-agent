@@ -58,8 +58,9 @@ M10 演示 110KB 工具输出落盘、错误线索与范围读取，并以完整
 规范历史与 Provider prompt 视图分离，摘要用量和压缩前后估算可观察。`--live` 只发送合成历史，
 固定一次 DeepSeek 请求和输出上限；服务端长时间排队时可显式放宽 live 总时限，生产摘要仍使用较短默认值。
 M01—M06 使用 fake provider；M07 另完成受限真实 DeepSeek 验证。P1 的统一入口使用 fake 完成
-Local 与 Rootless Docker 闭环，并通过 OpenAI-compatible 网关使用 `qwen3.5-flash` 完成一次真实流式
-只读工具闭环。真实密钥只从配置指定的环境变量读取，不写入 TOML、Trace 或仓库。
+Local 与 Rootless Docker 闭环，并通过 OpenAI-compatible 网关使用 `qwen3.5-flash` 完成真实流式
+只读工具闭环，以及在临时仓库中的编辑、Shell 审批、测试和故障恢复闭环。真实密钥只从配置指定的
+环境变量读取，不写入 TOML、Trace、容器或仓库。
 
 M02 验收时 Linux 上 Python 3.11.16、3.12.12、3.14.7 均通过 66 个测试；
 M03 通过 88 个测试，M04 通过 93 个测试，M05 通过 98 个测试，M06 通过 102 个测试，
