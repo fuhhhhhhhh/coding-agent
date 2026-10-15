@@ -242,6 +242,7 @@ def test_provider_error_is_terminal_and_not_retried() -> None:
     executor = RecordingExecutor()
     report = asyncio.run(Runner(FakeProvider(()), executor).run(INITIAL))
     assert report.reason == "provider_error" and report.steps == 1 and not executor.calls
+    assert report.detail == "FakeProviderExhausted"
     assert report.observations[-1].detail == "FakeProviderExhausted"
     assert_terminal(report)
 

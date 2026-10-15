@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-15",
+  "failed_run": {
+    "terminal_reason": "provider_error",
+    "error_type": "APIConnectionError",
+    "steps": 1,
+    "tool_calls": 0,
+    "duration_seconds": 0.9080471731722355
+  },
+  "retry_run": {
+    "terminal_reason": "completed",
+    "steps": 3,
+    "tool_calls": 2,
+    "workspace_was_already_git_repository": true,
+    "existing_untracked_file_preserved": "quick_sort.py"
+  },
+  "ui_change": "provider failures now show the redacted exception type and retry guidance",
+  "provider_error_body_recorded": false
+}

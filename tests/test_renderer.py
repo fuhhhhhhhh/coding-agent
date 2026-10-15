@@ -40,3 +40,37 @@ def test_output_limit_explains_that_partial_tool_was_not_executed(tmp_path: Path
     assert "output_limit" in output
     assert "max_tokens" in output
     assert "不完整工具调用未执行" in output
+
+
+def test_provider_error_shows_safe_type_and_retry_direction(tmp_path: Path) -> None:
+    """连接失败应展示脱敏异常类型，避免用户把它误认为工具执行错误。"""
+    stream = io.StringIO()
+    result = ProductRunResult(
+        identity=RunIdentity(session_id="session-a", task_id="task-a", run_id="run-a"),
+        report=RunReport(
+            run_id="run-a",
+            state=RunState.FAILED,
+            reason="provider_error",
+            detail="APIConnectionError",
+            steps=1,
+            tool_calls=0,
+            messages=(),
+            observations=(),
+        ),
+        resources=ResourceOwnership(
+            workspace=tmp_path,
+            state_directory=tmp_path / "state",
+            backend_id="backend-a",
+            backend_closed=True,
+            context_artifacts_cleaned=True,
+        ),
+        permission_audits=(),
+        backend_events=(),
+    )
+
+    EventRenderer(stream).finished(result)
+
+    output = stream.getvalue()
+    assert "Provider 请求失败：APIConnectionError" in output
+    assert "本次未执行后续工具" in output
+    assert "检查网关网络状态后重试" in output

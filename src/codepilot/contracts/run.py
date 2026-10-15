@@ -62,6 +62,8 @@ class RunReport(Contract):
     run_id: Identifier
     state: RunState
     reason: StopReason
+    # detail 只保存异常类型或受控停止说明，不保存可能带凭据的供应商正文。
+    detail: str = ""
     # 计数用于核对资源限制是否按真实尝试次数生效。
     steps: int
     tool_calls: int

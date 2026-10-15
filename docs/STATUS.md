@@ -26,7 +26,7 @@
 - 真实 Qwen + Rootless Docker 运行调用 `write_file` 和控制器 `git_status` 创建 `answer.py`；源仓库没有该文件且保持干净，补丁检查与 replay 均通过，stderr 为空，结束后受管容器为 0。真实项目未配置独立测试命令，因此该项标记未运行。
 - 沙箱镜像现在安装 Git CLI。真实 Rootless Docker 4 项验收通过，其中新增场景在含用户文件的普通目录完成 init、commit、branch 并保留原文件；联网远端操作仍因 Docker 默认断网而未验证。
 - 真实 Qwen 在默认直写 Docker 工作区完成 init、写文件、add、仓库级身份配置和 commit。首个 run 在提交后因八次 Provider 请求额度耗尽而未生成最终回答；第二个只读验证 run 完成，模型与控制器均确认 main 分支、干净状态和最新提交。证据见 `docs/evidence/P2-live-git.json`。
-- `uv run --locked pytest -q`：201 passed、4 个显式 Docker live skip；真实 Docker 套件 4 passed。设计、阅读路径和理解题答案位于 `docs/design/M11.md` 与 `docs/learning/M11.md`。
+- `uv run --locked pytest -q`：202 passed、4 个显式 Docker live skip；真实 Docker 套件 4 passed。设计、阅读路径和理解题答案位于 `docs/design/M11.md` 与 `docs/learning/M11.md`。
 
 ## P1 当前证据
 
@@ -41,6 +41,7 @@
 - 真实写入复验使用一次性临时仓库和 Rootless Docker：模型首次 `edit_file` 因上下文不匹配安全失败，随后主动 `read_file`、重新精确编辑，并在人工批准后用 `shell` 执行 `python -m unittest -q`。Agent 内测试和控制器独立复验均为 1 test passed，最终文件内容核对正确；运行后无残留容器。
 - 写入复验的成功 run 使用 5 次模型请求、4 次工具调用，输入 9,122、输出 371 Token。成功前的三个独立 run 遇到网关 `APIConnectionError`：一次发生在首轮请求，两次发生在首个只读工具结果后的下一轮；它们均未修改文件并完成容器清理。
 - 真实运行发现网关会发送只有 index 的空 tool-call 占位项；适配层现在丢弃不推进状态的占位项，MockTransport 回归测试固定覆盖。冲突 ID、非法 JSON 和错误结束原因仍被拒绝。
+- 用户执行“初始化 git 仓库”时，首轮 Provider 在 0.91 秒后以 `APIConnectionError` 失败，工具调用数为零，因此与 Git 和 Docker 无关。此前终端只显示 `provider_error`；现在 `RunReport.detail` 保留脱敏异常类型，文本与 JSONL 结果都会展示该类型，连接/超时错误还给出重试建议。随后真实重试完成，确认目录已有 Git 仓库且未跟踪的 `quick_sort.py` 未被修改。证据见 `docs/evidence/P1-provider-error-visibility.json`。
 - 覆盖非法配置无副作用、Provider 初始化失败清理、后端部分启动失败清理、外部取消传播和唯一 cancelled 终态。
 - `uv run --locked pytest -q`：本次扩大上下文预算后的完整结果为 189 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall 和 wheel 构建通过。
 - `CODEPILOT_DOCKER_LIVE=1` 的 3 个 Rootless Docker 测试通过，运行后无 `io.codepilot.managed=true` 活动容器；新建 Python 3.11 环境安装 wheel 后，`codepilot run` fake 闭环通过。

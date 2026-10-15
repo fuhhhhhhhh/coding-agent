@@ -69,6 +69,7 @@ class EventRenderer:
                     **result.identity.model_dump(mode="json"),
                     "state": result.report.state.value,
                     "reason": result.report.reason,
+                    "error_type": result.report.detail or None,
                     "steps": result.report.steps,
                     "tool_calls": result.report.tool_calls,
                     "answer": answer,
@@ -95,6 +96,13 @@ class EventRenderer:
         if result.report.reason == "output_limit":
             # 说明安全停止的直接修复方向，同时强调半截工具参数没有被执行。
             self._line("[失败详情] 模型输出达到 max_tokens；不完整工具调用未执行。")
+        elif result.report.reason == "provider_error":
+            # 只展示异常类型；SDK 错误正文可能包含 URL、请求片段或认证信息。
+            error_type = result.report.detail or "UnknownProviderError"
+            self._line(f"[失败详情] Provider 请求失败：{error_type}。本次未执行后续工具。")
+            if error_type in {"APIConnectionError", "APITimeoutError"}:
+                # 连接和超时通常可以安全地由用户重新发起任务，但不能谎称一定未到达服务端。
+                self._line("[建议] 检查网关网络状态后重试；详细类型已写入 Trace。")
         if result.resources.trace_path is not None:
             self._line(f"[Trace] {result.resources.trace_path}")
         if result.delivery is not None:

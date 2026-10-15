@@ -123,6 +123,7 @@ class Runner:
             run_id=self.run_id,
             state=self.state,
             reason=reason,
+            detail=detail,
             steps=self._steps,
             tool_calls=self._tool_calls,
             messages=tuple(self._messages),
