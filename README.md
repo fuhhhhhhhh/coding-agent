@@ -44,8 +44,9 @@ uv build --wheel
 配置按默认值、用户级 `~/.config/codepilot/config.yaml`、工作区 `.codepilot/config.yaml`、显式
 `--config`、CLI 覆盖的顺序合并；旧的 `.codepilot.toml` 继续兼容。同一层同时存在多个候选文件会
 直接报错，避免用户修改了一个实际却读取另一个。`codepilot.product.example.yaml` 展示了 Qwen
-网关、Rootless Docker 和受控编辑配置，只保存 `CODEPILOT_YJT_API_KEY` 这个环境变量名。当前机器
-已经把它安装为用户级 `config.yaml`；真实密钥仍需由当前 shell 或可信凭据管理器提供，不能写入 YAML。
+网关、Rootless Docker、受控编辑和凭据文件路径。当前机器使用用户级 `config.yaml`，真实密钥保存于
+权限为 `0600` 的 `~/.config/codepilot/credentials.yaml`，不会进入仓库、Trace 或容器。临时设置
+`CODEPILOT_YJT_API_KEY` 时，环境变量优先于文件，适合 CI 或单次覆盖。
 
 直接运行 `codepilot` 后，输入任务并回车即可执行；`/help` 查看提示，`/exit` 或 Ctrl-D 退出。
 当前进程内多条任务共享 session ID，但各自拥有 task/run ID 和 Trace。持久历史与进程重启后的
@@ -73,8 +74,8 @@ M10 演示 110KB 工具输出落盘、错误线索与范围读取，并以完整
 固定一次 DeepSeek 请求和输出上限；服务端长时间排队时可显式放宽 live 总时限，生产摘要仍使用较短默认值。
 M01—M06 使用 fake provider；M07 另完成受限真实 DeepSeek 验证。P1 的统一入口使用 fake 完成
 Local 与 Rootless Docker 闭环，并通过 OpenAI-compatible 网关使用 `qwen3.5-flash` 完成真实流式
-只读工具闭环，以及在临时仓库中的编辑、Shell 审批、测试和故障恢复闭环。真实密钥只从配置指定的
-环境变量读取，不写入 TOML、Trace、容器或仓库。
+只读工具闭环，以及在临时仓库中的编辑、Shell 审批、测试和故障恢复闭环。真实密钥从临时环境变量
+或权限受限的用户凭据文件读取，不写入普通配置、Trace、容器或仓库。
 
 M02 验收时 Linux 上 Python 3.11.16、3.12.12、3.14.7 均通过 66 个测试；
 M03 通过 88 个测试，M04 通过 93 个测试，M05 通过 98 个测试，M06 通过 102 个测试，

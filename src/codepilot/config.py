@@ -30,10 +30,17 @@ class ProviderConfig(Contract):
     kind: Literal["fake", "openai-compatible"] = "fake"
     model: Annotated[str, Field(min_length=1)] = "fake-codepilot"
     base_url: str | None = None
-    api_key_env: Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")] = "CODEPILOT_API_KEY"
+    api_key_env: Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")] | None = "CODEPILOT_API_KEY"
+    api_key_file: Path | None = None
     max_tokens: Annotated[int, Field(ge=1, le=4096)] = 256
     max_requests: Annotated[int, Field(ge=1, le=100)] = 8
     timeout_seconds: Annotated[float, Field(gt=0, le=600)] = 60.0
+
+    @field_validator("api_key_file", mode="before")
+    @classmethod
+    def parse_api_key_file(cls, value: object) -> object:
+        """在严格模型边界把 YAML/TOML 路径字符串显式转换为 Path。"""
+        return Path(value) if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def check_provider_fields(self) -> Self:
@@ -45,6 +52,8 @@ class ProviderConfig(Contract):
             raise ValueError("fake provider does not accept base_url")
         elif not self.model.startswith("fake-"):
             raise ValueError("fake provider requires a fake model name")
+        elif self.api_key_file is not None:
+            raise ValueError("fake provider does not accept api_key_file")
         return self
 
 

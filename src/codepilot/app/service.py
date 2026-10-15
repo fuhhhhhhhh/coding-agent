@@ -20,6 +20,7 @@ from codepilot.context import (
 )
 from codepilot.contracts import Message, ToolCall
 from codepilot.contracts.stream import RuntimeEvent
+from codepilot.credentials import resolve_provider_api_key
 from codepilot.observability import EventRecorder
 from codepilot.permissions import (
     ApprovalProvider,
@@ -90,8 +91,8 @@ class CodePilotApplication:
         self.state_root = _state_root(config).resolve()
         if self.state_root.is_relative_to(self.workspace):
             raise ValueError("state directory must be outside workspace")
-        # 密钥存在性属于启动前配置校验，不能等界面已经宣告运行开始后才发现。
-        _validate_provider_environment(config)
+        # 密钥在创建目录、容器或 Trace 前解析，并且只保存在当前应用对象内存中。
+        self._api_key = resolve_provider_api_key(config.provider)
         self.approval = approval
         self.on_event = on_event
 
@@ -137,7 +138,12 @@ class CodePilotApplication:
                 if self.config.permission != "read-only"
                 else None,
             )
-            provider = _create_provider(self.config, permission.specs, identity.run_id)
+            provider = _create_provider(
+                self.config,
+                permission.specs,
+                identity.run_id,
+                api_key=self._api_key,
+            )
             # Provider 最后登记，因此退出时先关闭连接，再关闭后端和 ArtifactStore。
             resources.push_async_callback(provider.close)
             runner = Runner(
@@ -184,15 +190,6 @@ def _state_root(config: ProductConfig) -> Path:
     return base / "codepilot"
 
 
-def _validate_provider_environment(config: ProductConfig) -> None:
-    """在创建目录或后端前确认真实 Provider 的密钥环境变量存在。"""
-    provider = config.provider
-    if provider.kind == "openai-compatible" and not os.environ.get(provider.api_key_env):
-        raise ValueError(
-            f"provider API key environment variable is missing: {provider.api_key_env}"
-        )
-
-
 def _create_backend(
     config: ProductConfig, workspace: Path, audit_directory: Path
 ) -> ExecutionBackend:
@@ -216,7 +213,11 @@ def _create_backend(
 
 
 def _create_provider(
-    config: ProductConfig, tools: tuple[ToolSpec, ...], run_id: str
+    config: ProductConfig,
+    tools: tuple[ToolSpec, ...],
+    run_id: str,
+    *,
+    api_key: str | None,
 ) -> _ProviderHandle:
     """构造 fake 或 OpenAI-compatible Provider，并让调用方统一关闭客户端。"""
     provider = config.provider
@@ -235,7 +236,9 @@ def _create_provider(
             Message(role="assistant", content="Fake provider 已完成一次只读工作区检查。"),
         )
         return _ProviderHandle(FakeProvider(script))
-    api_key = os.environ[provider.api_key_env]
+    if api_key is None:
+        # fake 已在前一分支返回；真实 Provider 到这里必须已经解析出凭据。
+        raise ValueError("real provider API key was not resolved")
     client = AsyncOpenAI(
         api_key=api_key,
         base_url=provider.base_url,
