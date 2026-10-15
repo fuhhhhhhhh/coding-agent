@@ -52,6 +52,8 @@ CodePilot 的目标是成为能够持续处理真实仓库任务的终端 Coding
 
 ### P1：建立统一产品主链
 
+**状态（2026-10-15）**：已达到真实验收。fake 在 Local 与 Rootless Docker 通过同一 CLI；`qwen3.5-flash` 在 OpenAI-compatible 网关完成两轮流式只读工具闭环。持久恢复不属于本阶段。
+
 先实现正式 composition root 和最小 CLI：
 
 - `codepilot run` 从一个配置模型装配 Provider、Context、Permission、Scheduler、ExecutionBackend、Trace 和 Runner。

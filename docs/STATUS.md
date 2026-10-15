@@ -1,10 +1,10 @@
 # 开发状态
 
-当前里程碑：产品化主链 P1 待实施；M10 核心机制已实现，产品化验收并入 P3—P5
+当前里程碑：P2 任务级 Git 工作区与可审查交付待实施
 
-最近完整通过：M10 离线组件验收；M01—M09 的阶段证据保留
+最近完整通过：P1 统一产品主链真实验收；M01—M10 的阶段证据保留
 
-实现状态：M10 正常流程、关键故障、可观察轨迹和受控对照通过离线组件验收；成熟产品门槛与真实摘要成功证据未通过
+实现状态：统一 `codepilot run` 已组合配置、Provider、Context、权限、调度、Local/Docker、Runner、Trace 与清理；worktree、恢复及后续成熟产品门槛未通过
 
 学习状态：用户报告已阅读 M01、M03、M04、M05 核心代码；M02—M10 阅读说明已交付，未验证独立掌握程度。
 
@@ -12,6 +12,19 @@
 原 M01 命名修改已由 AI 实施并验证，不记作用户独立贡献。
 
 日期：2026-10-15（Asia/Shanghai）
+
+## P1 当前证据
+
+- `codepilot run` 是正式 console script；UI 只消费 Runtime 事件和最终报告，Agent 执行仍由同一个 Runner 完成。
+- `ProductConfig` 按默认、用户、项目、显式文件、CLI 覆盖的顺序递归合并；未知字段和不可能组合拒绝。配置只保存密钥环境变量名，缺少密钥时在状态目录和后端副作用前失败。
+- `CodePilotApplication` 用 `session_id/task_id/run_id` 关联 Trace、后端审计与资源清单，并通过一个 `AsyncExitStack` 关闭 SDK 客户端、后端和 Context Artifact。
+- fake Provider 在 Local 与真实 Rootless Docker 中均通过统一 CLI 完成两轮请求和一次 `glob`，退出后后端 closed、Context 临时正文已清理。
+- OpenAI-compatible 适配器复用现有内部流契约并关闭 SDK 自动重试。真实网关的 `qwen3.5-flash` 完成两轮流式请求、一次只读 `glob` 和最终中文回答；输入 7,781、输出 136 Token，总耗时约 10.6 秒。
+- 真实运行发现网关会发送只有 index 的空 tool-call 占位项；适配层现在丢弃不推进状态的占位项，MockTransport 回归测试固定覆盖。冲突 ID、非法 JSON 和错误结束原因仍被拒绝。
+- 覆盖非法配置无副作用、Provider 初始化失败清理、后端部分启动失败清理、外部取消传播和唯一 cancelled 终态。
+- `uv run --locked pytest -q`：169 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall 和 wheel 构建通过。
+- `CODEPILOT_DOCKER_LIVE=1` 的 3 个 Rootless Docker 测试通过，运行后无 `io.codepilot.managed=true` 活动容器；新建 Python 3.11 环境安装 wheel 后，`codepilot run` fake 闭环通过。
+- 详细设计与真实证据见 `docs/design/P1.md`、`docs/evidence/P1-live-checks.json`；完整离线命令结果见 `docs/evidence/P1-checks.txt`。
 
 ## M10 当前证据
 
@@ -148,7 +161,7 @@
 - M02 本轮只构建 wheel，未重复独立安装；M01 的安装证据不能代替 M02 安装验证。
 - 未验证 Windows/macOS 的进程组行为；POSIX 后代终止可能短暂留下僵尸记录；M04 旧演示轨迹在结束后写盘；M07 JSONL 逐事件追加，但不提供崩溃恢复。
 
-当前阻碍：DeepSeek 服务异常阻断真实摘要成功验收；这不阻塞 fake Provider 下的产品主链、worktree、执行面和恢复开发。统一 CLI、任务资源所有权、持久会话及完整产品验收尚未实现。
+当前阻碍：DeepSeek 服务异常仍阻断 M10 真实摘要成功验收，但不阻塞后续产品化开发。任务级 Git 起点/worktree/补丁交付、持久会话及完整产品验收尚未实现。
 
-下一增量：按 `docs/PRODUCTIZATION_PLAN.md` 的新顺序实施 P1，先建立 `codepilot run` 的正式 composition root、配置分层、事件展示和统一清理生命周期。随后进入任务级 worktree，再把输出捕获、沙箱与权限作为同一个受控执行面加固；Context 的完整计量、滚动检查点和结构化状态排在持久恢复之前完成。
+下一增量：实施 P2，把每个 task ID 绑定固定 Git commit 和独立 worktree，增加正式 status/diff/补丁导出、干净起点重放验证和有未交付修改时的安全清理拒绝。
 

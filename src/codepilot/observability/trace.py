@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from collections.abc import Callable
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -16,9 +17,14 @@ CURRENT_TURN: ContextVar[str] = ContextVar("event_turn", default="")
 class EventRecorder:
     """保存内存事件，并按可选路径立即追加脱敏 JSONL。"""
 
-    def __init__(self, directory: Path | None = None) -> None:
-        """显式开启本地落盘；目录应位于 Agent 工作区外。"""
+    def __init__(
+        self,
+        directory: Path | None = None,
+        on_event: Callable[[RuntimeEvent], None] | None = None,
+    ) -> None:
+        """显式开启本地落盘，并可把内存事件同步交给只读界面观察者。"""
         self.directory = directory
+        self.on_event = on_event
         self.events: list[RuntimeEvent] = []
         self.run_id = ""
         self.started = 0.0
@@ -53,6 +59,14 @@ class EventRecorder:
         if self._path is not None:
             with self._path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(self.redacted(event), ensure_ascii=False) + "\n")
+        if self.on_event is not None:
+            # UI 只消费已经进入规范轨迹的事件，不能改变 Runtime 的执行顺序。
+            self.on_event(event.model_copy(deep=True))
+
+    @property
+    def path(self) -> Path | None:
+        """返回本次随机生成的 Trace 路径，尚未启动或未落盘时为空。"""
+        return self._path
 
     @staticmethod
     def redacted(event: RuntimeEvent) -> dict[str, Any]:

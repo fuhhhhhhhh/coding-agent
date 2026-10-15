@@ -1,0 +1,68 @@
+$ uv sync --locked
+Resolved 28 packages in 2ms
+Checked 27 packages in 0.64ms
+$ uv run --locked pytest -q
+........................................................................ [ 41%]
+........................................................................ [ 83%]
+.........................sss                                             [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_workspace_docker_live.py:29: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] tests/test_workspace_docker_live.py:108: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] tests/test_workspace_docker_live.py:156: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+169 passed, 3 skipped in 5.56s
+$ uv run --locked ruff check .
+All checks passed!
+$ uv run --locked ruff format --check .
+124 files already formatted
+$ uv run --locked mypy src tests
+Success: no issues found in 94 source files
+$ uv run --locked python -m compileall -q src tests
+$ uv build --wheel
+Building wheel...
+Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+$ CODEPILOT_DOCKER_LIVE=1 pytest tests/test_workspace_docker_live.py
+...                                                                      [100%]
+3 passed in 14.14s
+$ docker ps --filter label=io.codepilot.managed=true
+$ independent wheel install and codepilot run
+Using CPython 3.11.16
+Creating virtual environment at: /tmp/tmp.ShbcGMqUmA/venv
+Activate with: source /tmp/tmp.ShbcGMqUmA/venv/bin/activate
+Using Python 3.11.16 environment at: /tmp/tmp.ShbcGMqUmA/venv
+Resolved 17 packages in 4.66s
+Prepared 2 packages in 1.03s
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 17 packages in 3.67s
+ + annotated-types==0.8.0
+ + anyio==4.15.1
+ + certifi==2026.7.22
+ + codepilot==0.1.0 (from file:///home/fuxiangyu/project/coding-agent/dist/codepilot-0.1.0-py3-none-any.whl)
+ + distro==1.9.0
+ + h11==0.16.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + idna==3.20
+ + jiter==0.17.0
+ + openai==2.54.0
+ + pydantic==2.14.1
+ + pydantic-core==2.50.1
+ + sniffio==1.3.1
+ + tqdm==4.70.1
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.4
+{"kind":"product_started","session_id":"wheel-session","task_id":"wheel-task","run_id":"wheel-run","backend":"local","provider":"fake"}
+{"run_id":"wheel-run","turn_id":"wheel-run:1","sequence":1,"kind":"model_requested","call_id":"","call_index":null,"resources":[],"usage":null,"duration_seconds":null,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:1","sequence":2,"kind":"usage_updated","call_id":"","call_index":null,"resources":[],"usage":{"input_tokens":null,"output_tokens":null,"source":"unknown"},"duration_seconds":null,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:1","sequence":3,"kind":"tool_call_ready","call_id":"wheel-run-glob","call_index":null,"resources":[],"usage":null,"duration_seconds":null,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:1","sequence":4,"kind":"tool_queued","call_id":"wheel-run-glob","call_index":null,"resources":["workspace"],"usage":null,"duration_seconds":null,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"read","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:1","sequence":5,"kind":"tool_scheduled","call_id":"wheel-run-glob","call_index":null,"resources":["workspace"],"usage":null,"duration_seconds":0.00017024390399456024,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"read","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:1","sequence":6,"kind":"tool_started","call_id":"wheel-run-glob","call_index":null,"resources":[],"usage":null,"duration_seconds":null,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:1","sequence":7,"kind":"tool_finished","call_id":"wheel-run-glob","call_index":null,"resources":[],"usage":null,"duration_seconds":0.008735972922295332,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"success","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:1","sequence":8,"kind":"turn_finished","call_id":"","call_index":null,"resources":[],"usage":null,"duration_seconds":0.009544872678816319,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"tools_completed","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:2","sequence":9,"kind":"model_requested","call_id":"","call_index":null,"resources":[],"usage":null,"duration_seconds":null,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:2","sequence":10,"kind":"usage_updated","call_id":"","call_index":null,"resources":[],"usage":{"input_tokens":null,"output_tokens":null,"source":"unknown"},"duration_seconds":null,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:2","sequence":11,"kind":"turn_finished","call_id":"","call_index":null,"resources":[],"usage":null,"duration_seconds":0.00037265894934535027,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"completed","error_type":""}
+{"run_id":"wheel-run","turn_id":"wheel-run:2","sequence":12,"kind":"run_finished","call_id":"","call_index":null,"resources":[],"usage":null,"duration_seconds":0.010200939141213894,"artifact_id":"","original_bytes":null,"prompt_tokens_before":null,"prompt_tokens_after":null,"outcome":"completed","error_type":""}
+{"kind":"product_result","session_id":"wheel-session","task_id":"wheel-task","run_id":"wheel-run","state":"completed","reason":"completed","steps":2,"tool_calls":1,"answer":"Fake provider 已完成一次只读工作区检查。","trace_path":"/tmp/tmp.ShbcGMqUmA/state/wheel-session/wheel-task/wheel-run/traces/trace-71d3fd86-44a0-4374-a0f6-a4efb822f411.jsonl","backend_closed":true,"context_artifacts_cleaned":true}

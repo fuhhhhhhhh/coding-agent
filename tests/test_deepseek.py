@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from codepilot.contracts import Message
 from codepilot.observability.trace import EventRecorder
 from codepilot.providers.deepseek import DeepSeekProvider, RequestBudget
+from codepilot.providers.openai_compatible import OpenAICompatibleProvider
 from codepilot.runtime import Runner
 from codepilot.tools import create_basic_registry
 
@@ -183,5 +184,75 @@ def test_sdk_errors_do_not_retry_or_persist_credentials(tmp_path: Path) -> None:
             assert report.reason == "provider_error" and count == 1
             assert recorder.events[-1].error_type == "InternalServerError"
             assert all("SECRET" not in path.read_text() for path in (tmp_path / "trace").iterdir())
+
+    asyncio.run(scenario())
+
+
+def test_compatible_gateway_ignores_empty_tool_placeholders(tmp_path: Path) -> None:
+    """兼容网关只有 index 的工具占位项不能破坏已经组装的合法调用。"""
+
+    async def scenario() -> None:
+        """模拟 Qwen 网关的空占位分片，再完成一次只读工具闭环。"""
+        request_count = 0
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            """首轮返回省略 index 的工具片段和空占位，次轮返回最终文本。"""
+            nonlocal request_count
+            request_count += 1
+            body = json.loads(request.content)
+            assert "thinking" not in body
+            if request_count == 1:
+                parts = [
+                    chunk(
+                        {
+                            "tool_calls": [
+                                {
+                                    "index": None,
+                                    "id": "call-compatible",
+                                    "type": "function",
+                                    "function": {"name": "glob", "arguments": ""},
+                                }
+                            ]
+                        }
+                    ),
+                    chunk(
+                        {
+                            "tool_calls": [
+                                {
+                                    "index": None,
+                                    "function": {"arguments": '{"pattern":"*"}'},
+                                }
+                            ]
+                        }
+                    ),
+                    chunk(
+                        {
+                            "tool_calls": [
+                                {"index": None, "function": {"name": None, "arguments": None}}
+                            ]
+                        }
+                    ),
+                    chunk({}, "tool_calls"),
+                ]
+            else:
+                parts = [chunk({"content": "完成"}), chunk({}, "stop")]
+            return httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, content=sse(parts)
+            )
+
+        async with AsyncOpenAI(
+            api_key="fake",
+            base_url="https://mock.invalid",
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        ) as client:
+            registry = create_basic_registry(tmp_path)
+            provider = OpenAICompatibleProvider(client, registry.specs, model="qwen-test")
+            report = await Runner(provider, registry).run(
+                (Message(role="user", content="检查目录"),)
+            )
+
+        assert report.reason == "completed"
+        assert report.tool_calls == 1
+        assert request_count == 2
 
     asyncio.run(scenario())

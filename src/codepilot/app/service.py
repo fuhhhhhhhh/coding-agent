@@ -1,0 +1,284 @@
+"""组装并运行正式产品链，统一拥有 Provider、后端和临时资源生命周期。"""
+
+import asyncio
+import os
+import uuid
+from contextlib import AsyncExitStack
+from pathlib import Path
+from typing import Protocol
+
+from openai import AsyncOpenAI
+
+from codepilot.app.models import ProductRunResult, ResourceOwnership, RunIdentity
+from codepilot.config import ProductConfig
+from codepilot.context import (
+    ContextArtifactStore,
+    ContextManager,
+    ContextSeed,
+    RepositoryRule,
+    assemble_initial_context,
+)
+from codepilot.contracts import Message, ToolCall
+from codepilot.contracts.stream import RuntimeEvent
+from codepilot.observability import EventRecorder
+from codepilot.permissions import (
+    ApprovalProvider,
+    ConsoleApproval,
+    PermissionedExecutor,
+    PermissionEngine,
+    PermissionPolicy,
+    ask_edits_policy,
+    controlled_edit_policy,
+    read_only_policy,
+)
+from codepilot.providers.base import Provider
+from codepilot.providers.fake import FakeProvider
+from codepilot.providers.openai_compatible import OpenAICompatibleProvider, RequestBudget
+from codepilot.providers.stream import StreamingProvider
+from codepilot.runtime import Runner
+from codepilot.scheduler import ScheduledExecutor
+from codepilot.tools.base import ToolSpec
+from codepilot.workspace import DockerExecutionBackend, ExecutionBackend, LocalExecutionBackend
+
+
+class EventConsumer(Protocol):
+    """约束终端界面只接收 Runtime 事件，不调用 Provider 或工具。"""
+
+    def __call__(self, event: RuntimeEvent) -> None:
+        """同步消费一条已经写入规范内存轨迹的事件。"""
+        ...
+
+
+class _ProviderHandle:
+    """把 Provider 和可重复调用的异步关闭动作绑定在一起。"""
+
+    def __init__(
+        self,
+        provider: Provider | StreamingProvider,
+        client: AsyncOpenAI | None = None,
+    ) -> None:
+        """保存核心 Provider；只有联网实现才持有需要关闭的 SDK 客户端。"""
+        self.provider = provider
+        self.client = client
+        self._closed = False
+
+    async def close(self) -> None:
+        """关闭 SDK 连接池；fake Provider 的关闭是幂等空操作。"""
+        if self._closed:
+            return
+        self._closed = True
+        if self.client is not None:
+            await self.client.close()
+
+
+class CodePilotApplication:
+    """为一次新任务建立正式组件链，并在任意退出路径统一回收资源。"""
+
+    def __init__(
+        self,
+        config: ProductConfig,
+        workspace: Path,
+        *,
+        approval: ApprovalProvider | None = None,
+        on_event: EventConsumer | None = None,
+    ) -> None:
+        """校验工作区和状态目录关系；此阶段不创建文件、容器或网络连接。"""
+        self.config = config
+        self.workspace = workspace.resolve(strict=True)
+        if not self.workspace.is_dir():
+            raise ValueError("workspace must be a directory")
+        self.state_root = _state_root(config).resolve()
+        if self.state_root.is_relative_to(self.workspace):
+            raise ValueError("state directory must be outside workspace")
+        # 密钥存在性属于启动前配置校验，不能等界面已经宣告运行开始后才发现。
+        _validate_provider_environment(config)
+        self.approval = approval
+        self.on_event = on_event
+
+    async def run(
+        self,
+        task: str,
+        *,
+        session_id: str | None = None,
+        task_id: str | None = None,
+        run_id: str | None = None,
+    ) -> ProductRunResult:
+        """执行一个新任务，并在返回结果前关闭后端、客户端及临时 Artifact。"""
+        if not task.strip():
+            raise ValueError("task must not be empty")
+        identity = RunIdentity(
+            session_id=session_id or f"session-{uuid.uuid4().hex}",
+            task_id=task_id or f"task-{uuid.uuid4().hex}",
+            run_id=run_id or f"run-{uuid.uuid4().hex}",
+        )
+        run_directory = self.state_root / identity.session_id / identity.task_id / identity.run_id
+        trace_directory = run_directory / "traces"
+        backend_directory = run_directory / "backend"
+        context_directory = run_directory / "context"
+
+        # 所有可能产生副作用的对象都在配置和密钥检查成功后才构造。
+        backend = _create_backend(self.config, self.workspace, backend_directory)
+        store = ContextArtifactStore(context_directory)
+        report = None
+        permission = None
+        recorder = EventRecorder(trace_directory, self.on_event)
+        async with AsyncExitStack() as resources:
+            # 先登记已构造资源，后续装配或启动失败也会进入相同清理出口。
+            resources.callback(store.cleanup)
+            resources.push_async_callback(backend.close)
+            context = ContextManager(backend, store, limits=self.config.context)
+            scheduler = ScheduledExecutor(context, self.config.scheduler_concurrency)
+            permission = PermissionedExecutor(
+                scheduler,
+                PermissionEngine(_permission_policy(self.config.permission)),
+                self.approval
+                if self.approval is not None
+                else ConsoleApproval()
+                if self.config.permission != "read-only"
+                else None,
+            )
+            provider = _create_provider(self.config, permission.specs, identity.run_id)
+            # Provider 最后登记，因此退出时先关闭连接，再关闭后端和 ArtifactStore。
+            resources.push_async_callback(provider.close)
+            runner = Runner(
+                provider.provider,
+                permission,
+                self.config.runtime,
+                run_id=identity.run_id,
+                recorder=recorder,
+                context=context,
+            )
+            await backend.start()
+            try:
+                report = await runner.run(_initial_messages(self.workspace, task))
+            except asyncio.CancelledError:
+                # Runner 已经记录 cancelled；后端仍需封闭入口并停止活动进程或容器。
+                await asyncio.shield(backend.cancel())
+                raise
+
+        if report is None or permission is None:
+            # 正常控制流不会到达这里，显式防御能避免返回未初始化的产品结果。
+            raise RuntimeError("run completed without a report")
+        return ProductRunResult(
+            identity=identity,
+            report=report,
+            resources=ResourceOwnership(
+                workspace=self.workspace,
+                state_directory=run_directory,
+                trace_path=recorder.path,
+                backend_id=backend.backend_id,
+                backend_closed=any(event.kind == "backend_closed" for event in backend.events),
+                context_artifacts_cleaned=not any(context_directory.glob("*.txt")),
+            ),
+            permission_audits=tuple(permission.audits),
+            backend_events=backend.events,
+        )
+
+
+def _state_root(config: ProductConfig) -> Path:
+    """选择显式状态目录或符合 XDG 约定的用户级默认目录。"""
+    if config.state_directory is not None:
+        return config.state_directory.expanduser()
+    configured = os.environ.get("XDG_STATE_HOME")
+    base = Path(configured).expanduser() if configured else Path.home() / ".local" / "state"
+    return base / "codepilot"
+
+
+def _validate_provider_environment(config: ProductConfig) -> None:
+    """在创建目录或后端前确认真实 Provider 的密钥环境变量存在。"""
+    provider = config.provider
+    if provider.kind == "openai-compatible" and not os.environ.get(provider.api_key_env):
+        raise ValueError(
+            f"provider API key environment variable is missing: {provider.api_key_env}"
+        )
+
+
+def _create_backend(
+    config: ProductConfig, workspace: Path, audit_directory: Path
+) -> ExecutionBackend:
+    """根据严格配置构造唯一工作区后端，构造本身不启动容器。"""
+    backend = config.backend
+    if backend.kind == "local":
+        return LocalExecutionBackend(
+            workspace,
+            limits=backend.limits,
+            audit_directory=audit_directory,
+        )
+    if backend.docker_image is None:
+        # ProductConfig 已阻止该状态；保留防御以缩小未来配置变更的故障范围。
+        raise ValueError("docker image is required")
+    return DockerExecutionBackend(
+        workspace,
+        backend.docker_image,
+        limits=backend.limits,
+        audit_directory=audit_directory,
+    )
+
+
+def _create_provider(
+    config: ProductConfig, tools: tuple[ToolSpec, ...], run_id: str
+) -> _ProviderHandle:
+    """构造 fake 或 OpenAI-compatible Provider，并让调用方统一关闭客户端。"""
+    provider = config.provider
+    if provider.kind == "fake":
+        script = (
+            Message(
+                role="assistant",
+                tool_calls=(
+                    ToolCall(
+                        call_id=f"{run_id}-glob",
+                        name="glob",
+                        arguments={"pattern": "*"},
+                    ),
+                ),
+            ),
+            Message(role="assistant", content="Fake provider 已完成一次只读工作区检查。"),
+        )
+        return _ProviderHandle(FakeProvider(script))
+    api_key = os.environ[provider.api_key_env]
+    client = AsyncOpenAI(
+        api_key=api_key,
+        base_url=provider.base_url,
+        timeout=provider.timeout_seconds,
+        max_retries=0,
+    )
+    # 这里仅承诺 OpenAI Chat Completions 兼容；能力探测和复杂重试属于 P6。
+    compatible = OpenAICompatibleProvider(
+        client,
+        tools,
+        model=provider.model,
+        budget=RequestBudget(provider.max_requests),
+        max_tokens=provider.max_tokens,
+    )
+    return _ProviderHandle(compatible, client)
+
+
+def _permission_policy(name: str) -> PermissionPolicy:
+    """把配置中的稳定预设名映射到现有权限策略对象。"""
+    if name == "read-only":
+        return read_only_policy()
+    if name == "controlled-edit":
+        return controlled_edit_policy()
+    return ask_edits_policy()
+
+
+def _initial_messages(workspace: Path, task: str) -> tuple[Message, ...]:
+    """组装内置行为边界、根目录 AGENTS.md 和用户任务三类初始信息。"""
+    rules = [
+        RepositoryRule(
+            source="CodePilot",
+            content=(
+                "你是在一个固定工作区运行的 Coding Agent。先检查证据，再使用已提供的工具完成任务；"
+                "工具错误必须根据结果处理，不能声称未验证的修改或测试已经成功。"
+            ),
+        )
+    ]
+    agents = workspace / "AGENTS.md"
+    if agents.is_file() and not agents.is_symlink():
+        # 根规则设置读取上限，防止启动阶段把异常大文件直接注入模型上下文。
+        if agents.stat().st_size > 256 * 1024:
+            raise ValueError("root AGENTS.md exceeds 256 KiB")
+        rules.append(RepositoryRule(source="AGENTS.md", content=agents.read_text(encoding="utf-8")))
+    return assemble_initial_context(
+        ContextSeed(repository_rules=tuple(rules), task_information=task.strip())
+    )

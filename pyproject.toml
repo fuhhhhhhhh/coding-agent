@@ -12,6 +12,9 @@ dependencies = [
     "pydantic>=2.12,<3",
 ]
 
+[project.scripts]
+codepilot = "codepilot.ui.cli:main"
+
 [dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.14,<1", "mypy>=1.18,<2"]
 

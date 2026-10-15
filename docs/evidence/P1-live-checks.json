@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-15",
+  "gateway": "https://api.yunjintao.com/v1",
+  "credential_policy": "environment_only_not_persisted",
+  "model_discovery": {
+    "endpoint": "/v1/models",
+    "qwen_models_visible": 30
+  },
+  "failed_diagnostics": [
+    {
+      "model": "qwen-turbo",
+      "mode": "stream",
+      "result": "empty_stream_contract_error"
+    },
+    {
+      "model": "qwen-turbo",
+      "mode": "non_stream",
+      "result": "choices_missing"
+    },
+    {
+      "model": "qwen3.5-flash",
+      "mode": "stream_before_fix",
+      "result": "empty_tool_call_placeholder_rejected"
+    }
+  ],
+  "successful_run": {
+    "model": "qwen3.5-flash",
+    "backend": "local",
+    "permission": "read-only",
+    "steps": 2,
+    "tool_calls": 1,
+    "tool": "glob",
+    "input_tokens_by_turn": [3826, 3955],
+    "output_tokens_by_turn": [110, 26],
+    "duration_seconds_approx": 10.6,
+    "terminal_reason": "completed",
+    "backend_closed": true,
+    "context_artifacts_cleaned": true
+  },
+  "docker_product_run": {
+    "provider": "fake",
+    "backend": "rootless_docker",
+    "steps": 2,
+    "tool_calls": 1,
+    "terminal_reason": "completed",
+    "backend_closed": true,
+    "managed_containers_after_run": 0
+  },
+  "limitations": [
+    "The gateway pricing endpoint returned HTTP 500, so this evidence does not claim an exact monetary cost.",
+    "The live run verifies a read-only tool loop, not autonomous code editing quality.",
+    "DeepSeek was not retried because the user reported an external service outage."
+  ]
+}

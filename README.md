@@ -1,18 +1,21 @@
 # CodePilot
 
-逐阶段实现 Python 终端 Coding Agent。当前完成非流式与流式 Agent 循环、六个基础工具、权限审批、
+逐阶段实现 Python 终端 Coding Agent。当前已有统一 `codepilot run` 产品入口，并完成非流式与流式 Agent 循环、六个基础工具、权限审批、
 Local 评测纠错、脱敏 Trace、Rootless Docker 沙箱和两层上下文治理，并已完成一次受限的
 DeepSeek 流式只读闭环验证。
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
-当前仓库属于“核心机制与部分真实后端已验证”，尚未达到成熟终端产品。当前首要缺口是统一产品主链、
-任务级工作区所有权和受控执行面；上下文完整计量、持久会话、Provider 可靠性与扩展系统也仍需完成。后续成熟度门槛与实施顺序见
+当前仓库属于“产品主链和部分真实后端已验证”，尚未达到成熟终端产品。当前首要缺口是任务级
+Git worktree 和可审查补丁交付；受控执行面、上下文完整计量、持久会话、Provider 可靠性与扩展系统也仍需完成。后续成熟度门槛与实施顺序见
 [产品化路线](docs/PRODUCTIZATION_PLAN.md)。
 
 需要 Python 3.11+ 和 uv。在本目录执行：
 
 ```bash
 uv sync --locked
+uv run --locked codepilot run "检查当前工作区" --workspace . \
+  --config codepilot.product.example.toml --session-id demo-session \
+  --task-id demo-task --run-id demo-run
 uv run --locked python -m codepilot.demo codepilot.example.toml
 uv run --locked python -m codepilot.m02_demo
 uv run --locked python -m codepilot.m03_demo
@@ -54,13 +57,14 @@ M09 使用用户级 Rootless Docker 验证同工作区、断网、资源限制�
 M10 演示 110KB 工具输出落盘、错误线索与范围读取，并以完整工具回合为单位自动或手动压缩；
 规范历史与 Provider prompt 视图分离，摘要用量和压缩前后估算可观察。`--live` 只发送合成历史，
 固定一次 DeepSeek 请求和输出上限；服务端长时间排队时可显式放宽 live 总时限，生产摘要仍使用较短默认值。
-M01—M06 使用 fake provider；M07 另完成受限真实 DeepSeek 验证。仓库中的故意错误 fixture 不会被修改。
-基础配置入口仍只支持 fake；M07 live 演示只从进程环境读取 `DEEPSEEK_API_KEY`，不加载或提交密钥文件。
+M01—M06 使用 fake provider；M07 另完成受限真实 DeepSeek 验证。P1 的统一入口使用 fake 完成
+Local 与 Rootless Docker 闭环，并通过 OpenAI-compatible 网关使用 `qwen3.5-flash` 完成一次真实流式
+只读工具闭环。真实密钥只从配置指定的环境变量读取，不写入 TOML、Trace 或仓库。
 
 M02 验收时 Linux 上 Python 3.11.16、3.12.12、3.14.7 均通过 66 个测试；
 M03 通过 88 个测试，M04 通过 93 个测试，M05 通过 98 个测试，M06 通过 102 个测试，
 M07 审查修正后通过 121 个测试，M08 当前环境通过 130 个测试，M10 当前环境通过
-158 个测试并显式跳过 3 个需要隔离 Docker daemon 的 live 测试。最新结果见
+最新测试数量与真实环境证据见
 [docs/STATUS.md](docs/STATUS.md) 和 `docs/evidence/`。
 M02 wheel 构建通过，本轮未重复独立安装；M01 独立安装记录保留。
 Windows/macOS、Python 3.13 尚未验证；真实模型只覆盖 DeepSeek 非推理流式只读闭环。
@@ -72,8 +76,8 @@ Windows/macOS、Python 3.13 尚未验证；真实模型只覆盖 DeepSeek 非推
 
 进度见 [docs/STATUS.md](docs/STATUS.md)，
 产品化门槛见 [docs/PRODUCTIZATION_PLAN.md](docs/PRODUCTIZATION_PLAN.md)，
-机制与取舍见 [docs/design/M10.md](docs/design/M10.md)，
-阅读路径与执行解释见 [docs/learning/M10.md](docs/learning/M10.md)。
+当前机制与取舍见 [docs/design/P1.md](docs/design/P1.md)，
+阅读路径与执行解释见 [docs/learning/P1.md](docs/learning/P1.md)。
 按用户要求不再留动手题；原 M01 命名修改已直接实现并验证。
 ## M07：流式与 Trace
 

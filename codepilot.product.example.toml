@@ -1,0 +1,19 @@
+# P1 统一产品入口的离线默认示例。
+permission = "read-only"
+scheduler_concurrency = 4
+
+[provider]
+kind = "fake"
+model = "fake-codepilot"
+max_tokens = 256
+max_requests = 8
+timeout_seconds = 60.0
+
+[backend]
+kind = "local"
+
+[runtime]
+max_steps = 8
+max_tool_calls = 16
+timeout_seconds = 30.0
+max_consecutive_failures = 3

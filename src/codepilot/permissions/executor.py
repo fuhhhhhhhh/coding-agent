@@ -44,6 +44,11 @@ class PermissionedExecutor:
         """仅在下游调度器明确保证资源安全时允许 Runner 并发。"""
         return bool(getattr(self.registry, "supports_parallel", False))
 
+    @property
+    def specs(self) -> tuple[ToolSpec, ...]:
+        """转发唯一工具目录，使权限层可以继续被 Context 等外层包装。"""
+        return self.registry.specs
+
     async def execute(self, call: ToolCall) -> ToolResult:
         """先判定并按需审批，只有允许路径才委托给真实工具注册表。"""
         spec = self._spec_for(call.name)
