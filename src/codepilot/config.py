@@ -74,11 +74,29 @@ class BackendConfig(Contract):
         return self
 
 
+class GitWorkspaceConfig(Contract):
+    """保存任务工作树、固定起点和独立复验所需的产品配置。"""
+
+    enabled: bool = True
+    base_commit: Annotated[str, Field(min_length=1)] = "HEAD"
+    require_clean_source: bool = True
+    verification_command: tuple[Annotated[str, Field(min_length=1)], ...] = ()
+    verification_timeout_seconds: Annotated[float, Field(gt=0, le=900)] = 120.0
+    max_patch_bytes: Annotated[int, Field(ge=1024, le=64 * 1024 * 1024)] = 16 * 1024 * 1024
+
+    @field_validator("verification_command", mode="before")
+    @classmethod
+    def parse_verification_command(cls, value: object) -> object:
+        """在 YAML 边界把自然数组显式转换为内部不可变 argv。"""
+        return tuple(value) if isinstance(value, list) else value
+
+
 class ProductConfig(Contract):
     """描述统一产品入口装配一次 Agent 运行所需的全部非秘密参数。"""
 
     provider: ProviderConfig = ProviderConfig()
     backend: BackendConfig = BackendConfig()
+    git_workspace: GitWorkspaceConfig = GitWorkspaceConfig()
     permission: Literal["read-only", "ask-edits", "controlled-edit"] = "ask-edits"
     runtime: RunLimits = RunLimits()
     context: ContextLimits = ContextLimits()

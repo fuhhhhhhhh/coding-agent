@@ -24,6 +24,15 @@ runtime:
   timeout_seconds: 900
   max_consecutive_failures: 3
 
+# 每项任务从固定 commit 建立独立 worktree；验证命令由具体项目覆盖。
+git_workspace:
+  enabled: true
+  base_commit: HEAD
+  require_clean_source: true
+  verification_command: []
+  verification_timeout_seconds: 120
+  max_patch_bytes: 16777216
+
 # Qwen3.5-Flash 总上下文为 1M；为最大输出预留 65,536 Token。
 context:
   max_prompt_tokens: 1000000

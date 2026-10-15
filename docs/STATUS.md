@@ -1,10 +1,10 @@
 # 开发状态
 
-当前里程碑：P2 任务级 Git 工作区与可审查交付待实施
+当前里程碑：P3 受控执行面加固待实施
 
-最近完整通过：P1 统一产品主链真实验收；M01—M10 的阶段证据保留
+最近完整通过：P2 / M11 任务级 Git worktree 与可审查交付；M01—M10 的阶段证据保留
 
-实现状态：统一 `codepilot run` 已组合配置、Provider、Context、权限、调度、Local/Docker、Runner、Trace 与清理；worktree、恢复及后续成熟产品门槛未通过
+实现状态：统一 `codepilot run` 已组合任务 worktree、补丁重放、Provider、Context、权限、调度、Local/Docker、Runner、Trace 与清理；恢复及后续成熟产品门槛未通过
 
 学习状态：用户报告已阅读 M01、M03、M04、M05 核心代码；M02—M10 阅读说明已交付，未验证独立掌握程度。
 
@@ -12,6 +12,17 @@
 原 M01 命名修改已由 AI 实施并验证，不记作用户独立贡献。
 
 日期：2026-10-15（Asia/Shanghai）
+
+## P2 / M11 当前证据
+
+- 默认产品入口要求干净 Git 源工作树，把每个 task ID 绑定到解析后的固定 commit 和状态目录中的独立 detached worktree；`--direct-workspace` 是明确降级的兼容入口。
+- `workspace.json` 以 0600 记录 UID、session/task/run、源仓库、任务目录、base commit、状态和补丁摘要；路径、所有权或当前修改不匹配时拒绝清理。
+- `git_status` 与 `git_diff` 是正式只读工具。Docker 只挂载任务文件，两个 Git 查询由控制器使用固定 argv 执行；文件与 Shell 仍在 Rootless Docker 中执行。
+- 交付通过临时 index 纳入未跟踪文件，导出 Git 原生 `--binary --full-index` 补丁，覆盖新增、删除、文件模式和二进制内容；补丁为 0600 并带 SHA-256。
+- 每份补丁都在同一 commit 的新 replay worktree 先检查、再应用；项目可配置固定验证 argv。验证副本完成后删除，有修改的 Agent 工作树和补丁保留，无修改任务自动清理。
+- 两个从同一 commit 创建的任务分别修改同一路径，结果互不覆盖、补丁摘要不同且源仓库保持干净。不存在的起点、脏源目录、重放冲突和带修改清理拒绝均有确定性测试。
+- 真实 Qwen + Rootless Docker 运行调用 `write_file` 和控制器 `git_status` 创建 `answer.py`；源仓库没有该文件且保持干净，补丁检查与 replay 均通过，stderr 为空，结束后受管容器为 0。真实项目未配置独立测试命令，因此该项标记未运行。
+- `uv run --locked pytest -q`：197 passed、3 个显式 Docker live skip；设计、阅读路径和理解题答案位于 `docs/design/M11.md` 与 `docs/learning/M11.md`，真实证据位于 `docs/evidence/M11-live-worktree.json`。
 
 ## P1 当前证据
 
@@ -157,7 +168,7 @@
 
 ## 未完成与未验证
 
-- 宿主 bind mount 和 Context ArtifactStore 尚无经验证的磁盘硬配额；输出与产物容量限制不能替代磁盘配额。M11 及以后未实现；没有会话持久化或完整 CLI/TUI 框架。
+- 宿主 bind mount 和 Context ArtifactStore 尚无经验证的磁盘硬配额；输出与产物容量限制不能替代磁盘配额。M12 及以后未实现；没有会话持久化或完整 CLI/TUI 框架。
 - Artifact 索引只存在当前进程，Runner 结束后由调用方决定保留或显式 cleanup；跨进程恢复和保留策略留给会话恢复阶段。
 - Token 估算不是任一模型 tokenizer 的精确值，也未计入工具 Schema 等完整请求开销；真实摘要质量、真实摘要用量与成本尚未通过验证。
 - 未运行 Windows/macOS、Python 3.13、sdist 安装验证；真实 API 只覆盖 DeepSeek 非推理流式只读闭环。
@@ -170,7 +181,7 @@
 - M02 本轮只构建 wheel，未重复独立安装；M01 的安装证据不能代替 M02 安装验证。
 - 未验证 Windows/macOS 的进程组行为；POSIX 后代终止可能短暂留下僵尸记录；M04 旧演示轨迹在结束后写盘；M07 JSONL 逐事件追加，但不提供崩溃恢复。
 
-当前阻碍：DeepSeek 服务异常仍阻断 M10 真实摘要成功验收，但不阻塞后续产品化开发。任务级 Git 起点/worktree/补丁交付、持久会话及完整产品验收尚未实现。
+当前阻碍：DeepSeek 服务异常仍阻断 M10 真实摘要成功验收，但不阻塞后续产品化开发。持久会话及完整产品验收尚未实现。
 
-下一增量：实施 P2，把每个 task ID 绑定固定 Git commit 和独立 worktree，增加正式 status/diff/补丁导出、干净起点重放验证和有未交付修改时的安全清理拒绝。
+下一增量：实施 P3，统一 Shell/工具原始输出捕获、磁盘配额、结构化 Action 与秘密/网络权限，并在现有 Rootless Docker 和任务 worktree 主链上验收。
 

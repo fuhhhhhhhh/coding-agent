@@ -5,8 +5,8 @@ Local 评测纠错、脱敏 Trace、Rootless Docker 沙箱和两层上下文治�
 DeepSeek 流式只读闭环验证。
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
-当前仓库属于“产品主链和部分真实后端已验证”，尚未达到成熟终端产品。当前首要缺口是任务级
-Git worktree 和可审查补丁交付；受控执行面、上下文完整计量、持久会话、Provider 可靠性与扩展系统也仍需完成。后续成熟度门槛与实施顺序见
+当前仓库属于“产品主链、真实后端和任务级 Git 交付已验证”，尚未达到成熟终端产品。当前首要缺口是
+受控执行面加固；上下文完整计量、持久会话、Provider 可靠性与扩展系统也仍需完成。后续成熟度门槛与实施顺序见
 [产品化路线](docs/PRODUCTIZATION_PLAN.md)。
 
 需要 Python 3.11+ 和 uv。在本目录执行：
@@ -29,6 +29,7 @@ uv run --locked python -m codepilot.m06_demo
 uv run --locked python -m codepilot.m07_demo
 uv run --locked python -m codepilot.m08_demo
 uv run --locked python -m codepilot.m10_demo
+uv run --locked python -m codepilot.m11_demo
 # 显式执行一次有预算的真实 DeepSeek 摘要
 uv run --locked --env-file .env python -m codepilot.m10_demo --live --live-timeout 600
 # Flash 长时间排队时，可显式选择另一个官方模型做受限验收
@@ -57,6 +58,13 @@ uv build --wheel
 直接运行 `codepilot` 后，输入任务并回车即可执行；`/help` 查看提示，`/exit` 或 Ctrl-D 退出。
 当前进程内多条任务共享 session ID，但各自拥有 task/run ID 和 Trace。持久历史与进程重启后的
 恢复属于后续会话阶段，目前输入下一条任务不会携带上一条任务的模型消息。
+
+默认情况下，工作区必须是干净的 Git 仓库。每条任务从配置的 `base_commit` 建立独立 detached
+worktree，Agent、Docker 和工具只修改这个任务目录；原工作树不会被直接覆盖。无修改的任务自动清理
+worktree，有修改的任务会保留工作树并导出 Git 原生二进制补丁，终端展示固定 commit、修改文件数、
+补丁路径和干净起点重放结果。项目可在 `git_workspace.verification_command` 配置不经过 Shell 的固定
+复验命令。非 Git 目录或确实需要旧行为时可显式使用 `--direct-workspace`，该模式不提供任务隔离和
+补丁交付保证。
 
 M01 演示输出文本和工具请求两行 JSON，不执行工具。
 M02 演示需在仓库根目录运行，将 examples/fixture_repo 复制到临时目录，

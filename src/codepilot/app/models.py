@@ -6,6 +6,7 @@ from codepilot.contracts.models import Contract, Identifier
 from codepilot.contracts.run import RunReport
 from codepilot.permissions import PermissionAudit
 from codepilot.workspace import BackendEvent
+from codepilot.workspace.git import GitDelivery
 
 
 class RunIdentity(Contract):
@@ -20,6 +21,7 @@ class ResourceOwnership(Contract):
     """记录本进程为一次运行创建、保留或清理的资源。"""
 
     workspace: Path
+    source_workspace: Path | None = None
     state_directory: Path
     trace_path: Path | None = None
     backend_id: Identifier
@@ -35,3 +37,4 @@ class ProductRunResult(Contract):
     resources: ResourceOwnership
     permission_audits: tuple[PermissionAudit, ...]
     backend_events: tuple[BackendEvent, ...]
+    delivery: GitDelivery | None = None

@@ -38,6 +38,7 @@ def test_cli_fake_run_emits_stable_identity_and_result(
             "--run-id",
             "run-cli",
             "--jsonl",
+            "--direct-workspace",
         ]
     )
 
@@ -79,6 +80,7 @@ def test_cli_missing_key_fails_before_state_creation(
             "CODEPILOT_TEST_MISSING_KEY",
             "--state-directory",
             str(state),
+            "--direct-workspace",
         ]
     )
 
@@ -110,6 +112,7 @@ def test_bare_cli_runs_multiple_tasks_in_one_interactive_session(
             "read-only",
             "--state-directory",
             str(state),
+            "--direct-workspace",
         ]
     )
 
@@ -144,7 +147,7 @@ def test_interactive_task_start_failure_does_not_close_prompt(
 
     monkeypatch.setattr("codepilot.ui.cli._run", fake_run)
 
-    code = main(["--workspace", str(workspace)])
+    code = main(["--workspace", str(workspace), "--direct-workspace"])
 
     assert code == 0
     assert calls == ["第一条", "第二条"]
@@ -167,7 +170,7 @@ def test_interactive_eof_exits_without_starting_a_task(
 
     monkeypatch.setattr("builtins.input", end_of_input)
 
-    code = main(["--workspace", str(workspace)])
+    code = main(["--workspace", str(workspace), "--direct-workspace"])
 
     assert code == 0
     assert "[运行结束]" not in capsys.readouterr().out
@@ -195,6 +198,7 @@ def test_run_accepts_shared_options_before_subcommand(
             "run",
             "检查目录",
             "--jsonl",
+            "--direct-workspace",
         ]
     )
 

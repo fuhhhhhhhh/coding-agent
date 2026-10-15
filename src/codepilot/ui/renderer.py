@@ -77,6 +77,9 @@ class EventRenderer:
                     else None,
                     "backend_closed": result.resources.backend_closed,
                     "context_artifacts_cleaned": result.resources.context_artifacts_cleaned,
+                    "delivery": result.delivery.model_dump(mode="json")
+                    if result.delivery is not None
+                    else None,
                 }
             )
             return
@@ -94,6 +97,19 @@ class EventRenderer:
             self._line("[失败详情] 模型输出达到 max_tokens；不完整工具调用未执行。")
         if result.resources.trace_path is not None:
             self._line(f"[Trace] {result.resources.trace_path}")
+        if result.delivery is not None:
+            delivery = result.delivery
+            self._line(f"[Git 起点] {delivery.base_commit}")
+            if delivery.state == "cleaned":
+                self._line("[工作树] 无修改，任务 worktree 已安全清理。")
+            else:
+                self._line(f"[工作树] {delivery.workspace}（已保留）")
+                self._line(f"[修改文件] {len(delivery.changed_files)}")
+                if delivery.patch_path is not None:
+                    self._line(f"[补丁] {delivery.patch_path}")
+                self._line(f"[补丁重放] {delivery.replay_status}")
+                if delivery.verification is not None:
+                    self._line(f"[独立复验] {delivery.verification.status}")
 
     def _line(self, value: str) -> None:
         """写入一行并立即刷新，使长任务进度不会滞留在缓冲区。"""

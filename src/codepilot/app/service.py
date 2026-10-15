@@ -38,8 +38,10 @@ from codepilot.providers.openai_compatible import OpenAICompatibleProvider, Requ
 from codepilot.providers.stream import StreamingProvider
 from codepilot.runtime import Runner
 from codepilot.scheduler import ScheduledExecutor
+from codepilot.tools import create_basic_registry
 from codepilot.tools.base import ToolSpec
 from codepilot.workspace import DockerExecutionBackend, ExecutionBackend, LocalExecutionBackend
+from codepilot.workspace.git import GitDelivery, GitTaskWorkspace
 
 
 class EventConsumer(Protocol):
@@ -117,59 +119,96 @@ class CodePilotApplication:
         backend_directory = run_directory / "backend"
         context_directory = run_directory / "context"
 
-        # 所有可能产生副作用的对象都在配置和密钥检查成功后才构造。
-        backend = _create_backend(self.config, self.workspace, backend_directory)
-        store = ContextArtifactStore(context_directory)
+        task_workspace: GitTaskWorkspace | None = None
+        execution_workspace = self.workspace
+        if self.config.git_workspace.enabled:
+            git_config = self.config.git_workspace
+            task_workspace = GitTaskWorkspace(
+                self.workspace,
+                run_directory,
+                session_id=identity.session_id,
+                task_id=identity.task_id,
+                run_id=identity.run_id,
+                base_commit=git_config.base_commit,
+                require_clean_source=git_config.require_clean_source,
+                max_patch_bytes=git_config.max_patch_bytes,
+            )
+            # 固定 commit 和独立 worktree 必须在后端或 Provider 创建前准备完成。
+            execution_workspace = task_workspace.prepare()
+
+        backend: ExecutionBackend | None = None
         report = None
         permission = None
-        recorder = EventRecorder(trace_directory, self.on_event)
-        async with AsyncExitStack() as resources:
-            # 先登记已构造资源，后续装配或启动失败也会进入相同清理出口。
-            resources.callback(store.cleanup)
-            resources.push_async_callback(backend.close)
-            context = ContextManager(backend, store, limits=self.config.context)
-            scheduler = ScheduledExecutor(context, self.config.scheduler_concurrency)
-            permission = PermissionedExecutor(
-                scheduler,
-                PermissionEngine(_permission_policy(self.config.permission)),
-                self.approval
-                if self.approval is not None
-                else ConsoleApproval()
-                if self.config.permission != "read-only"
-                else None,
-            )
-            provider = _create_provider(
-                self.config,
-                permission.specs,
-                identity.run_id,
-                api_key=self._api_key,
-            )
-            # Provider 最后登记，因此退出时先关闭连接，再关闭后端和 ArtifactStore。
-            resources.push_async_callback(provider.close)
-            runner = Runner(
-                provider.provider,
-                permission,
-                self.config.runtime,
-                run_id=identity.run_id,
-                recorder=recorder,
-                context=context,
-            )
-            await backend.start()
-            try:
-                report = await runner.run(_initial_messages(self.workspace, task))
-            except asyncio.CancelledError:
-                # Runner 已经记录 cancelled；后端仍需封闭入口并停止活动进程或容器。
-                await asyncio.shield(backend.cancel())
-                raise
+        recorder: EventRecorder | None = None
+        delivery: GitDelivery | None = None
+        try:
+            # 从后端构造开始纳入失败交付，避免初始化异常留下无人管理的 task worktree。
+            backend = _create_backend(self.config, execution_workspace, backend_directory)
+            store = ContextArtifactStore(context_directory)
+            recorder = EventRecorder(trace_directory, self.on_event)
+            async with AsyncExitStack() as resources:
+                # 先登记已构造资源，后续装配或启动失败也会进入相同清理出口。
+                resources.callback(store.cleanup)
+                resources.push_async_callback(backend.close)
+                context = ContextManager(backend, store, limits=self.config.context)
+                scheduler = ScheduledExecutor(context, self.config.scheduler_concurrency)
+                permission = PermissionedExecutor(
+                    scheduler,
+                    PermissionEngine(_permission_policy(self.config.permission)),
+                    self.approval
+                    if self.approval is not None
+                    else ConsoleApproval()
+                    if self.config.permission != "read-only"
+                    else None,
+                )
+                provider = _create_provider(
+                    self.config,
+                    permission.specs,
+                    identity.run_id,
+                    api_key=self._api_key,
+                )
+                # Provider 最后登记，因此退出时先关闭连接，再关闭后端和 ArtifactStore。
+                resources.push_async_callback(provider.close)
+                runner = Runner(
+                    provider.provider,
+                    permission,
+                    self.config.runtime,
+                    run_id=identity.run_id,
+                    recorder=recorder,
+                    context=context,
+                )
+                await backend.start()
+                try:
+                    report = await runner.run(_initial_messages(execution_workspace, task))
+                except asyncio.CancelledError:
+                    # Runner 已经记录 cancelled；后端仍需封闭入口并停止活动进程或容器。
+                    await asyncio.shield(backend.cancel())
+                    raise
+        except BaseException:
+            if task_workspace is not None:
+                # 故障任务也导出已经产生的改动；清理不得覆盖原始异常或丢弃文件。
+                try:
+                    await asyncio.shield(task_workspace.finish(failed=True))
+                except Exception:
+                    pass
+            raise
 
-        if report is None or permission is None:
+        if task_workspace is not None:
+            git_config = self.config.git_workspace
+            delivery = await task_workspace.finish(
+                verification_command=git_config.verification_command,
+                verification_timeout_seconds=git_config.verification_timeout_seconds,
+            )
+
+        if report is None or permission is None or backend is None or recorder is None:
             # 正常控制流不会到达这里，显式防御能避免返回未初始化的产品结果。
             raise RuntimeError("run completed without a report")
         return ProductRunResult(
             identity=identity,
             report=report,
             resources=ResourceOwnership(
-                workspace=self.workspace,
+                workspace=execution_workspace,
+                source_workspace=self.workspace,
                 state_directory=run_directory,
                 trace_path=recorder.path,
                 backend_id=backend.backend_id,
@@ -178,6 +217,7 @@ class CodePilotApplication:
             ),
             permission_audits=tuple(permission.audits),
             backend_events=backend.events,
+            delivery=delivery,
         )
 
 
@@ -199,6 +239,7 @@ def _create_backend(
         return LocalExecutionBackend(
             workspace,
             limits=backend.limits,
+            registry=create_basic_registry(workspace, include_git=config.git_workspace.enabled),
             audit_directory=audit_directory,
         )
     if backend.docker_image is None:

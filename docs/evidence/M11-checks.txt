@@ -1,0 +1,29 @@
+Date: 2026-10-15 Asia/Shanghai
+
+uv run --locked pytest -q
+197 passed, 3 skipped
+
+CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_workspace_docker_live.py
+3 passed
+
+uv run --locked ruff check .
+passed
+
+uv run --locked ruff format --check .
+135 files already formatted
+
+uv run --locked mypy
+Success: no issues found in 103 source files
+
+uv run --locked python -m compileall -q src tests
+passed
+
+uv build --wheel
+Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+
+uv run --locked python -m codepilot.m11_demo
+source unchanged; two task contents isolated; two replay checks passed; patches distinct; source clean
+
+Real Qwen3.5-Flash + Rootless Docker
+write_file and git_status succeeded; source unchanged and clean; patch replay passed;
+no project verification command configured; no managed container remained.

@@ -16,7 +16,13 @@ from types import TracebackType
 from typing import Self
 
 from codepilot.contracts import ToolCall, ToolResult
-from codepilot.tools import create_basic_registry
+from codepilot.tools import (
+    GitDiffTool,
+    GitStatusTool,
+    ToolRegistry,
+    Workspace,
+    create_basic_registry,
+)
 from codepilot.tools.base import ToolSpec
 from codepilot.workspace.common import BackendJournal, export_file, read_limited
 from codepilot.workspace.models import BackendEvent, BackendLimits, CommandResult
@@ -72,7 +78,12 @@ class DockerExecutionBackend:
         self.container_name = f"codepilot-{uuid.uuid4().hex}"
         self.expires_at = int(time.time()) + lifetime_seconds
         self._runner = runner or _run_docker
-        self._specs = create_basic_registry(self.root).specs
+        self._container_specs = create_basic_registry(self.root).specs
+        git_workspace = Workspace(self.root)
+        self._git_registry = ToolRegistry(
+            (GitStatusTool(git_workspace), GitDiffTool(git_workspace))
+        )
+        self._specs = self._container_specs + self._git_registry.specs
         self._events: list[BackendEvent] = []
         self._container_id = ""
         self._started = False
@@ -159,6 +170,17 @@ class DockerExecutionBackend:
         """
         self._ensure_ready()
         started = time.monotonic()
+        if call.name in {"git_status", "git_diff"}:
+            # Git 元数据位于宿主控制器拥有的 worktree 管理区，容器只挂载任务文件；
+            # 两个只读查询因此在控制器执行，写文件和 Shell 仍全部留在沙箱中。
+            result = await self._git_registry.execute(call)
+            self._record(
+                "tool_executed",
+                call_id=call.call_id,
+                outcome="error" if result.is_error else "success",
+                duration_seconds=time.monotonic() - started,
+            )
+            return result
         payload = json.dumps(
             {"kind": "tool", "call": call.model_dump(mode="json")}, ensure_ascii=False
         ).encode()
@@ -508,7 +530,7 @@ class DockerExecutionBackend:
             )
         except (json.JSONDecodeError, ValueError, TypeError) as error:
             raise ValueError("sandbox worker returned invalid specs") from error
-        if worker_specs != self._specs:
+        if worker_specs != self._container_specs:
             raise RuntimeError("sandbox tool specs do not match controller")
 
     def _decode_tool_result(self, call: ToolCall, payload: bytes) -> ToolResult:

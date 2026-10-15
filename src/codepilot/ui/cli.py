@@ -54,6 +54,13 @@ def _add_shared_arguments(
         default=missing,
     )
     parser.add_argument("--state-directory", type=Path, default=missing)
+    parser.add_argument(
+        "--direct-workspace",
+        action="store_true",
+        default=argparse.SUPPRESS if suppress_defaults else False,
+        help="兼容模式：直接修改给定目录，不创建任务 Git worktree",
+    )
+    parser.add_argument("--base-commit", default=missing, help="任务 worktree 的固定 Git 起点")
 
 
 def _overrides(arguments: argparse.Namespace) -> dict[str, object]:
@@ -85,6 +92,13 @@ def _overrides(arguments: argparse.Namespace) -> dict[str, object]:
         result["permission"] = arguments.permission
     if arguments.state_directory is not None:
         result["state_directory"] = arguments.state_directory
+    git_workspace: dict[str, object] = {}
+    if getattr(arguments, "direct_workspace", False):
+        git_workspace["enabled"] = False
+    if getattr(arguments, "base_commit", None) is not None:
+        git_workspace["base_commit"] = arguments.base_commit
+    if git_workspace:
+        result["git_workspace"] = git_workspace
     return result
 
 
@@ -112,7 +126,8 @@ async def _run(arguments: argparse.Namespace, config: ProductConfig) -> int:
         run_id=identity.run_id,
     )
     renderer.finished(result)
-    return 0 if result.report.reason == "completed" else 1
+    delivery_failed = result.delivery is not None and result.delivery.state == "failed_retained"
+    return 0 if result.report.reason == "completed" and not delivery_failed else 1
 
 
 def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:

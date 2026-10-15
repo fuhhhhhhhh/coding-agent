@@ -159,3 +159,12 @@ def test_output_limit_above_supported_model_maximum_is_rejected() -> None:
     """超过当前 Provider 边界的输出值应在网络请求前被拒绝。"""
     with pytest.raises(ValidationError):
         ProductConfig.model_validate({"provider": {"max_tokens": 65_537}})
+
+
+def test_yaml_style_git_verification_argv_becomes_immutable_tuple() -> None:
+    """YAML 数组应在配置边界转成固定 argv，避免运行期间被修改。"""
+    config = ProductConfig.model_validate(
+        {"git_workspace": {"verification_command": ["python", "-m", "pytest", "-q"]}}
+    )
+
+    assert config.git_workspace.verification_command == ("python", "-m", "pytest", "-q")

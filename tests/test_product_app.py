@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import subprocess
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -9,9 +11,10 @@ import pytest
 
 import codepilot.app.service as service
 from codepilot.app import CodePilotApplication
-from codepilot.config import BackendConfig, ProductConfig, ProviderConfig
-from codepilot.contracts import Message
+from codepilot.config import BackendConfig, GitWorkspaceConfig, ProductConfig, ProviderConfig
+from codepilot.contracts import Message, ToolCall
 from codepilot.providers.base import Provider
+from codepilot.providers.fake import FakeProvider
 from codepilot.workspace import LocalExecutionBackend
 
 
@@ -22,6 +25,7 @@ def _config(state: Path) -> ProductConfig:
         backend=BackendConfig(),
         permission="read-only",
         state_directory=state,
+        git_workspace=GitWorkspaceConfig(enabled=False),
     )
 
 
@@ -53,6 +57,69 @@ def test_product_chain_runs_fake_and_closes_owned_resources(tmp_path: Path) -> N
     assert result.resources.context_artifacts_cleaned
     assert result.resources.trace_path is not None
     assert result.resources.trace_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_product_chain_writes_only_task_worktree_and_exports_verified_patch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """正式产品链应隔离写入、导出补丁并在干净起点执行固定复验。"""
+    workspace = tmp_path / "repository"
+    workspace.mkdir()
+    subprocess.run(("git", "init", "-q"), cwd=workspace, check=True)
+    subprocess.run(("git", "config", "user.name", "Test"), cwd=workspace, check=True)
+    subprocess.run(
+        ("git", "config", "user.email", "test@example.invalid"), cwd=workspace, check=True
+    )
+    (workspace / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run(("git", "add", "README.md"), cwd=workspace, check=True)
+    subprocess.run(("git", "commit", "-qm", "base"), cwd=workspace, check=True)
+    verification_script = (
+        "from pathlib import Path; assert Path('answer.py').read_text() == 'answer = 42\\n'"
+    )
+    config = ProductConfig(
+        provider=ProviderConfig(),
+        backend=BackendConfig(),
+        permission="controlled-edit",
+        state_directory=tmp_path / "state",
+        git_workspace=GitWorkspaceConfig(
+            verification_command=(
+                sys.executable,
+                "-c",
+                verification_script,
+            )
+        ),
+    )
+
+    def provider_factory(*arguments: object, **keywords: object) -> service._ProviderHandle:
+        """让产品链确定性写入一个文件后结束。"""
+        del arguments, keywords
+        return service._ProviderHandle(
+            FakeProvider(
+                (
+                    Message(
+                        role="assistant",
+                        tool_calls=(
+                            ToolCall(
+                                call_id="write-answer",
+                                name="write_file",
+                                arguments={"path": "answer.py", "content": "answer = 42\n"},
+                            ),
+                        ),
+                    ),
+                    Message(role="assistant", content="完成"),
+                )
+            )
+        )
+
+    monkeypatch.setattr(service, "_create_provider", provider_factory)
+    result = asyncio.run(CodePilotApplication(config, workspace).run("创建答案文件"))
+
+    assert not (workspace / "answer.py").exists()
+    assert result.delivery is not None
+    assert result.delivery.state == "changes_retained"
+    assert result.delivery.changed_files == ("answer.py",)
+    assert result.delivery.verification is not None and result.delivery.verification.passed
+    assert (result.delivery.workspace / "answer.py").read_text(encoding="utf-8") == "answer = 42\n"
 
 
 def test_invalid_product_input_has_no_state_side_effect(tmp_path: Path) -> None:
