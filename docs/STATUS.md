@@ -41,7 +41,7 @@
 - 真实写入复验使用一次性临时仓库和 Rootless Docker：模型首次 `edit_file` 因上下文不匹配安全失败，随后主动 `read_file`、重新精确编辑，并在人工批准后用 `shell` 执行 `python -m unittest -q`。Agent 内测试和控制器独立复验均为 1 test passed，最终文件内容核对正确；运行后无残留容器。
 - 写入复验的成功 run 使用 5 次模型请求、4 次工具调用，输入 9,122、输出 371 Token。成功前的三个独立 run 遇到网关 `APIConnectionError`：一次发生在首轮请求，两次发生在首个只读工具结果后的下一轮；它们均未修改文件并完成容器清理。
 - 真实运行发现网关会发送只有 index 的空 tool-call 占位项；适配层现在丢弃不推进状态的占位项，MockTransport 回归测试固定覆盖。冲突 ID、非法 JSON 和错误结束原因仍被拒绝。
-- 用户执行“初始化 git 仓库”时，首轮 Provider 在 0.91 秒后以 `APIConnectionError` 失败，工具调用数为零，因此与 Git 和 Docker 无关。此前终端只显示 `provider_error`；现在 `RunReport.detail` 保留脱敏异常类型，文本与 JSONL 结果都会展示该类型，连接/超时错误还给出重试建议。随后真实重试完成，确认目录已有 Git 仓库且未跟踪的 `quick_sort.py` 未被修改。证据见 `docs/evidence/P1-provider-error-visibility.json`。
+- 用户执行“初始化 git 仓库”时，首轮 Provider 在 0.91 秒后以 `APIConnectionError` 失败，工具调用数为零，因此与 Git 和 Docker 无关。此前终端只显示 `provider_error`；现在 `RunReport.detail` 保留脱敏异常类型，文本与 JSONL 结果都会展示该类型，连接/超时错误还给出重试建议。随后真实重试完成；控制器独立确认目录早已有 Git 仓库、`master` 工作区干净且最新提交为 `4f04ef3 initial baseline`。模型声称 `quick_sort.py` 未跟踪与真实状态不符，不作为证据。详情见 `docs/evidence/P1-provider-error-visibility.json`。
 - 覆盖非法配置无副作用、Provider 初始化失败清理、后端部分启动失败清理、外部取消传播和唯一 cancelled 终态。
 - `uv run --locked pytest -q`：本次扩大上下文预算后的完整结果为 189 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall 和 wheel 构建通过。
 - `CODEPILOT_DOCKER_LIVE=1` 的 3 个 Rootless Docker 测试通过，运行后无 `io.codepilot.managed=true` 活动容器；新建 Python 3.11 环境安装 wheel 后，`codepilot run` fake 闭环通过。

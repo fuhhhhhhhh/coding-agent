@@ -12,7 +12,9 @@
     "steps": 3,
     "tool_calls": 2,
     "workspace_was_already_git_repository": true,
-    "existing_untracked_file_preserved": "quick_sort.py"
+    "controller_git_status": "clean on master",
+    "controller_latest_commit": "4f04ef3 initial baseline",
+    "existing_tracked_file_preserved": "quick_sort.py"
   },
   "ui_change": "provider failures now show the redacted exception type and retry guidance",
   "provider_error_body_recorded": false
