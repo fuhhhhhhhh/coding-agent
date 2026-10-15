@@ -151,27 +151,6 @@ def test_non_git_workspace_explains_worktree_requirement(tmp_path: Path) -> None
         manager.prepare()
 
 
-def test_git_status_and_diff_are_read_only_registered_tools(tmp_path: Path) -> None:
-    """正式 Git 工具应展示任务修改，同时不暂存或改变工作树状态。"""
-
-    async def scenario() -> None:
-        """调用两个工具并比较调用前后的 porcelain 状态。"""
-        source = _repository(tmp_path / "repo")
-        (source / "value.txt").write_text("changed\n", encoding="utf-8")
-        registry = create_basic_registry(source, include_git=True)
-        before = _git(source, "status", "--porcelain")
-        status = await registry.execute(ToolCall(call_id="status", name="git_status", arguments={}))
-        diff = await registry.execute(
-            ToolCall(call_id="diff", name="git_diff", arguments={"mode": "full"})
-        )
-
-        assert "value.txt" in status.content
-        assert "-base" in diff.content and "+changed" in diff.content
-        assert _git(source, "status", "--porcelain") == before
-
-    asyncio.run(scenario())
-
-
 def test_shell_supports_common_git_workflow_in_dirty_workspace(tmp_path: Path) -> None:
     """Shell 应直接支持初始化、分支、提交及本地远端的 fetch/pull/push。"""
 

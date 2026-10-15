@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-15",
+  "task": "inspect git status and latest commit through shell without modifying files",
+  "workspace": "existing clean repository on master",
+  "runs": [
+    {
+      "provider": "openai-compatible gateway",
+      "model": "qwen-turbo",
+      "terminal_reason": "contract_error",
+      "error_type": "StreamContractError",
+      "steps": 1,
+      "tool_calls": 0
+    },
+    {
+      "provider": "openai-compatible gateway",
+      "model": "qwen3-coder-plus",
+      "terminal_reason": "contract_error",
+      "error_type": "StreamContractError",
+      "steps": 1,
+      "tool_calls": 0,
+      "structural_probe": "empty stream without text, tool delta, finish reason, or usage"
+    },
+    {
+      "provider": "DeepSeek official endpoint",
+      "model": "deepseek-chat",
+      "terminal_reason": "completed",
+      "steps": 2,
+      "tool_calls": 2,
+      "tools": ["shell: git status --short --branch", "shell: git log -1 --oneline"],
+      "verified_branch": "master",
+      "verified_worktree": "clean",
+      "verified_latest_commit": "4f04ef3 initial baseline"
+    }
+  ],
+  "workspace_modified": false,
+  "secrets_recorded": false
+}

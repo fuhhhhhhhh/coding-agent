@@ -16,17 +16,17 @@
 ## P2 / M11 当前证据
 
 - 默认产品入口直接修改当前目录，不要求 Git 初始化或干净状态。已有未提交文件由用户继续拥有，产品启动和结束均不会清除它们；普通任务的结果立即位于源目录，无需手动应用补丁。
-- Git 采用与 Claude Code 相同的 CLI 思路：模型通过 `shell` 使用原生 Git 参数体系，commit/branch/fetch/pull/push 均经过既有 `process` 权限与审计；`git_status`、`git_diff` 保留为只读观察捷径。确定性测试已在脏目录完成 init、分支、提交及本地裸仓库的 fetch/pull/push，并确认原有未跟踪文件保留。
+- Git 采用与 Claude Code 相同的 CLI 思路：status/diff/commit/branch/fetch/pull/push 全部通过 `shell` 使用原生 Git 参数体系，并经过既有 `process` 权限与审计。原有 `git_status`、`git_diff` 包装和 Docker 控制器特判已删除，避免维护第二套 Git 接口。确定性测试已在脏目录完成 init、分支、提交及本地裸仓库的 fetch/pull/push，并确认原有未跟踪文件保留。
 - `--worktree` 是显式隔离入口，把 task ID 绑定到固定 commit 和状态目录中的 detached worktree。`require_clean_source` 默认关闭；打开后可要求源目录干净。
 - `workspace.json` 以 0600 记录 UID、session/task/run、源仓库、任务目录、base commit、状态和补丁摘要；路径、所有权或当前修改不匹配时拒绝清理。
-- `git_status` 与 `git_diff` 是正式只读工具。Docker 只挂载任务文件，两个 Git 查询由控制器使用固定 argv 执行；文件与 Shell 仍在 Rootless Docker 中执行。
 - 交付通过临时 index 纳入未跟踪文件，导出 Git 原生 `--binary --full-index` 补丁，覆盖新增、删除、文件模式和二进制内容；补丁为 0600 并带 SHA-256。
 - 每份补丁都在同一 commit 的新 replay worktree 先检查、再应用；项目可配置固定验证 argv。验证副本完成后删除，有修改的 Agent 工作树和补丁保留，无修改任务自动清理。
 - 两个显式隔离任务从同一 commit 创建 worktree，分别修改同一路径，结果互不覆盖、补丁摘要不同且源仓库保持干净。不存在的起点、启用严格检查后的脏源目录、重放冲突和带修改清理拒绝均有确定性测试。
-- 真实 Qwen + Rootless Docker 运行调用 `write_file` 和控制器 `git_status` 创建 `answer.py`；源仓库没有该文件且保持干净，补丁检查与 replay 均通过，stderr 为空，结束后受管容器为 0。真实项目未配置独立测试命令，因此该项标记未运行。
+- 早期真实 Qwen + Rootless Docker 隔离运行曾调用现已删除的 `git_status` 创建 `answer.py`；该历史证据只证明当时的 worktree 补丁链。当前 Git CLI 统一链另有 Local、Rootless Docker 和真实模型证据，不能用旧工具轨迹替代。
 - 沙箱镜像现在安装 Git CLI。真实 Rootless Docker 4 项验收通过，其中新增场景在含用户文件的普通目录完成 init、commit、branch 并保留原文件；联网远端操作仍因 Docker 默认断网而未验证。
 - 真实 Qwen 在默认直写 Docker 工作区完成 init、写文件、add、仓库级身份配置和 commit。首个 run 在提交后因八次 Provider 请求额度耗尽而未生成最终回答；第二个只读验证 run 完成，模型与控制器均确认 main 分支、干净状态和最新提交。证据见 `docs/evidence/P2-live-git.json`。
-- `uv run --locked pytest -q`：202 passed、4 个显式 Docker live skip；真实 Docker 套件 4 passed。设计、阅读路径和理解题答案位于 `docs/design/M11.md` 与 `docs/learning/M11.md`。
+- 删除 Git 只读包装后做了三次兼容性实测：中转站 `qwen-turbo` 和 `qwen3-coder-plus` 都在首轮返回 `StreamContractError`、零工具调用，其中 Coder 的结构探针确认是无正文、工具分片、结束原因和 usage 的空流；DeepSeek 官方 `deepseek-chat` 成功并行调用两个 Shell Git 命令，2 步完成，准确报告 `master`、干净工作区和 `4f04ef3 initial baseline`，未修改文件。证据见 `docs/evidence/P2-native-git-model-comparison.json`。
+- `uv run --locked pytest -q`：201 passed、4 个显式 Docker live skip；真实 Docker 套件 4 passed。设计、阅读路径和理解题答案位于 `docs/design/M11.md` 与 `docs/learning/M11.md`。
 
 ## P1 当前证据
 

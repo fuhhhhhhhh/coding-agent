@@ -60,8 +60,8 @@ uv build --wheel
 恢复属于后续会话阶段，目前输入下一条任务不会携带上一条任务的模型消息。
 
 默认情况下，Agent 直接修改启动目录，因此未初始化目录和带已有改动的 Git 仓库都能使用；已有改动
-不会因启动任务被清除。模型通过 `shell` 使用原生 Git，可执行 init/add/commit/branch/fetch/pull/push
-等命令；`git_status` 与 `git_diff` 是无需启动 Shell 的只读观察捷径。Shell 属于 `process` 操作，在
+不会因启动任务被清除。模型通过 `shell` 使用原生 Git，可执行 status/diff/init/add/commit/branch/fetch/pull/push
+等命令。Shell 属于 `process` 操作，在
 `controlled-edit` 与 `ask-edits` 权限下需要审批。Docker 默认断网，所以联网远端操作需使用 Local 后端；
 开放容器网络要等网络权限进入统一 Action 后再支持。
 

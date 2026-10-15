@@ -239,8 +239,8 @@ def _create_backend(
         return LocalExecutionBackend(
             workspace,
             limits=backend.limits,
-            # Git 工具服务于当前工作区，不应与是否启用隔离 worktree 绑定。
-            registry=create_basic_registry(workspace, include_git=True),
+            # Git 与测试命令都统一经 Shell 执行，避免维护第二套命令参数语义。
+            registry=create_basic_registry(workspace),
             audit_directory=audit_directory,
         )
     if backend.docker_image is None:
