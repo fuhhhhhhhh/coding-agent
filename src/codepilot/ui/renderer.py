@@ -96,6 +96,8 @@ class EventRenderer:
         if result.report.reason == "output_limit":
             # 说明安全停止的直接修复方向，同时强调半截工具参数没有被执行。
             self._line("[失败详情] 模型输出达到 max_tokens；不完整工具调用未执行。")
+        elif result.report.reason in {"session_limit", "persistence_error"}:
+            self._line(f"[会话停止] {result.report.detail}；未启动后续工具。")
         elif result.report.reason == "provider_error":
             # 只展示异常类型；SDK 错误正文可能包含 URL、请求片段或认证信息。
             error_type = result.report.detail or "UnknownProviderError"

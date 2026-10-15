@@ -1,0 +1,13 @@
+........................................................................ [ 31%]
+........................................................................ [ 63%]
+........................................................................ [ 94%]
+.....sssssss                                                             [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_workspace_docker_live.py:29: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] tests/test_workspace_docker_live.py:108: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] tests/test_workspace_docker_live.py:141: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] tests/test_workspace_docker_live.py:189: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] tests/test_workspace_docker_live.py:229: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] tests/test_workspace_docker_live.py:312: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] tests/test_workspace_docker_live.py:349: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+221 passed, 7 skipped in 47.25s

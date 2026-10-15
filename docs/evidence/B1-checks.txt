@@ -1,0 +1,59 @@
+B1：可靠执行与持久会话基础
+日期：2026-10-15（Asia/Shanghai）
+基线：dd529b4；本次代码与文档变更由随后 Git 提交关联。
+开始时工作区干净；遵循 AGENTS / ROADMAP / 产品计划 / B1 设计、学习记录。
+
+实际实现：
+- 统一 codepilot / run / resume，多轮与跨进程共享持久历史。
+- sessions list/show/reconcile/delete/prune；默认元数据，--messages 显式查看私有正文。
+- SQLite v1 事务事件、可重建状态与消息、内核写锁、工作区指纹、进程启动身份/容器归属。
+- Shell / Local argv / Docker 分块保存截断前输出，有界预览与读搜，逐路哈希及完整性状态。
+- 配额、历史/数据库容量、会话请求额度、保留期；未知副作用阻断、过期清理保护保留工作树。
+
+根因与失败记录：
+1. 取消：初版两个任务同时清理的屏障没有触发；改为排队任务先退出后，旧 Runtime 稳定失败。
+   tests/test_scheduler.py::test_runner_does_not_interrupt_cleanup_with_a_second_cancel
+   interrupted.is_set() 为 True。原因：gather 已传播取消后 Runtime 再次 cancel 活动清理。
+   修复：不再次取消 cancelling()>0 的子任务；统一进程创建/回收，并等待清理真正结束。
+2. 真实 Docker 大输出首次 1 failed / 5 passed：1 KiB 预览上限也截断 describe Schema。
+   修复：控制协议传输预算与工具预览预算分开；增加帧顺序及原始字节/哈希核对。
+3. 开发时新增测试曾因 fixture 未绑定 workspace 而未触达活跃进程判断；修正 fixture 后通过，未降低断言。
+
+确定性最终命令：
+uv run --locked pytest -q
+  221 passed, 7 skipped；完整输出见 B1-offline-checks.txt。
+  含真实子进程、跨进程 CLI、os._exit 写入后崩溃、存储故障注入、输出超限/损坏、
+  工作区变化、索引重建、未知 Schema/损坏事件、进程核验、保留期/工作树删除保护及请求总额；
+  还覆盖活跃会话只读检查、JSON 编码前已知秘密脱敏、捕获建立失败时命令零启动。
+uv run --locked ruff check .：通过。
+uv run --locked ruff format --check .：144 files already formatted。
+uv run --locked mypy：Success: no issues found in 108 source files。
+uv build --wheel：codepilot-0.1.0-py3-none-any.whl 构建通过。
+git diff --check：通过。
+
+真实后端：
+docker context show：rootless。
+docker info SecurityOptions：包含 name=rootless。
+docker build -f docker/sandbox.Dockerfile -t codepilot-sandbox:0.1.0 .：用户 daemon 构建通过。
+CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_workspace_docker_live.py：7 passed。
+  包含真实分块 110100491 字节，持久引用读回，配额/主动取消后停止容器。
+  既有隔离/断网/OOM/Git/清理回归继续通过。
+运行后 docker ps -a --filter label=codepilot.managed=true：无记录。
+未修改、重启或切换服务器公共 Docker。
+
+模型与安装独立证据：
+B1-live-session.json：qwen3.5-flash + Rootless Docker，预算6、实际4请求；两个 CLI 进程。
+  模型自述包含标记；工具实际读取包含标记；两个 Runtime completed；
+  控制器独立核对同 output_id、140022 保存字节、中段内容与 Shell 仅一次。
+  Token 输入11057 / 输出667，未估算价格；临时工作区清理。未打印或导出真实凭据。
+B1-output-memory.json：一次 105 MiB 样本；worker 37888 KiB / controller 82944 KiB 峰值 RSS。
+B1-wheel-checks.json：干净 Python3.11、锁定运行依赖、仓库外 Local run/resume 与 Rootless Docker；
+  包从 site-packages 加载，临时环境已清理。
+
+边界：
+- Linux 为当前验收平台；Windows/macOS 与其他 Python 版本矩阵未运行。
+- 输出/数据库容量不等于工作区磁盘硬配额；真实磁盘配额及容器网络/秘密 Action 留 B2。
+- SQLite 同版本重建已做，未知版本拒绝；迁移、滚动检查点及复杂恢复留 B3。
+- 原始输出可能含敏感内容，私有保存、按需查看和删除；不承诺任意秘密可检测。
+- 不执行未知工具重放；reconcile 代表接受已检查的工作区并结束未知调用，不把未知写成成功。
+- 真实模型样本与大输出内存样本都是有界冒烟，不是所有仓库/模型的成熟产品证明。

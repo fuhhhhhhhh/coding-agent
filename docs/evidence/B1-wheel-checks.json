@@ -1,0 +1,21 @@
+{
+  "python": "3.11",
+  "installation": "clean wheel with locked runtime dependencies",
+  "outside_repository": true,
+  "package_in_site_packages": true,
+  "local_run_resume": [
+    {
+      "reason": "completed",
+      "backend_closed": true
+    },
+    {
+      "reason": "completed",
+      "backend_closed": true
+    }
+  ],
+  "rootless_docker": {
+    "reason": "completed",
+    "backend_closed": true
+  },
+  "temporary_environment": "removed after checks"
+}

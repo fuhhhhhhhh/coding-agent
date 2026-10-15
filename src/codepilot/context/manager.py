@@ -20,6 +20,8 @@ from codepilot.contracts import Message, ToolCall, ToolResult
 from codepilot.contracts.models import Contract
 from codepilot.contracts.stream import Usage
 from codepilot.observability.trace import emit
+from codepilot.sessions.outputs import CURRENT_OUTPUT, OutputStore
+from codepilot.sessions.tools import ReadOutputTool, SearchOutputTool
 from codepilot.tools.base import Tool, ToolFailure, ToolOutput, ToolSpec
 from codepilot.tools.registry import ToolRegistry
 
@@ -102,8 +104,16 @@ class ContextManager:
         self.store = store
         self.limits = limits or ContextLimits()
         self.summarizer = summarizer
+        output = CURRENT_OUTPUT.get()
         self._artifact_registry = ToolRegistry(
-            (ReadContextArtifactTool(store, self.limits.artifact_read_chars),)
+            (
+                ReadContextArtifactTool(store, self.limits.artifact_read_chars),
+                *(
+                    (ReadOutputTool(output), SearchOutputTool(output))
+                    if isinstance(output, OutputStore)
+                    else ()
+                ),
+            )
         )
         self.records: list[ContextRecord] = []
         self._summary_cache: dict[str, Message] = {}
@@ -123,7 +133,7 @@ class ContextManager:
 
     async def execute(self, call: ToolCall) -> ToolResult:
         """执行工具；大结果落盘后只把可定位的短引用交给 Runtime。"""
-        if call.name == ReadContextArtifactTool.name:
+        if call.name in {spec.name for spec in self._artifact_registry.specs}:
             result = await self._artifact_registry.execute(call)
             self._record(
                 "artifact_read",
@@ -132,7 +142,29 @@ class ContextManager:
                 outcome="error" if result.is_error else "success",
             )
             return result
-        result = await self.registry.execute(call)
+        output = CURRENT_OUTPUT.get()
+        try:
+            result = await self.registry.execute(call)
+        except OSError as error:
+            # 存储故障停止命令后仍给模型稳定类别和已捕获引用，不能伪装为完整结果。
+            result = ToolResult(
+                call_id=call.call_id,
+                is_error=True,
+                content=f"output_capture_failed: {type(error).__name__}",
+            )
+        if isinstance(output, OutputStore):
+            references = output.for_call(call.call_id)
+            if references and "output_id=" not in result.content:
+                result = result.model_copy(
+                    update={
+                        "content": result.content
+                        + "\n"
+                        + "\n".join(
+                            f"output_id={item['output_id']} output_state={item['state']}"
+                            for item in references
+                        )
+                    }
+                )
         encoded = result.content.encode("utf-8")
         if len(encoded) <= self.limits.large_output_bytes:
             return result
@@ -323,6 +355,11 @@ def _split_atomic_rounds(
         index += 1
     while index < len(messages):
         assistant = messages[index]
+        # 连续用户追问是会话的正常边界，也必须作为完整组参与预算治理。
+        if assistant.role in {"user", "system"}:
+            rounds.append((assistant,))
+            index += 1
+            continue
         if assistant.role != "assistant":
             raise ContextPreparationError("history_pairing_invalid")
         group = [assistant]

@@ -5,8 +5,8 @@ Local 评测纠错、脱敏 Trace、Rootless Docker 沙箱和两层上下文治�
 DeepSeek 流式只读闭环与真实上下文压缩验证。
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
-当前仓库属于“产品主链、真实后端和任务级 Git 交付已验证”，尚未达到成熟终端产品。当前首要缺口是
-受控执行面加固；上下文完整计量、持久会话、Provider 可靠性与扩展系统也仍需完成。后续成熟度门槛与实施顺序见
+B1 已完成持久会话、跨进程续问、原始输出与保守协调验收。当前仓库属于“产品主链、真实后端和任务级 Git 交付已验证”，尚未达到成熟终端产品。当前首要缺口是
+更完整的受控执行与工作区保护；上下文完整计量、复杂崩溃协调、Provider 可靠性与扩展系统也仍需完成。后续成熟度门槛与实施顺序见
 [产品化路线](docs/PRODUCTIZATION_PLAN.md)。
 
 需要 Python 3.11+ 和 uv。在本目录执行：
@@ -56,8 +56,31 @@ uv build --wheel
 [阿里云百炼 Qwen3.5-Flash 文档](https://help.aliyun.com/zh/model-studio/qwen3-5-flash)。
 
 直接运行 `codepilot` 后，输入任务并回车即可执行；`/help` 查看提示，`/exit` 或 Ctrl-D 退出。
-当前进程内多条任务共享 session ID，但各自拥有 task/run ID 和 Trace。持久历史与进程重启后的
-恢复属于后续会话阶段，目前输入下一条任务不会携带上一条任务的模型消息。
+多条任务共享持久历史，各自拥有 task/run ID 和 Trace。消息与工具结果保存在私有 SQLite，
+Shell/Local/Docker 原始输出在预览截断前分块保存，退出后引用仍可读取；默认保留期为 30 天。
+默认 Trace 仍只保存脱敏元数据，完整对话和原文在独立的私有会话目录中。
+
+```bash
+codepilot sessions list
+codepilot sessions show SESSION_ID              # 元数据和输出引用
+codepilot sessions show SESSION_ID --messages   # 显式查看私有正文
+codepilot resume SESSION_ID                     # 检查后进入续问提示符
+codepilot resume SESSION_ID "根据刚才的测试继续修复"
+codepilot run "继续上一个任务" --session-id SESSION_ID
+codepilot sessions reconcile SESSION_ID --accept-workspace
+codepilot sessions delete SESSION_ID
+codepilot sessions prune                        # 仅删除过期且安全结束的会话
+```
+
+命令使用同一配置/状态目录及原工作区。重开会核对目录身份、文件版本和未完成调用；用户外部编辑
+或未知副作用会阻断自动继续。`reconcile` 表示用户已经核对当前工作区，控制器还会检查登记进程和容器，
+仅结束未知调用的协调状态，不重放工具，也不把未知结果改为成功。删除与过期清理拒绝销毁保留中的
+worktree/补丁。当前会话锁和进程身份核验支持 Linux，其他平台尚未验收。
+
+`sessions` 配置可设置命令/task/session 输出上限、Context Artifact 上限、历史/数据库容量、共享请求数和保留期。
+默认分别为 128 MiB / 256 MiB / 1 GiB 输出、32 MiB Context Artifact、16 MiB 历史、64 MiB 数据库、
+1000 次会话请求和 30 天保留；`prune` 需要显式运行，不在后台定时删除。输出容量限制不能代替工作区磁盘硬配额。
+原始输出可能含敏感内容，私有正文应按需查看和删除；不宣称任意秘密都能被自动识别。
 
 默认情况下，Agent 直接修改启动目录，因此未初始化目录和带已有改动的 Git 仓库都能使用；已有改动
 不会因启动任务被清除。模型通过 `shell` 使用原生 Git，可执行 status/diff/init/add/commit/branch/fetch/pull/push

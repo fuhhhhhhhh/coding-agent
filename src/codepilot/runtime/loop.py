@@ -3,13 +3,19 @@
 import asyncio
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal, Protocol
 from uuid import uuid4
 
 from codepilot.context import ContextManager, ContextPreparationError
 from codepilot.contracts import Message, RunState, ToolCall, ToolResult
-from codepilot.contracts.run import RunLimits, RunObservation, RunReport, StopReason
+from codepilot.contracts.run import (
+    ObservationRejected,
+    RunLimits,
+    RunObservation,
+    RunReport,
+    StopReason,
+)
 from codepilot.contracts.stream import StreamChunk, Usage
 from codepilot.observability.trace import CURRENT_RECORDER, CURRENT_TURN, EventRecorder, emit
 from codepilot.providers.base import Provider
@@ -54,8 +60,13 @@ class Runner:
         run_id: str | None = None,
         recorder: EventRecorder | None = None,
         context: ContextManager | None = None,
+        on_observation: Callable[[RunObservation], None] | None = None,
+        resume_history: bool = False,
     ) -> None:
         """为一次运行创建隔离状态，并绑定可选的 prompt 上下文治理器。"""
+        self._observer_failed = False
+        self.on_observation = on_observation
+        self.resume_history = resume_history
         self.provider = provider
         self.recorder = recorder if recorder is not None else EventRecorder()
         self.context = context
@@ -106,6 +117,20 @@ class Runner:
             ).model_copy(deep=True)
         )
 
+        if self.on_observation is not None and not self._observer_failed:
+            try:
+                self.on_observation(self._observations[-1])
+            except Exception as error:
+                # 持久化失败后停止新副作用，仍须生成唯一终态；失败的记录器不再被重复调用。
+                self._observer_failed = True
+                if kind == "run_stopped":
+                    return
+                if kind == "model_requested":
+                    self._steps -= 1
+                if isinstance(error, ObservationRejected):
+                    raise _Stop(error.reason, error.detail) from error
+                raise _Stop("persistence_error", type(error).__name__) from error
+
     def _finish(self, reason: StopReason, detail: str = "") -> RunReport:
         """将停止原因映射为唯一终态，并冻结最终运行报告。"""
         # 只有模型正常结束才记为完成；取消必须与失败保持区分。
@@ -143,12 +168,23 @@ class Runner:
         # 重用实例会混合消息历史、调用 ID、预算和终态观察记录。
         if self.state != RunState.CREATED:
             raise RuntimeError("Runner is single-use; create another Runner for another run")
-        # M02 只启动全新运行；接受 assistant/tool 历史会暗示尚未实现的恢复能力。
-        if not messages or any(message.role not in ("system", "user") for message in messages):
+        # 独立 Runner 默认只接受新任务；只有会话层显式启用才接收经配对核验的历史。
+        if not messages or (
+            not self.resume_history
+            and any(message.role not in ("system", "user") for message in messages)
+        ):
             raise ValueError("a new run requires nonempty system/user messages")
         # 重新校验可变嵌套数据，并与调用方持有的对象解除共享。
         self._messages = [Message.model_validate(message.model_dump()) for message in messages]
+        # 会话历史必须完整配对；未知调用由会话协调层阻断，不交给 Provider 猜测。
+        if self.resume_history:
+            from codepilot.context.manager import _split_atomic_rounds
+
+            _split_atomic_rounds(tuple(self._messages))
         self.state = RunState.RUNNING
+        self._call_ids.update(
+            call.call_id for message in self._messages for call in message.tool_calls
+        )
         self._deadline = asyncio.get_running_loop().time() + self.limits.timeout_seconds
         self.recorder.start(self.run_id)
         recorder_token = CURRENT_RECORDER.set(self.recorder)
@@ -261,7 +297,8 @@ class Runner:
         except (asyncio.CancelledError, Exception):
             # 任一契约故障或外部取消都要停止仍排队或运行中的同批调用。
             for task in tasks:
-                if not task.done():
+                if not task.done() and not task.cancelling():
+                    # gather 已传播取消时不可再次打断子任务正在执行的清理。
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             raise

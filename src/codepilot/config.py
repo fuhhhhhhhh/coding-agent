@@ -91,9 +91,23 @@ class GitWorkspaceConfig(Contract):
         return tuple(value) if isinstance(value, list) else value
 
 
+class SessionConfig(Contract):
+    """定义持久会话的输出、历史、请求和保留边界。"""
+
+    command_output_bytes: Annotated[int, Field(ge=1024)] = 128 * 1024**2
+    task_output_bytes: Annotated[int, Field(ge=1024)] = 256 * 1024**2
+    session_output_bytes: Annotated[int, Field(ge=1024)] = 1024**3
+    context_artifact_bytes: Annotated[int, Field(ge=1024)] = 32 * 1024**2
+    history_bytes: Annotated[int, Field(ge=1024)] = 16 * 1024**2
+    database_bytes: Annotated[int, Field(ge=1024**2)] = 64 * 1024**2
+    max_requests: Annotated[int, Field(ge=1)] = 1000
+    retention_days: Annotated[int, Field(ge=1, le=3650)] = 30
+
+
 class ProductConfig(Contract):
     """描述统一产品入口装配一次 Agent 运行所需的全部非秘密参数。"""
 
+    sessions: SessionConfig = SessionConfig()
     provider: ProviderConfig = ProviderConfig()
     backend: BackendConfig = BackendConfig()
     git_workspace: GitWorkspaceConfig = GitWorkspaceConfig()

@@ -1,0 +1,61 @@
+{
+  "model": "qwen3.5-flash",
+  "backend": "rootless-docker",
+  "request_budget": 6,
+  "actual_request_attempts": 4,
+  "first_attempts": 2,
+  "cli_exit_codes": [
+    0,
+    0
+  ],
+  "session_status": "ready",
+  "model_claim": {
+    "final_answer_contains_marker": true
+  },
+  "tool_result": {
+    "names": [
+      "shell",
+      "read_output"
+    ],
+    "read_contains_marker": true
+  },
+  "runtime_outcome": [
+    "completed",
+    "completed"
+  ],
+  "independent_verdict": {
+    "two_processes": true,
+    "same_output_id": true,
+    "capture_complete": true,
+    "capture_bytes": {
+      "stdout": 140022,
+      "stderr": 0
+    },
+    "marker_read_after_restart": true,
+    "no_shell_replay": true
+  },
+  "usage_by_turn": [
+    {
+      "input_tokens": 2983,
+      "output_tokens": 192,
+      "source": "provider"
+    },
+    {
+      "input_tokens": 3136,
+      "output_tokens": 107,
+      "source": "provider"
+    },
+    {
+      "input_tokens": 2094,
+      "output_tokens": 274,
+      "source": "provider"
+    },
+    {
+      "input_tokens": 2844,
+      "output_tokens": 94,
+      "source": "provider"
+    }
+  ],
+  "secrets": "not printed or exported",
+  "temporary_workspace": "removed after checks"
+}

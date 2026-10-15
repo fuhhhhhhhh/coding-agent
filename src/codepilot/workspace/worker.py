@@ -6,9 +6,11 @@ import sys
 from pathlib import Path
 
 from codepilot.contracts import ToolCall
+from codepilot.sessions.outputs import CURRENT_OUTPUT
 from codepilot.tools import create_basic_registry
 from codepilot.workspace.local import LocalExecutionBackend
 from codepilot.workspace.models import BackendLimits
+from codepilot.workspace.output_stream import FrameCapture
 
 
 def _read_oom_kill_count() -> int | None:
@@ -39,6 +41,8 @@ async def dispatch(payload: bytes) -> bytes:
         raise ValueError("invalid worker JSON") from error
     if not isinstance(request, dict):
         raise ValueError("worker request must be an object")
+    if request.get("stream_output"):
+        CURRENT_OUTPUT.set(FrameCapture(request["output_id"]))
     kind = request.get("kind")
     if kind == "describe":
         specs = create_basic_registry(Path("/workspace")).specs
@@ -91,12 +95,17 @@ async def dispatch(payload: bytes) -> bytes:
 def main() -> int:
     """从 stdin 读取一次请求；协议错误只返回固定错误类型到 stderr。"""
     try:
-        output = asyncio.run(dispatch(sys.stdin.buffer.read()))
+        payload = sys.stdin.buffer.read()
+        request = json.loads(payload)
+        output = asyncio.run(dispatch(payload))
     except Exception as error:
         # 不回显请求正文，避免命令或工具参数进入 Docker 控制面日志。
         print(f"worker_error: {type(error).__name__}", file=sys.stderr)
         return 2
-    sys.stdout.buffer.write(output)
+    if request.get("stream_output"):
+        print(json.dumps({"frame": "result", "result": json.loads(output)}), flush=True)
+    else:
+        sys.stdout.buffer.write(output)
     return 0
 
 

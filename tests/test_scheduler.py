@@ -10,7 +10,7 @@ from typing import Literal
 
 import pytest
 
-from codepilot.contracts import Message, ToolCall
+from codepilot.contracts import Message, ToolCall, ToolResult
 from codepilot.contracts.models import Contract
 from codepilot.observability.trace import EventRecorder
 from codepilot.permissions import (
@@ -342,5 +342,62 @@ def test_runner_cancel_stops_shell_and_never_starts_queued_read(tmp_path: Path) 
             if event.kind == "tool_queue_cancelled"
         ]
         assert cancelled == ["read"]
+
+    asyncio.run(scenario())
+
+
+def test_runner_does_not_interrupt_cleanup_with_a_second_cancel(tmp_path: Path) -> None:
+    """父级 gather 已传播取消时，不得再次取消正在回收进程的子任务。"""
+
+    async def scenario() -> None:
+        """通过清理屏障固定二次取消时序，避免依赖操作系统的偶然调度。"""
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        interrupted = asyncio.Event()
+
+        class CleaningExecutor:
+            """用挂起清理模拟等待进程组退出的真实执行器。"""
+
+            supports_parallel = True
+
+            async def execute(self, call: ToolCall) -> ToolResult:
+                """接收第一次取消后保持清理，检测第二次取消是否破坏收尾。"""
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    # 排队任务立即退出，使 gather 在活动任务仍清理时向父级抛出取消。
+                    if call.call_id == "b":
+                        raise
+                    entered.set()
+                    try:
+                        await release.wait()
+                    except asyncio.CancelledError:
+                        interrupted.set()
+                        raise
+                    raise
+                raise AssertionError("unreachable")
+
+        provider = FakeProvider(
+            (
+                Message(
+                    role="assistant",
+                    tool_calls=(
+                        ToolCall(call_id="a", name="shell", arguments={}),
+                        ToolCall(call_id="b", name="shell", arguments={}),
+                    ),
+                ),
+            )
+        )
+        running = asyncio.create_task(
+            Runner(provider, CleaningExecutor()).run((Message(role="user", content="取消"),))
+        )
+        await asyncio.sleep(0.01)
+        running.cancel()
+        await entered.wait()
+        await asyncio.sleep(0.01)
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        assert not interrupted.is_set()
 
     asyncio.run(scenario())

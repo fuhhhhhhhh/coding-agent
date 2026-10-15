@@ -40,3 +40,14 @@ context:
   compact_trigger_tokens: 850000
   compact_target_tokens: 700000
   recent_rounds: 4
+
+# 持久会话的保留与资源边界；正文属于私有资料，可显式查看和删除。
+sessions:
+  retention_days: 30
+  command_output_bytes: 134217728
+  task_output_bytes: 268435456
+  session_output_bytes: 1073741824
+  context_artifact_bytes: 33554432
+  history_bytes: 16777216
+  database_bytes: 67108864
+  max_requests: 1000

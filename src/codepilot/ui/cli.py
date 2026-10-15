@@ -2,7 +2,10 @@
 
 import argparse
 import asyncio
+import json
+import shutil
 import sys
+import time
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
@@ -10,7 +13,9 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from codepilot.app import CodePilotApplication, RunIdentity
+from codepilot.app.service import _state_root
 from codepilot.config import ProductConfig, load_product_config
+from codepilot.sessions.store import SessionStore
 from codepilot.ui.renderer import EventRenderer
 
 
@@ -26,6 +31,24 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--task-id")
     run.add_argument("--run-id")
     run.add_argument("--jsonl", action="store_true", help="输出脱敏进度事件和最终 JSON")
+    resume = commands.add_parser("resume", help="核验后继续一个已保存会话；不重放未知工具")
+    _add_shared_arguments(resume, suppress_defaults=True)
+    resume.add_argument("session_id")
+    resume.add_argument("task", nargs="?", help="可选续问；省略则进入交互")
+    resume.add_argument("--jsonl", action="store_true")
+    sessions = commands.add_parser("sessions", help="查看、协调或删除私有持久会话")
+    _add_shared_arguments(sessions, suppress_defaults=True)
+    actions = sessions.add_subparsers(dest="session_action", required=True)
+    actions.add_parser("list", help="列出本状态目录的会话")
+    actions.add_parser("prune", help="清理已过期且安全结束的会话，保留未知任务")
+    show = actions.add_parser("show", help="默认只展示元数据；正文需显式开启")
+    show.add_argument("session_id")
+    show.add_argument("--messages", action="store_true", help="在终端展示私有对话正文")
+    reconcile = actions.add_parser("reconcile", help="独立核验资源后接受当前工作区，不重放未知调用")
+    reconcile.add_argument("session_id")
+    reconcile.add_argument("--accept-workspace", action="store_true", required=True)
+    delete = actions.add_parser("delete", help="删除已结束会话及私有正文")
+    delete.add_argument("session_id")
     return parser
 
 
@@ -143,9 +166,13 @@ async def _run(arguments: argparse.Namespace, config: ProductConfig) -> int:
 
 def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
     """持续读取终端任务；单次失败只结束当前任务，不关闭整个交互进程。"""
-    session_id = f"session-{uuid.uuid4().hex}"
+    session_id = getattr(arguments, "session_id", None) or f"session-{uuid.uuid4().hex}"
     print("CodePilot 交互模式。输入任务后回车执行；/help 查看帮助，/exit 退出。")
     print(f"工作区：{arguments.workspace}｜会话：{session_id}")
+    print(
+        "对话与工具输出将保存在私有会话目录；保留期见配置。"
+        "可用 sessions delete 删除、sessions prune 清理过期会话。"
+    )
     while True:
         try:
             task = input("codepilot> ").strip()
@@ -164,15 +191,20 @@ def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
         if task in {"/exit", "/quit"}:
             return 0
         if task == "/help":
-            print("直接输入自然语言任务；/exit 或 /quit 退出。每条任务都有独立 Trace。")
+            print(
+                "直接输入自然语言任务；/exit 或 /quit 退出。"
+                "任务共享持久会话，每次执行有独立 Trace。"
+            )
             continue
         task_arguments = argparse.Namespace(
-            **vars(arguments),
-            task=task,
-            session_id=session_id,
-            task_id=None,
-            run_id=None,
-            jsonl=False,
+            **{
+                **vars(arguments),
+                "task": task,
+                "session_id": session_id,
+                "task_id": None,
+                "run_id": None,
+                "jsonl": False,
+            }
         )
         try:
             exit_code = asyncio.run(_run(task_arguments, config))
@@ -190,6 +222,64 @@ def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
             print(f"当前任务启动失败：{type(error).__name__}；可以继续输入。", file=sys.stderr)
 
 
+def _sessions(arguments: argparse.Namespace, config: ProductConfig) -> int:
+    """管理会话元数据与显式正文查看，默认不把私有内容输出到终端。"""
+    root = _state_root(config).absolute()
+    action = arguments.session_action
+    if action == "show":
+        result = SessionStore.inspect(root, arguments.session_id, messages=arguments.messages)
+        result["outputs"] = [
+            json.loads(path.read_bytes())
+            for path in (root / arguments.session_id / "outputs").glob("output-*.json")
+        ]
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+    if action == "list":
+        for path in sorted(root.glob("*/session.db")):
+            snapshot = SessionStore.inspect(root, path.parent.name)
+            print(
+                json.dumps(
+                    {
+                        "session_id": snapshot["session_id"],
+                        "status": snapshot["status"],
+                        "expired": snapshot["expires_at"] is not None
+                        and snapshot["expires_at"] < time.time(),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        return 0
+    if action == "prune":
+        for path in sorted(root.glob("*/session.db")):
+            snapshot = SessionStore.inspect(root, path.parent.name)
+            # 活跃或未知会话不竞争执行锁；到期只代表可检查删除，不代表允许丢弃代码。
+            if (
+                snapshot["status"] != "ready"
+                or snapshot["expires_at"] is None
+                or snapshot["expires_at"] >= time.time()
+            ):
+                continue
+            with SessionStore(root, path.parent.name, create=False) as session:
+                try:
+                    session.ensure_deletable()
+                except ValueError:
+                    print(f"保留含工作树或补丁的会话 {session.session_id}")
+                    continue
+                shutil.rmtree(session.directory)
+                print(f"已删除过期会话 {session.session_id}")
+        return 0
+    with SessionStore(root, arguments.session_id, create=False) as session:
+        if action == "reconcile":
+            session.reconcile(arguments.workspace.resolve(strict=True))
+            print("已核验并接受当前工作区；未知调用已标记，未重放任何工具。")
+        elif action == "delete":
+            session.ensure_deletable()
+            # 持锁时先删除正文与数据库，锁文件最后由目录删除；不影响其他会话。
+            shutil.rmtree(session.directory)
+            print("会话及私有正文已删除。")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """解析一次配置，再进入交互外壳或执行一个非交互任务。"""
     parser = build_parser()
@@ -202,6 +292,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             overrides=_overrides(arguments),
         )
         # 有 run 子命令时执行一次并返回状态；无子命令才进入持续提示符。
+        if arguments.command == "sessions":
+            return _sessions(arguments, config)
+        if arguments.command == "resume":
+            # 不存在会话或身份变化必须在提示符和模型请求前明确失败。
+            with SessionStore(_state_root(config), arguments.session_id, create=False) as session:
+                session.check(workspace, f"{config.backend.kind}:{config.git_workspace.enabled}")
+            if arguments.task is not None:
+                arguments.task_id = None
+                arguments.run_id = None
+                return asyncio.run(_run(arguments, config))
+            return _interactive(arguments, config)
         if arguments.command == "run":
             return asyncio.run(_run(arguments, config))
         return _interactive(arguments, config)

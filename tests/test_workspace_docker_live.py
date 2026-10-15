@@ -224,3 +224,161 @@ def test_live_docker_removes_expired_owned_container(tmp_path: Path) -> None:
             await _docker("rm", "-f", "-v", stale_name)
 
     asyncio.run(scenario())
+
+
+def test_live_streaming_output_and_persistent_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """统一产品链跨容器保留输出引用，后续任务可读取此前中段原文。"""
+    import json
+
+    import codepilot.app.service as service
+    from codepilot.app import CodePilotApplication
+    from codepilot.config import BackendConfig, ProductConfig
+    from codepilot.contracts import Message
+    from codepilot.providers.fake import FakeProvider
+    from codepilot.sessions.store import SessionStore
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state = tmp_path / "state"
+    sequence = 0
+    output_id = ""
+
+    def factory(*args: object, **kwargs: object) -> service._ProviderHandle:
+        """第一任务输出日志，第二任务按先前 ID 读取，结果由控制器核对。"""
+        nonlocal sequence
+        sequence += 1
+        call = (
+            ToolCall(
+                call_id="logs",
+                name="shell",
+                arguments={
+                    "command": (
+                        'python -c "import os; '
+                        "os.write(1,b'x'*100000+b'DOCKER_MIDDLE'+b'y'*100000); "
+                        "os.write(2,b'err')\""
+                    )
+                },
+            )
+            if sequence == 1
+            else ToolCall(
+                call_id="read-old",
+                name="read_output",
+                arguments={"output_id": output_id, "offset": 100000, "max_bytes": 13},
+            )
+        )
+        return service._ProviderHandle(
+            FakeProvider(
+                (
+                    Message(role="assistant", tool_calls=(call,)),
+                    Message(role="assistant", content="结束"),
+                )
+            )
+        )
+
+    monkeypatch.setattr(service, "_create_provider", factory)
+    config = ProductConfig(
+        backend=BackendConfig(kind="docker", docker_image=IMAGE),
+        permission="controlled-edit",
+        state_directory=state,
+    )
+    from codepilot.permissions import ScriptedApproval
+
+    first = asyncio.run(
+        CodePilotApplication(config, workspace, approval=ScriptedApproval((True,))).run(
+            "生成日志", session_id="docker-session"
+        )
+    )
+    index = next((state / "docker-session/outputs").glob("output-*.json"))
+    record = json.loads(index.read_bytes())
+    output_id = record["output_id"]
+    assert record["state"] == "complete" and record["saved"]["stdout"] == 200013
+    second = asyncio.run(
+        CodePilotApplication(config, workspace, approval=ScriptedApproval((True,))).run(
+            "读取先前输出", session_id="docker-session"
+        )
+    )
+    assert first.report.reason == second.report.reason == "completed"
+    assert any(
+        message.tool_result and "DOCKER_MIDDLE" in message.tool_result.content
+        for message in second.report.messages
+    )
+    assert second.resources.backend_closed
+    with SessionStore(state, "docker-session", create=False) as stored:
+        assert stored.get("status") == "ready" and stored.get("resources") == []
+
+
+def test_live_docker_streams_over_100mib_with_bounded_previews(tmp_path: Path) -> None:
+    """真实容器通过分块协议传输大日志，控制器只保留有限预览。"""
+    import json
+
+    from codepilot.sessions.outputs import CURRENT_OUTPUT, OutputStore
+
+    async def scenario() -> None:
+        """命令输出由 worker 到控制器逐块传输，中段可跨 store 重读。"""
+        output = OutputStore(tmp_path / "outputs")
+        token = CURRENT_OUTPUT.set(output)
+        try:
+            backend = DockerExecutionBackend(
+                tmp_path, IMAGE, limits=BackendLimits(output_bytes=1024)
+            )
+            async with backend:
+                result = await backend.run_argv(
+                    (
+                        "python",
+                        "-c",
+                        "import os; b=b'x'*65536; "
+                        "[(os.write(1,b),os.write(2,b)) for _ in range(420)]; "
+                        "os.write(1,b'MIDDLE_LIVE'); "
+                        "[(os.write(1,b),os.write(2,b)) for _ in range(420)]",
+                    ),
+                    timeout_seconds=90,
+                )
+        finally:
+            CURRENT_OUTPUT.reset(token)
+        assert result.exit_code == 0 and len(result.stdout) == 1024
+        record = json.loads(next(output.directory.glob("*.json")).read_bytes())
+        assert record["state"] == "complete"
+        assert sum(record["saved"].values()) > 100 * 1024**2
+        assert str(420 * 65536) in output.search(record["output_id"], "stdout", "MIDDLE_LIVE")
+
+    asyncio.run(scenario())
+
+
+def test_live_stream_capture_quota_and_cancellation_stop_container(tmp_path: Path) -> None:
+    """真实传输在配额耗尽和主动取消时都停止容器，不能留下后台写进程。"""
+    import json
+
+    from codepilot.sessions.outputs import CURRENT_OUTPUT, OutputStore
+
+    async def scenario() -> None:
+        """分别验证持续大输出被配额停止和长命令被用户取消。"""
+        output = OutputStore(tmp_path / "outputs", command_bytes=16384)
+        token = CURRENT_OUTPUT.set(output)
+        try:
+            async with DockerExecutionBackend(tmp_path, IMAGE) as backend:
+                with pytest.raises(OSError):
+                    await backend.run_argv(
+                        ("python", "-c", "import os;\nwhile True: os.write(1,b'x'*8192)")
+                    )
+            records = [json.loads(path.read_bytes()) for path in output.directory.glob("*.json")]
+            assert records[0]["state"] == "quota_exceeded"
+            async with DockerExecutionBackend(tmp_path, IMAGE) as cancelled_backend:
+                task = asyncio.create_task(
+                    cancelled_backend.run_argv(
+                        ("python", "-c", "import time; print('ready',flush=True); time.sleep(60)")
+                    )
+                )
+                while len(list(output.directory.glob("*.json"))) < 2:
+                    await asyncio.sleep(0.01)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            records = [json.loads(path.read_bytes()) for path in output.directory.glob("*.json")]
+            assert {record["state"] for record in records} == {"partial", "quota_exceeded"}
+            assert backend.events[-1].kind == cancelled_backend.events[-1].kind == "backend_closed"
+        finally:
+            CURRENT_OUTPUT.reset(token)
+
+    asyncio.run(scenario())

@@ -17,7 +17,18 @@ StopReason = Literal[
     "contract_error",
     "context_limit",
     "cancelled",
+    "session_limit",
+    "persistence_error",
 ]
+
+
+class ObservationRejected(ValueError):
+    """让事实记录入口拒绝新工作，失败理由保持脱敏且由 Runtime 统一终止。"""
+
+    def __init__(self, reason: Literal["session_limit", "persistence_error"], detail: str) -> None:
+        """保存稳定分类，不携带私有正文或数据库原始异常。"""
+        self.reason = reason
+        self.detail = detail
 
 
 class RunLimits(Contract):

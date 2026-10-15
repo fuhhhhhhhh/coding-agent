@@ -1,0 +1,25 @@
+{
+  "backend": "rootless-docker",
+  "samples": [
+    {
+      "state": "complete",
+      "saved": {
+        "stdout": 55050251,
+        "stderr": 55050240
+      },
+      "observed": {
+        "stdout": 55050251,
+        "stderr": 55050240
+      },
+      "sha256": {
+        "stdout": "64dda4cb7d2fd96df9bd0a832b5a28e2734efbb14362baaab4af4027e90722e7",
+        "stderr": "c19c3405ba79b461badc97343cb0a5b03da7d00898c41c79f0f6bd7de51c5839"
+      },
+      "metrics": {
+        "worker_peak_rss_kib": 37888,
+        "controller_peak_rss_kib": 82944
+      }
+    }
+  ],
+  "interpretation": "Single Linux Rootless Docker sample: 110100491 captured bytes; peak RSS is a measurement, not a universal performance guarantee."
+}

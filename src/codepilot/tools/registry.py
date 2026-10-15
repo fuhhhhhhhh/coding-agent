@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from codepilot.contracts import ToolCall, ToolResult
 from codepilot.observability.trace import emit
+from codepilot.sessions.outputs import CURRENT_CALL
 from codepilot.tools.base import Tool, ToolFailure, ToolOutput, ToolSpec
 
 
@@ -47,6 +48,7 @@ class ToolRegistry:
             # 不回显原始输入，避免把文件内容或凭据复制进错误轨迹。
             details = json.dumps(error.errors(include_input=False), ensure_ascii=False)
             return self._error(call, f"invalid_arguments: {details}")
+        call_token = CURRENT_CALL.set(call.call_id)
         try:
             emit("tool_started", call_id=call.call_id)
             async with asyncio.timeout(tool.default_timeout):
@@ -56,6 +58,8 @@ class ToolRegistry:
             return self._error(call, f"tool_timeout: {tool.default_timeout:g}s")
         except ToolFailure as error:
             return self._error(call, f"tool_error: {error}")
+        finally:
+            CURRENT_CALL.reset(call_token)
         # 普通字符串表示成功；ToolOutput 可携带非零退出等带正文的业务失败。
         if isinstance(output, ToolOutput):
             return ToolResult(

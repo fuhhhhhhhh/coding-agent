@@ -1,8 +1,6 @@
 """实现与现有工具兼容的本地 ExecutionBackend。"""
 
 import asyncio
-import os
-import signal
 import time
 import uuid
 from pathlib import Path
@@ -10,9 +8,11 @@ from types import TracebackType
 from typing import Self
 
 from codepilot.contracts import ToolCall, ToolResult
+from codepilot.sessions.outputs import CURRENT_OUTPUT
 from codepilot.tools import ToolRegistry, create_basic_registry
 from codepilot.tools.base import ToolSpec
-from codepilot.workspace.common import BackendJournal, export_file, read_limited
+from codepilot.tools.process import collect, spawn
+from codepilot.workspace.common import BackendJournal, export_file
 from codepilot.workspace.models import BackendEvent, BackendLimits, CommandResult
 
 
@@ -94,39 +94,32 @@ class LocalExecutionBackend:
             raise ValueError("command must not be empty")
         started = time.monotonic()
         task = asyncio.current_task()
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            cwd=self.root,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=os.name != "nt",
-        )
+        factory = CURRENT_OUTPUT.get()
+        call_id = f"argv-{uuid.uuid4().hex}"
+        capture = factory.begin(call_id) if factory is not None else None
+        process = await spawn(command, cwd=str(self.root), capture=capture)
         if task is not None:
             self._active.add(task)
         self._processes.add(process)
-        stdout_task = asyncio.create_task(read_limited(process.stdout, self.limits.output_bytes))
-        stderr_task = asyncio.create_task(read_limited(process.stderr, self.limits.output_bytes))
+        timed_out = False
+        cancelled = False
+        output = asyncio.create_task(collect(process, self.limits.output_bytes, call_id, capture))
         timed_out = False
         cancelled = False
         try:
             async with asyncio.timeout(timeout_seconds or self.limits.command_timeout_seconds):
-                await process.wait()
+                stdout, stdout_truncated, stderr, stderr_truncated, reference = await output
         except TimeoutError:
             timed_out = True
-            await self._stop_process(process)
+            # collect 在超时取消中已经完成进程回收；没有完整结果时保留索引里的 partial。
+            stdout, stderr, stdout_truncated, stderr_truncated, reference = b"", b"", True, True, ""
         except asyncio.CancelledError:
             cancelled = True
-            await asyncio.shield(self._stop_process(process))
-            for reader in (stdout_task, stderr_task):
-                reader.cancel()
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
             raise
         finally:
             self._processes.discard(process)
             if task is not None:
                 self._active.discard(task)
-        stdout, stdout_truncated = await stdout_task
-        stderr, stderr_truncated = await stderr_task
         result = CommandResult(
             exit_code=process.returncode,
             stdout=stdout.decode("utf-8", errors="replace"),
@@ -135,6 +128,7 @@ class LocalExecutionBackend:
             stderr_truncated=stderr_truncated,
             timed_out=timed_out,
             cancelled=cancelled,
+            output_reference=reference,
         )
         self._record(
             "command_executed",
@@ -198,26 +192,9 @@ class LocalExecutionBackend:
 
     async def _stop_process(self, process: asyncio.subprocess.Process) -> None:
         """先温和终止进程组，短暂等待后再强制杀死。"""
-        if process.returncode is not None:
-            return
-        try:
-            if os.name == "nt":
-                process.terminate()
-            else:
-                os.killpg(process.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
-        try:
-            await asyncio.wait_for(process.wait(), 0.5)
-        except TimeoutError:
-            try:
-                if os.name == "nt":
-                    process.kill()
-                else:
-                    os.killpg(process.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-            await process.wait()
+        from codepilot.tools.process import settle, stop_process
+
+        await settle(stop_process(process))
 
     def _record(self, kind: str, **payload: object) -> None:
         """追加一条严格校验且不含正文的后端事件。"""

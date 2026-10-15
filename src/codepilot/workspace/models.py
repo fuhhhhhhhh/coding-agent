@@ -29,6 +29,7 @@ class CommandResult(Contract):
     timed_out: bool = False
     oom_killed: bool = False
     cancelled: bool = False
+    output_reference: str = ""
 
 
 class BackendEvent(Contract):

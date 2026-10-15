@@ -16,10 +16,13 @@ from types import TracebackType
 from typing import Self
 
 from codepilot.contracts import ToolCall, ToolResult
+from codepilot.sessions.outputs import CURRENT_OUTPUT, FileCapture
 from codepilot.tools import create_basic_registry
 from codepilot.tools.base import ToolSpec
+from codepilot.tools.process import settle
 from codepilot.workspace.common import BackendJournal, export_file, read_limited
 from codepilot.workspace.models import BackendEvent, BackendLimits, CommandResult
+from codepilot.workspace.output_stream import stream_worker
 
 DockerRunner = Callable[[tuple[str, ...], bytes | None, int], Awaitable[tuple[int, bytes, bytes]]]
 
@@ -470,7 +473,31 @@ class DockerExecutionBackend:
         所有 Docker 操作都经过这里，生产 runner 和 fake runner 因而共享同一个
         参数、输入和输出契约；输出上限防止 daemon 的错误信息或 stats 无限增长。
         """
-        return await self._runner(arguments, stdin, self.limits.output_bytes)
+        factory = CURRENT_OUTPUT.get()
+        if (
+            self._runner is _run_docker
+            and factory is not None
+            and stdin is not None
+            and "codepilot.workspace.worker" in arguments
+        ):
+            request = json.loads(stdin)
+            if request.get("kind") == "command" or (
+                request.get("kind") == "tool" and request.get("call", {}).get("name") == "shell"
+            ):
+                call_id = request.get("call", {}).get("call_id", f"argv-{uuid.uuid4().hex}")
+                capture = factory.begin(call_id)
+                if not isinstance(capture, FileCapture):
+                    raise ValueError("controller output factory must own files")
+                request.update(stream_output=True, output_id=capture.output_id)
+                try:
+                    return await stream_worker(arguments, json.dumps(request).encode(), capture)
+                except BaseException:
+                    # 写盘失败或传输中断也可能留下容器内进程，不能只杀本地客户端。
+                    await settle(self.cancel())
+                    raise
+        return await self._runner(
+            arguments, stdin, max(1024 * 1024, self.limits.output_bytes * 8 + 65536)
+        )
 
     async def _was_oom_killed(self) -> bool:
         """读取容器主进程的 Docker OOM 标记。

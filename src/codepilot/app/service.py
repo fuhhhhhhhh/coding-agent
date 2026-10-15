@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import time
 import uuid
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -38,6 +39,8 @@ from codepilot.providers.openai_compatible import OpenAICompatibleProvider, Requ
 from codepilot.providers.stream import StreamingProvider
 from codepilot.runtime import Runner
 from codepilot.scheduler import ScheduledExecutor
+from codepilot.sessions.outputs import CURRENT_OUTPUT, OutputStore
+from codepilot.sessions.store import SessionStore, process_identity, safe_id
 from codepilot.tools import create_basic_registry
 from codepilot.tools.base import ToolSpec
 from codepilot.workspace import DockerExecutionBackend, ExecutionBackend, LocalExecutionBackend
@@ -90,7 +93,7 @@ class CodePilotApplication:
         self.workspace = workspace.resolve(strict=True)
         if not self.workspace.is_dir():
             raise ValueError("workspace must be a directory")
-        self.state_root = _state_root(config).resolve()
+        self.state_root = _state_root(config).absolute()
         if self.state_root.is_relative_to(self.workspace):
             raise ValueError("state directory must be outside workspace")
         # 密钥在创建目录、容器或 Trace 前解析，并且只保存在当前应用对象内存中。
@@ -114,10 +117,69 @@ class CodePilotApplication:
             task_id=task_id or f"task-{uuid.uuid4().hex}",
             run_id=run_id or f"run-{uuid.uuid4().hex}",
         )
+        for value in (identity.session_id, identity.task_id, identity.run_id):
+            safe_id(value)
+        with SessionStore(self.state_root, identity.session_id) as session:
+            session.secrets = (self._api_key,) if self._api_key else ()
+            session.check(
+                self.workspace, f"{self.config.backend.kind}:{self.config.git_workspace.enabled}"
+            )
+            session.commit(
+                "configuration",
+                {},
+                configuration={
+                    "provider": self.config.provider.kind,
+                    "model": self.config.provider.model,
+                    "backend": self.config.backend.kind,
+                    "permission": self.config.permission,
+                    "worktree": self.config.git_workspace.enabled,
+                },
+            )
+            limits = self.config.sessions
+            session.request_limit = limits.max_requests
+            session.history_limit = limits.history_bytes
+            page_size = session.db.execute("PRAGMA page_size").fetchone()[0]
+            session.db.execute(
+                f"PRAGMA max_page_count={max(1, limits.database_bytes // page_size)}"
+            )
+            session.commit(
+                "retention_policy",
+                {},
+                retention_days=limits.retention_days,
+                expires_at=time.time() + limits.retention_days * 86400,
+            )
+            output = OutputStore(
+                session.directory / "outputs",
+                command_bytes=limits.command_output_bytes,
+                task_bytes=limits.task_output_bytes,
+                session_bytes=limits.session_output_bytes,
+            )
+            output.on_process = lambda pid: session.resource(
+                "process", {"pid": pid, "start": process_identity(pid)}
+            )
+            token = CURRENT_OUTPUT.set(output)
+            try:
+                result = await self._execute(task, identity, session)
+                session.finish(result.report, self.workspace, clean=result.resources.backend_closed)
+                return result
+            except BaseException:
+                # 执行异常与进程崩溃都不推断副作用未发生；持久事实保留供显式协调。
+                try:
+                    session.finish(None, self.workspace, clean=False)
+                except Exception:
+                    pass
+                raise
+            finally:
+                CURRENT_OUTPUT.reset(token)
+
+    async def _execute(
+        self, task: str, identity: RunIdentity, session: SessionStore
+    ) -> ProductRunResult:
+        """在持久会话锁内执行单次 run，复用原有装配与清理链。"""
         run_directory = self.state_root / identity.session_id / identity.task_id / identity.run_id
         trace_directory = run_directory / "traces"
         backend_directory = run_directory / "backend"
-        context_directory = run_directory / "context"
+        context_directory = session.directory / "artifacts"
 
         task_workspace: GitTaskWorkspace | None = None
         execution_workspace = self.workspace
@@ -144,11 +206,15 @@ class CodePilotApplication:
         try:
             # 从后端构造开始纳入失败交付，避免初始化异常留下无人管理的 task worktree。
             backend = _create_backend(self.config, execution_workspace, backend_directory)
-            store = ContextArtifactStore(context_directory)
+            store = ContextArtifactStore(
+                context_directory,
+                persistent=True,
+                max_bytes=self.config.sessions.context_artifact_bytes,
+            )
             recorder = EventRecorder(trace_directory, self.on_event)
             async with AsyncExitStack() as resources:
                 # 先登记已构造资源，后续装配或启动失败也会进入相同清理出口。
-                resources.callback(store.cleanup)
+                # 会话持有 Artifact，run 退出只清理执行资源，不删除可恢复正文。
                 resources.push_async_callback(backend.close)
                 context = ContextManager(backend, store, limits=self.config.context)
                 scheduler = ScheduledExecutor(context, self.config.scheduler_concurrency)
@@ -176,10 +242,25 @@ class CodePilotApplication:
                     run_id=identity.run_id,
                     recorder=recorder,
                     context=context,
+                    on_observation=session.observe,
+                    resume_history=True,
                 )
+                initial = _initial_messages(execution_workspace, task)
+                history = session.history()
+                # 每轮重新读取仓库规则，保留旧任务事实并追加当前用户输入。
+                messages = (
+                    *initial[:-1],
+                    *(message for message in history if message.role != "system"),
+                    initial[-1],
+                )
+                session.begin(identity.run_id, messages)
                 await backend.start()
+                for event in backend.events:
+                    if event.container_id:
+                        session.resource("container", {"id": event.container_id})
+                        break
                 try:
-                    report = await runner.run(_initial_messages(execution_workspace, task))
+                    report = await runner.run(messages)
                 except asyncio.CancelledError:
                     # Runner 已经记录 cancelled；后端仍需封闭入口并停止活动进程或容器。
                     await asyncio.shield(backend.cancel())
