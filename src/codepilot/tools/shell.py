@@ -64,7 +64,10 @@ class ShellTool(Tool[ShellArguments]):
     """在工作区启动一个 Shell 进程并返回退出码及有界输出。"""
 
     name = "shell"
-    description = "在工作区运行有超时和输出限制的 Shell 命令"
+    description = (
+        "在工作区运行有超时和输出限制的 Shell 命令；可使用 git、测试器和项目命令。"
+        "Git commit、branch、fetch、pull、push 等操作通过本工具执行"
+    )
     effect = "process"
     resources = ("workspace:process",)
     default_timeout = 10.0

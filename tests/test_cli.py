@@ -7,7 +7,19 @@ from pathlib import Path
 
 import pytest
 
-from codepilot.ui.cli import main
+from codepilot.ui.cli import _overrides, build_parser, main
+
+
+def test_cli_worktree_flag_explicitly_enables_isolation() -> None:
+    """新的 worktree 参数应显式开启隔离，并拒绝与旧直写参数同时出现。"""
+    parser = build_parser()
+    arguments = parser.parse_args(["--worktree"])
+
+    assert _overrides(arguments)["git_workspace"] == {"enabled": True}
+
+    conflicting = parser.parse_args(["--worktree", "--direct-workspace"])
+    with pytest.raises(ValueError, match="cannot be used together"):
+        _overrides(conflicting)
 
 
 def test_cli_fake_run_emits_stable_identity_and_result(

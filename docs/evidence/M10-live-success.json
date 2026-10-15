@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-15",
+  "mode": "live_context_compaction",
+  "model": "deepseek-flash",
+  "requests": 1,
+  "max_output_tokens": 320,
+  "summary_timeout_seconds": 120.0,
+  "passed": true,
+  "usage": {
+    "input_tokens": 261,
+    "output_tokens": 224,
+    "source": "provider"
+  },
+  "checks": {
+    "prefix_preserved": true,
+    "recent_pair_preserved": true,
+    "mentions_parser": true,
+    "mentions_test": true,
+    "mentions_windows_risk": true,
+    "mentions_constraint": true
+  }
+}

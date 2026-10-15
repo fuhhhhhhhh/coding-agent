@@ -24,11 +24,11 @@ runtime:
   timeout_seconds: 900
   max_consecutive_failures: 3
 
-# 每项任务从固定 commit 建立独立 worktree；验证命令由具体项目覆盖。
+# 默认直接修改启动目录；需要并行隔离或补丁交付时再显式开启 worktree。
 git_workspace:
-  enabled: true
+  enabled: false
   base_commit: HEAD
-  require_clean_source: true
+  require_clean_source: false
   verification_command: []
   verification_timeout_seconds: 120
   max_patch_bytes: 16777216

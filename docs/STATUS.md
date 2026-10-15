@@ -2,9 +2,9 @@
 
 当前里程碑：P3 受控执行面加固待实施
 
-最近完整通过：P2 / M11 任务级 Git worktree 与可审查交付；M01—M10 的阶段证据保留
+最近完整通过：P2 / M11 直接 Git 工作流与可选 worktree 交付；M01—M10 的阶段证据保留
 
-实现状态：统一 `codepilot run` 已组合任务 worktree、补丁重放、Provider、Context、权限、调度、Local/Docker、Runner、Trace 与清理；恢复及后续成熟产品门槛未通过
+实现状态：统一 `codepilot run` 默认直接操作当前目录，并已组合可选 worktree、补丁重放、Provider、Context、权限、调度、Local/Docker、Runner、Trace 与清理；恢复及后续成熟产品门槛未通过
 
 学习状态：用户报告已阅读 M01、M03、M04、M05 核心代码；M02—M10 阅读说明已交付，未验证独立掌握程度。
 
@@ -15,14 +15,18 @@
 
 ## P2 / M11 当前证据
 
-- 默认产品入口要求干净 Git 源工作树，把每个 task ID 绑定到解析后的固定 commit 和状态目录中的独立 detached worktree；`--direct-workspace` 是明确降级的兼容入口。
+- 默认产品入口直接修改当前目录，不要求 Git 初始化或干净状态。已有未提交文件由用户继续拥有，产品启动和结束均不会清除它们；普通任务的结果立即位于源目录，无需手动应用补丁。
+- Git 采用与 Claude Code 相同的 CLI 思路：模型通过 `shell` 使用原生 Git 参数体系，commit/branch/fetch/pull/push 均经过既有 `process` 权限与审计；`git_status`、`git_diff` 保留为只读观察捷径。确定性测试已在脏目录完成 init、分支、提交及本地裸仓库的 fetch/pull/push，并确认原有未跟踪文件保留。
+- `--worktree` 是显式隔离入口，把 task ID 绑定到固定 commit 和状态目录中的 detached worktree。`require_clean_source` 默认关闭；打开后可要求源目录干净。
 - `workspace.json` 以 0600 记录 UID、session/task/run、源仓库、任务目录、base commit、状态和补丁摘要；路径、所有权或当前修改不匹配时拒绝清理。
 - `git_status` 与 `git_diff` 是正式只读工具。Docker 只挂载任务文件，两个 Git 查询由控制器使用固定 argv 执行；文件与 Shell 仍在 Rootless Docker 中执行。
 - 交付通过临时 index 纳入未跟踪文件，导出 Git 原生 `--binary --full-index` 补丁，覆盖新增、删除、文件模式和二进制内容；补丁为 0600 并带 SHA-256。
 - 每份补丁都在同一 commit 的新 replay worktree 先检查、再应用；项目可配置固定验证 argv。验证副本完成后删除，有修改的 Agent 工作树和补丁保留，无修改任务自动清理。
-- 两个从同一 commit 创建的任务分别修改同一路径，结果互不覆盖、补丁摘要不同且源仓库保持干净。不存在的起点、脏源目录、重放冲突和带修改清理拒绝均有确定性测试。
+- 两个显式隔离任务从同一 commit 创建 worktree，分别修改同一路径，结果互不覆盖、补丁摘要不同且源仓库保持干净。不存在的起点、启用严格检查后的脏源目录、重放冲突和带修改清理拒绝均有确定性测试。
 - 真实 Qwen + Rootless Docker 运行调用 `write_file` 和控制器 `git_status` 创建 `answer.py`；源仓库没有该文件且保持干净，补丁检查与 replay 均通过，stderr 为空，结束后受管容器为 0。真实项目未配置独立测试命令，因此该项标记未运行。
-- `uv run --locked pytest -q`：197 passed、3 个显式 Docker live skip；设计、阅读路径和理解题答案位于 `docs/design/M11.md` 与 `docs/learning/M11.md`，真实证据位于 `docs/evidence/M11-live-worktree.json`。
+- 沙箱镜像现在安装 Git CLI。真实 Rootless Docker 4 项验收通过，其中新增场景在含用户文件的普通目录完成 init、commit、branch 并保留原文件；联网远端操作仍因 Docker 默认断网而未验证。
+- 真实 Qwen 在默认直写 Docker 工作区完成 init、写文件、add、仓库级身份配置和 commit。首个 run 在提交后因八次 Provider 请求额度耗尽而未生成最终回答；第二个只读验证 run 完成，模型与控制器均确认 main 分支、干净状态和最新提交。证据见 `docs/evidence/P2-live-git.json`。
+- `uv run --locked pytest -q`：201 passed、4 个显式 Docker live skip；真实 Docker 套件 4 passed。设计、阅读路径和理解题答案位于 `docs/design/M11.md` 与 `docs/learning/M11.md`。
 
 ## P1 当前证据
 
@@ -57,7 +61,7 @@
 - 固定 fake 对照中，基础策略和治理策略均定位中段错误；基础 prompt 合计估算 27,657 Token，治理策略含按需读取的三轮合计 1,001，最大单轮 562。该结果是同一估算器下的控制流证据，不是供应商账单或模型成功率。
 - `ModelSummarizer` 可复用现有完整或流式 Provider；确定性验收使用 fake 摘要器，真实受限复验结果单独记录，避免把模型随机输出作为核心正确性依据。完整离线命令结果见 `docs/evidence/M10-checks.txt`。
 - `uv run --locked pytest -q`：158 passed、3 个显式 Docker live skip；Ruff、格式检查、mypy、compileall、wheel 构建和 diff 检查通过。
-- 2026-10-15 真实 DeepSeek 复验确认认证、余额和模型可用；Flash 与 V4 Pro 共四次受限诊断都只有 keep-alive，其中两次等待完整 600 秒后以 `summary_failed:TimeoutError` 停止。用户确认 DeepSeek 服务异常，已停止继续调用。真实摘要质量、usage 和费用仍未验证，不能声称真实路径通过。
+- 2026-10-15 早期真实 DeepSeek 复验曾因服务异常超时。服务恢复后执行一次受限 `deepseek-flash` 摘要：1 次请求，261 输入 Token、224 输出 Token；前缀、近期工具对、目标、约束、修改、测试和未验证风险检查全部通过。证据见 `docs/evidence/M10-live-success.json`。
 
 ## M09 当前证据
 
@@ -170,7 +174,7 @@
 
 - 宿主 bind mount 和 Context ArtifactStore 尚无经验证的磁盘硬配额；输出与产物容量限制不能替代磁盘配额。M12 及以后未实现；没有会话持久化或完整 CLI/TUI 框架。
 - Artifact 索引只存在当前进程，Runner 结束后由调用方决定保留或显式 cleanup；跨进程恢复和保留策略留给会话恢复阶段。
-- Token 估算不是任一模型 tokenizer 的精确值，也未计入工具 Schema 等完整请求开销；真实摘要质量、真实摘要用量与成本尚未通过验证。
+- Token 估算不是任一模型 tokenizer 的精确值，也未计入工具 Schema 等完整请求开销；真实摘要已做一次受限成功验收，但还没有长会话重复压缩的质量与成本样本。
 - 未运行 Windows/macOS、Python 3.13、sdist 安装验证；真实 API 只覆盖 DeepSeek 非推理流式只读闭环。
 - M01 的 wheel 安装证据只证明当时构建可安装与运行，不证明构建字节完全可复现；
   项目锁也没有完整固定隔离构建环境依赖。
@@ -181,7 +185,7 @@
 - M02 本轮只构建 wheel，未重复独立安装；M01 的安装证据不能代替 M02 安装验证。
 - 未验证 Windows/macOS 的进程组行为；POSIX 后代终止可能短暂留下僵尸记录；M04 旧演示轨迹在结束后写盘；M07 JSONL 逐事件追加，但不提供崩溃恢复。
 
-当前阻碍：DeepSeek 服务异常仍阻断 M10 真实摘要成功验收，但不阻塞后续产品化开发。持久会话及完整产品验收尚未实现。
+当前阻碍：M10 真实摘要阻碍已解除。持久会话、完整网络 Action 权限及完整产品验收尚未实现。
 
 下一增量：实施 P3，统一 Shell/工具原始输出捕获、磁盘配额、结构化 Action 与秘密/网络权限，并在现有 Rootless Docker 和任务 worktree 主链上验收。
 

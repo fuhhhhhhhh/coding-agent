@@ -55,10 +55,16 @@ def _add_shared_arguments(
     )
     parser.add_argument("--state-directory", type=Path, default=missing)
     parser.add_argument(
+        "--worktree",
+        action="store_true",
+        default=argparse.SUPPRESS if suppress_defaults else False,
+        help="隔离模式：从固定 Git commit 创建任务 worktree 并交付补丁",
+    )
+    parser.add_argument(
         "--direct-workspace",
         action="store_true",
         default=argparse.SUPPRESS if suppress_defaults else False,
-        help="兼容模式：直接修改给定目录，不创建任务 Git worktree",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--base-commit", default=missing, help="任务 worktree 的固定 Git 起点")
 
@@ -93,7 +99,12 @@ def _overrides(arguments: argparse.Namespace) -> dict[str, object]:
     if arguments.state_directory is not None:
         result["state_directory"] = arguments.state_directory
     git_workspace: dict[str, object] = {}
-    if getattr(arguments, "direct_workspace", False):
+    if getattr(arguments, "worktree", False) and getattr(arguments, "direct_workspace", False):
+        raise ValueError("--worktree and --direct-workspace cannot be used together")
+    if getattr(arguments, "worktree", False):
+        git_workspace["enabled"] = True
+    elif getattr(arguments, "direct_workspace", False):
+        # 旧版参数继续接受，便于已有脚本迁移；默认值现在已经是直接工作区。
         git_workspace["enabled"] = False
     if getattr(arguments, "base_commit", None) is not None:
         git_workspace["base_commit"] = arguments.base_commit

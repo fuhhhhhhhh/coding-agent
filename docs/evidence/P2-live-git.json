@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-15",
+  "provider": "openai-compatible/qwen3.5-flash",
+  "backend": "rootless-docker",
+  "workspace_mode": "direct",
+  "first_run": {
+    "actions": [
+      "preserved an existing untracked file",
+      "initialized repository on main",
+      "created hello.txt",
+      "staged both files",
+      "handled missing repository identity",
+      "committed both files"
+    ],
+    "terminal_reason": "provider_error",
+    "reason_detail": "the configured eight-request provider budget was exhausted before final verification"
+  },
+  "verification_run": {
+    "terminal_reason": "completed",
+    "tool_calls": ["git_status", "shell: git log"],
+    "branch": "main",
+    "working_tree": "clean",
+    "latest_subject": "Initial commit: add user-draft.txt and hello.txt"
+  },
+  "controller_checks": {
+    "branch": "main",
+    "working_tree": "clean",
+    "hello_file_committed": true,
+    "existing_user_file_committed": true
+  },
+  "secrets_recorded": false
+}

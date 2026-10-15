@@ -1,8 +1,8 @@
 # CodePilot
 
 逐阶段实现 Python 终端 Coding Agent。当前已有 `codepilot` 交互入口与 `codepilot run` 单次入口，并完成非流式与流式 Agent 循环、六个基础工具、权限审批、
-Local 评测纠错、脱敏 Trace、Rootless Docker 沙箱和两层上下文治理，并已完成一次受限的
-DeepSeek 流式只读闭环验证。
+Local 评测纠错、脱敏 Trace、Rootless Docker 沙箱和两层上下文治理，并已完成受限的
+DeepSeek 流式只读闭环与真实上下文压缩验证。
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
 当前仓库属于“产品主链、真实后端和任务级 Git 交付已验证”，尚未达到成熟终端产品。当前首要缺口是
@@ -59,12 +59,17 @@ uv build --wheel
 当前进程内多条任务共享 session ID，但各自拥有 task/run ID 和 Trace。持久历史与进程重启后的
 恢复属于后续会话阶段，目前输入下一条任务不会携带上一条任务的模型消息。
 
-默认情况下，工作区必须是干净的 Git 仓库。每条任务从配置的 `base_commit` 建立独立 detached
-worktree，Agent、Docker 和工具只修改这个任务目录；原工作树不会被直接覆盖。无修改的任务自动清理
-worktree，有修改的任务会保留工作树并导出 Git 原生二进制补丁，终端展示固定 commit、修改文件数、
-补丁路径和干净起点重放结果。项目可在 `git_workspace.verification_command` 配置不经过 Shell 的固定
-复验命令。非 Git 目录或确实需要旧行为时可显式使用 `--direct-workspace`，该模式不提供任务隔离和
-补丁交付保证。
+默认情况下，Agent 直接修改启动目录，因此未初始化目录和带已有改动的 Git 仓库都能使用；已有改动
+不会因启动任务被清除。模型通过 `shell` 使用原生 Git，可执行 init/add/commit/branch/fetch/pull/push
+等命令；`git_status` 与 `git_diff` 是无需启动 Shell 的只读观察捷径。Shell 属于 `process` 操作，在
+`controlled-edit` 与 `ask-edits` 权限下需要审批。Docker 默认断网，所以联网远端操作需使用 Local 后端；
+开放容器网络要等网络权限进入统一 Action 后再支持。
+
+需要并行任务隔离时可传 `--worktree`，从 `base_commit` 建立 detached worktree。该模式会保留修改目录、
+导出二进制补丁并在干净起点重放；它是显式工作流，不再要求用户为普通编辑手动应用补丁。项目可配置
+`git_workspace.verification_command` 做固定复验。隔离模式默认也允许源仓库有改动，但这些未提交改动
+不属于 `base_commit`、不会出现在任务 worktree；需要强制防止这种认知差异时设置
+`require_clean_source: true`。
 
 M01 演示输出文本和工具请求两行 JSON，不执行工具。
 M02 演示需在仓库根目录运行，将 examples/fixture_repo 复制到临时目录，

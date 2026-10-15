@@ -59,6 +59,46 @@ def test_product_chain_runs_fake_and_closes_owned_resources(tmp_path: Path) -> N
     assert result.resources.trace_path.stat().st_mode & 0o777 == 0o600
 
 
+def test_default_product_chain_writes_into_a_dirty_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """默认产品链应直接修改脏仓库，同时保留用户原有的未提交内容。"""
+    workspace = tmp_path / "repository"
+    workspace.mkdir()
+    subprocess.run(("git", "init", "-q"), cwd=workspace, check=True)
+    (workspace / "user-change.txt").write_text("keep\n", encoding="utf-8")
+
+    def provider_factory(*arguments: object, **keywords: object) -> service._ProviderHandle:
+        """让确定性 Provider 写文件，用于验证默认工作区归属。"""
+        del arguments, keywords
+        return service._ProviderHandle(
+            FakeProvider(
+                (
+                    Message(
+                        role="assistant",
+                        tool_calls=(
+                            ToolCall(
+                                call_id="write-direct",
+                                name="write_file",
+                                arguments={"path": "agent.txt", "content": "done\n"},
+                            ),
+                        ),
+                    ),
+                    Message(role="assistant", content="完成"),
+                )
+            )
+        )
+
+    monkeypatch.setattr(service, "_create_provider", provider_factory)
+    config = ProductConfig(permission="controlled-edit", state_directory=tmp_path / "state")
+    result = asyncio.run(CodePilotApplication(config, workspace).run("创建 agent.txt"))
+
+    assert result.report.reason == "completed"
+    assert result.delivery is None
+    assert (workspace / "agent.txt").read_text(encoding="utf-8") == "done\n"
+    assert (workspace / "user-change.txt").read_text(encoding="utf-8") == "keep\n"
+
+
 def test_product_chain_writes_only_task_worktree_and_exports_verified_patch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -82,11 +122,12 @@ def test_product_chain_writes_only_task_worktree_and_exports_verified_patch(
         permission="controlled-edit",
         state_directory=tmp_path / "state",
         git_workspace=GitWorkspaceConfig(
+            enabled=True,
             verification_command=(
                 sys.executable,
                 "-c",
                 verification_script,
-            )
+            ),
         ),
     )
 

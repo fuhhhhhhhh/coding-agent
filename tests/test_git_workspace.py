@@ -135,18 +135,19 @@ def test_invalid_base_and_dirty_source_fail_before_worktree_creation(tmp_path: P
 
     (source / "dirty.txt").write_text("dirty\n", encoding="utf-8")
     dirty = _manager(source, tmp_path / "state", "dirty")
+    dirty.require_clean_source = True
     with pytest.raises(ValueError, match="must be clean"):
         dirty.prepare()
     assert not dirty.worktree_root.exists()
 
 
-def test_non_git_workspace_explains_explicit_compatibility_mode(tmp_path: Path) -> None:
-    """非 Git 目录应提示初始化仓库或显式选择直写兼容模式。"""
+def test_non_git_workspace_explains_worktree_requirement(tmp_path: Path) -> None:
+    """显式隔离模式遇到非 Git 目录时应说明它需要已有 commit。"""
     source = tmp_path / "plain"
     source.mkdir()
     manager = _manager(source, tmp_path / "state", "plain")
 
-    with pytest.raises(ValueError, match="--direct-workspace"):
+    with pytest.raises(ValueError, match="worktree mode requires"):
         manager.prepare()
 
 
@@ -167,6 +168,55 @@ def test_git_status_and_diff_are_read_only_registered_tools(tmp_path: Path) -> N
         assert "value.txt" in status.content
         assert "-base" in diff.content and "+changed" in diff.content
         assert _git(source, "status", "--porcelain") == before
+
+    asyncio.run(scenario())
+
+
+def test_shell_supports_common_git_workflow_in_dirty_workspace(tmp_path: Path) -> None:
+    """Shell 应直接支持初始化、分支、提交及本地远端的 fetch/pull/push。"""
+
+    async def scenario() -> None:
+        """经同一个 Shell 工具执行本地 Git 流程，并保留预先存在的未跟踪文件。"""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "user-note.txt").write_text("用户尚未提交\n", encoding="utf-8")
+        registry = create_basic_registry(workspace)
+
+        async def shell(command: str, suffix: str) -> None:
+            """执行一条 Git Shell 命令，并要求工具层报告成功。"""
+            result = await registry.execute(
+                ToolCall(call_id=f"git-{suffix}", name="shell", arguments={"command": command})
+            )
+            assert not result.is_error, result.content
+            assert "exit_code=0" in result.content
+
+        await shell("git init -q -b main", "init")
+        await shell(
+            "git config user.name 'CodePilot Test' && "
+            "git config user.email codepilot@example.invalid",
+            "identity",
+        )
+        (workspace / "tracked.txt").write_text("base\n", encoding="utf-8")
+        await shell("git add tracked.txt && git commit -qm base", "commit")
+        await shell("git switch -qc feature", "branch")
+
+        remote = tmp_path / "remote.git"
+        _git(tmp_path, "init", "--bare", "-q", str(remote))
+        await shell(f"git remote add origin {remote} && git push -qu origin feature", "push")
+
+        collaborator = tmp_path / "collaborator"
+        _git(tmp_path, "clone", "-q", "--branch", "feature", str(remote), str(collaborator))
+        _git(collaborator, "config", "user.name", "Collaborator")
+        _git(collaborator, "config", "user.email", "collaborator@example.invalid")
+        (collaborator / "remote.txt").write_text("remote\n", encoding="utf-8")
+        _git(collaborator, "add", "remote.txt")
+        _git(collaborator, "commit", "-qm", "remote change")
+        _git(collaborator, "push", "-q", "origin", "feature")
+
+        await shell("git fetch origin && git pull --ff-only origin feature", "fetch-pull")
+
+        assert (workspace / "remote.txt").read_text(encoding="utf-8") == "remote\n"
+        assert (workspace / "user-note.txt").read_text(encoding="utf-8") == "用户尚未提交\n"
 
     asyncio.run(scenario())
 

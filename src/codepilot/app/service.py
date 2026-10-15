@@ -239,7 +239,8 @@ def _create_backend(
         return LocalExecutionBackend(
             workspace,
             limits=backend.limits,
-            registry=create_basic_registry(workspace, include_git=config.git_workspace.enabled),
+            # Git 工具服务于当前工作区，不应与是否启用隔离 worktree 绑定。
+            registry=create_basic_registry(workspace, include_git=True),
             audit_directory=audit_directory,
         )
     if backend.docker_image is None:
@@ -314,6 +315,7 @@ def _initial_messages(workspace: Path, task: str) -> tuple[Message, ...]:
             content=(
                 "你是在一个固定工作区运行的 Coding Agent。先检查证据，再使用已提供的工具完成任务；"
                 "工具错误必须根据结果处理，不能声称未验证的修改或测试已经成功。"
+                "需要 Git 操作时使用 shell 中的原生 git 命令；不要清除或覆盖用户已有的未提交修改。"
             ),
         )
     ]

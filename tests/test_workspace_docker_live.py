@@ -105,6 +105,39 @@ def test_live_docker_workspace_and_isolation(
     asyncio.run(scenario())
 
 
+def test_live_docker_shell_can_use_git_in_a_dirty_workspace(tmp_path: Path) -> None:
+    """真实沙箱应内置 Git，并允许在已有文件的普通目录初始化和提交。"""
+
+    async def scenario() -> None:
+        """通过正式 Shell 工具执行 init、commit 和 branch，同时保留用户文件。"""
+        (tmp_path / "user-note.txt").write_text("keep\n", encoding="utf-8")
+        backend = DockerExecutionBackend(tmp_path, IMAGE)
+        async with backend:
+            result = await backend.execute(
+                ToolCall(
+                    call_id="docker-git-live",
+                    name="shell",
+                    arguments={
+                        "command": (
+                            "git init -q -b main && "
+                            "git config user.name 'CodePilot Test' && "
+                            "git config user.email codepilot@example.invalid && "
+                            "printf 'agent\\n' > agent.txt && git add agent.txt && "
+                            "git commit -qm agent && git switch -qc feature && "
+                            "git status --short --branch"
+                        )
+                    },
+                )
+            )
+
+        assert not result.is_error, result.content
+        assert "## feature" in result.content
+        assert "?? user-note.txt" in result.content
+        assert (tmp_path / "user-note.txt").read_text(encoding="utf-8") == "keep\n"
+
+    asyncio.run(scenario())
+
+
 def test_live_docker_timeout_oom_and_cancel_cleanup(tmp_path: Path) -> None:
     """真实 cgroup 区分超时与 OOM，协程取消后不留下任务容器。"""
 

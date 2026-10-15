@@ -168,3 +168,11 @@ def test_yaml_style_git_verification_argv_becomes_immutable_tuple() -> None:
     )
 
     assert config.git_workspace.verification_command == ("python", "-m", "pytest", "-q")
+
+
+def test_product_config_defaults_to_the_current_workspace() -> None:
+    """产品默认值应直接使用当前目录，并允许目录处于未初始化或有改动状态。"""
+    config = ProductConfig()
+
+    assert config.git_workspace.enabled is False
+    assert config.git_workspace.require_clean_source is False

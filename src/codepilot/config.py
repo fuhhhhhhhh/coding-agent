@@ -75,11 +75,11 @@ class BackendConfig(Contract):
 
 
 class GitWorkspaceConfig(Contract):
-    """保存任务工作树、固定起点和独立复验所需的产品配置。"""
+    """保存可选任务工作树、固定起点和独立复验所需的产品配置。"""
 
-    enabled: bool = True
+    enabled: bool = False
     base_commit: Annotated[str, Field(min_length=1)] = "HEAD"
-    require_clean_source: bool = True
+    require_clean_source: bool = False
     verification_command: tuple[Annotated[str, Field(min_length=1)], ...] = ()
     verification_timeout_seconds: Annotated[float, Field(gt=0, le=900)] = 120.0
     max_patch_bytes: Annotated[int, Field(ge=1024, le=64 * 1024 * 1024)] = 16 * 1024 * 1024

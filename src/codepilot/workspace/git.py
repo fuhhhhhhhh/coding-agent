@@ -37,7 +37,7 @@ class GitTaskWorkspace:
         task_id: Identifier,
         run_id: Identifier,
         base_commit: str = "HEAD",
-        require_clean_source: bool = True,
+        require_clean_source: bool = False,
         max_patch_bytes: int = 16 * 1024 * 1024,
     ) -> None:
         """保存任务身份和边界；真正的 Git 副作用延迟到 ``prepare``。"""
@@ -63,9 +63,9 @@ class GitTaskWorkspace:
         try:
             repository_text = self._source_git("rev-parse", "--show-toplevel").strip()
         except ValueError as error:
-            # 默认隔离模式依赖 Git；提示显式降级入口比透传底层 fatal 更可操作。
+            # 隔离模式依赖已有 commit；普通直写模式并没有这个前置条件。
             raise ValueError(
-                "workspace is not a Git repository; initialize Git or use --direct-workspace"
+                "worktree mode requires a Git repository with at least one commit"
             ) from error
         self.repository = Path(repository_text).resolve(strict=True)
         if not self.source_workspace.is_relative_to(self.repository):
