@@ -5,6 +5,10 @@ Local 评测纠错、脱敏 Trace、Rootless Docker 沙箱和两层上下文治�
 DeepSeek 流式只读闭环验证。
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
+当前仓库属于“核心机制与部分真实后端已验证”，尚未达到成熟终端产品。上下文完整计量、滚动摘要、
+结构化核验、执行端原始输出捕获、持久会话和统一 CLI 仍需完成。后续成熟度门槛与实施顺序见
+[产品化路线](docs/PRODUCTIZATION_PLAN.md)。
+
 需要 Python 3.11+ 和 uv。在本目录执行：
 
 ```bash
@@ -19,7 +23,10 @@ uv run --locked python -m codepilot.m07_demo
 uv run --locked python -m codepilot.m08_demo
 uv run --locked python -m codepilot.m10_demo
 # 显式执行一次有预算的真实 DeepSeek 摘要
-uv run --locked --env-file .env python -m codepilot.m10_demo --live
+uv run --locked --env-file .env python -m codepilot.m10_demo --live --live-timeout 600
+# Flash 长时间排队时，可显式选择另一个官方模型做受限验收
+uv run --locked --env-file .env python -m codepilot.m10_demo --live \
+  --live-model deepseek-v4-pro --live-timeout 600
 uv run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
@@ -46,7 +53,7 @@ M08 演示独立读取受限并发、同路径写入串行和排队取消；权�
 M09 使用用户级 Rootless Docker 验证同工作区、断网、资源限制、取消和遗留清理。
 M10 演示 110KB 工具输出落盘、错误线索与范围读取，并以完整工具回合为单位自动或手动压缩；
 规范历史与 Provider prompt 视图分离，摘要用量和压缩前后估算可观察。`--live` 只发送合成历史，
-固定一次 DeepSeek 请求和输出上限；服务端长时间无分片时由摘要总时限明确停止。
+固定一次 DeepSeek 请求和输出上限；服务端长时间排队时可显式放宽 live 总时限，生产摘要仍使用较短默认值。
 M01—M06 使用 fake provider；M07 另完成受限真实 DeepSeek 验证。仓库中的故意错误 fixture 不会被修改。
 基础配置入口仍只支持 fake；M07 live 演示只从进程环境读取 `DEEPSEEK_API_KEY`，不加载或提交密钥文件。
 
@@ -64,6 +71,7 @@ Windows/macOS、Python 3.13 尚未验证；真实模型只覆盖 DeepSeek 非推
 或者重新引入纯英文 docstring 和行注释。
 
 进度见 [docs/STATUS.md](docs/STATUS.md)，
+产品化门槛见 [docs/PRODUCTIZATION_PLAN.md](docs/PRODUCTIZATION_PLAN.md)，
 机制与取舍见 [docs/design/M10.md](docs/design/M10.md)，
 阅读路径与执行解释见 [docs/learning/M10.md](docs/learning/M10.md)。
 按用户要求不再留动手题；原 M01 命名修改已直接实现并验证。
