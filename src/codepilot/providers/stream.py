@@ -23,6 +23,10 @@ class StreamContractError(ValueError):
     """表示断流以外的非法分片、结束原因或 JSON 参数。"""
 
 
+class OutputLimitError(StreamContractError):
+    """表示供应商因输出额度耗尽而截断了可能不完整的回复。"""
+
+
 def _invalid_constant(value: str) -> None:
     """拒绝 JSON 标准不允许的 NaN 和无穷大。"""
     raise StreamContractError("non-finite JSON constant")

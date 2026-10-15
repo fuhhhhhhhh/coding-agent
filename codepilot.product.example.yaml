@@ -5,7 +5,7 @@ provider:
   base_url: https://api.yunjintao.com/v1
   api_key_env: CODEPILOT_YJT_API_KEY
   api_key_file: ~/.config/codepilot/credentials.yaml
-  max_tokens: 512
+  max_tokens: 2048
   max_requests: 8
   timeout_seconds: 60
 

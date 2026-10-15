@@ -9,7 +9,7 @@ from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolPara
 
 from codepilot.contracts import Message
 from codepilot.contracts.stream import StreamChunk, Usage
-from codepilot.providers.stream import StreamContractError
+from codepilot.providers.stream import OutputLimitError, StreamContractError
 from codepilot.tools.base import ToolSpec
 
 
@@ -122,7 +122,10 @@ class OpenAICompatibleProvider:
                         )
                     if choice.finish_reason is not None:
                         finish = choice.finish_reason
-        # 内容截断或供应商专用结束原因不能被误报为完整回答。
+        # 输出额度耗尽时参数可能只有半段，必须分类停止且绝不能执行工具。
+        if finish == "length":
+            raise OutputLimitError("provider output reached max_tokens")
+        # 其他供应商专用结束原因同样不能被误报为完整回答。
         if finish not in {"stop", "tool_calls"}:
             raise StreamContractError("incomplete provider finish")
         yield StreamChunk(

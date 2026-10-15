@@ -89,6 +89,9 @@ class EventRenderer:
             f"[运行结束] {result.report.reason}｜步骤 {result.report.steps}｜"
             f"工具 {result.report.tool_calls}"
         )
+        if result.report.reason == "output_limit":
+            # 说明安全停止的直接修复方向，同时强调半截工具参数没有被执行。
+            self._line("[失败详情] 模型输出达到 max_tokens；不完整工具调用未执行。")
         if result.resources.trace_path is not None:
             self._line(f"[Trace] {result.resources.trace_path}")
 

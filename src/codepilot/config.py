@@ -32,7 +32,7 @@ class ProviderConfig(Contract):
     base_url: str | None = None
     api_key_env: Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")] | None = "CODEPILOT_API_KEY"
     api_key_file: Path | None = None
-    max_tokens: Annotated[int, Field(ge=1, le=4096)] = 256
+    max_tokens: Annotated[int, Field(ge=1, le=4096)] = 2048
     max_requests: Annotated[int, Field(ge=1, le=100)] = 8
     timeout_seconds: Annotated[float, Field(gt=0, le=600)] = 60.0
 

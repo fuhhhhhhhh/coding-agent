@@ -116,8 +116,13 @@ def test_sdk_tool_roundtrip_and_budget(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("finish", ["length", "content_filter", None])
-def test_sdk_incomplete_finish_never_executes(tmp_path: Path, finish: str | None) -> None:
+@pytest.mark.parametrize(
+    "finish,reason",
+    [("length", "output_limit"), ("content_filter", "contract_error"), (None, "contract_error")],
+)
+def test_sdk_incomplete_finish_never_executes(
+    tmp_path: Path, finish: str | None, reason: str
+) -> None:
     """供应商长度截断、过滤和缺失结束原因都不能执行完整外观的调用。"""
 
     async def scenario() -> None:
@@ -152,7 +157,7 @@ def test_sdk_incomplete_finish_never_executes(tmp_path: Path, finish: str | None
         ) as client:
             runner = Runner(DeepSeekProvider(client), create_basic_registry(tmp_path))
             report = await runner.run((Message(role="user", content="test"),))
-            assert report.reason == "contract_error" and report.tool_calls == 0
+            assert report.reason == reason and report.tool_calls == 0
             assert not list(tmp_path.iterdir())
 
     asyncio.run(scenario())

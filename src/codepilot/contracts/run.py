@@ -13,6 +13,7 @@ StopReason = Literal[
     "time_limit",
     "repeated_failure",
     "provider_error",
+    "output_limit",
     "contract_error",
     "context_limit",
     "cancelled",

@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-15",
+  "observed_failure": {
+    "task": "write_quick_sort_in_empty_workspace",
+    "provider": "qwen3.5-flash",
+    "configured_max_tokens": 512,
+    "provider_output_tokens": 516,
+    "completed_tools": ["glob"],
+    "partial_tool": "write_file",
+    "partial_tool_executed": false,
+    "reported_reason_before_fix": "contract_error"
+  },
+  "fix": {
+    "configured_max_tokens": 2048,
+    "truncation_reason": "output_limit",
+    "partial_tool_policy": "never_execute",
+    "terminal_hint_added": true
+  },
+  "real_retry": {
+    "credential_source": "user_yaml_file",
+    "backend": "rootless_docker",
+    "terminal_reason": "completed",
+    "file_created": "quick_sort.py",
+    "agent_shell_test": "success",
+    "independent_sort_check": true,
+    "stderr_empty": true,
+    "managed_containers_after_run": 0
+  }
+}

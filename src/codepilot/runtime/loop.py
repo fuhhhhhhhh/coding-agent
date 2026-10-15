@@ -13,7 +13,12 @@ from codepilot.contracts.run import RunLimits, RunObservation, RunReport, StopRe
 from codepilot.contracts.stream import StreamChunk, Usage
 from codepilot.observability.trace import CURRENT_RECORDER, CURRENT_TURN, EventRecorder, emit
 from codepilot.providers.base import Provider
-from codepilot.providers.stream import StreamContractError, StreamingProvider, collect_reply
+from codepilot.providers.stream import (
+    OutputLimitError,
+    StreamContractError,
+    StreamingProvider,
+    collect_reply,
+)
 
 LiteralObservation = Literal[
     "model_requested", "model_replied", "tool_requested", "tool_result", "run_stopped"
@@ -200,6 +205,9 @@ class Runner:
                 if not self._turn_usage:
                     emit("usage_updated", usage=usage)
                     self._turn_usage = True
+            except OutputLimitError as error:
+                # 截断的工具参数保持零执行，并与真正协议违规分开供用户调大额度。
+                raise _Stop("output_limit", type(error).__name__) from error
             except StreamContractError as error:
                 raise _Stop("contract_error", type(error).__name__) from error
             except Exception as error:
