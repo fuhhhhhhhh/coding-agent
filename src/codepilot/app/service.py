@@ -253,7 +253,7 @@ class CodePilotApplication:
                     *(message for message in history if message.role != "system"),
                     initial[-1],
                 )
-                session.begin(identity.run_id, messages)
+                session.begin(identity.run_id, messages, execution_workspace)
                 await backend.start()
                 for event in backend.events:
                     if event.container_id:

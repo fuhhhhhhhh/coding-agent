@@ -1,0 +1,21 @@
+本阶段验收命令：
+
+uv run --locked pytest -q
+231 passed, 7 skipped
+
+CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_workspace_docker_live.py
+7 passed in 51.82s
+
+uv run --locked ruff check src tests
+All checks passed!
+
+uv run --locked ruff format --check src tests
+110 files already formatted
+
+uv run --locked mypy
+Success: no issues found in 110 source files
+
+uv build --wheel
+Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+
+本轮未重复运行真实 Provider；已有官方 DeepSeek 认证和 Docker 工具链证据继续适用。

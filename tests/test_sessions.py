@@ -13,7 +13,12 @@ from codepilot.app import CodePilotApplication
 from codepilot.config import ProductConfig
 from codepilot.contracts import Message, ToolCall
 from codepilot.providers.fake import FakeProvider
-from codepilot.sessions.store import ReconciliationRequired, SessionStore
+from codepilot.sessions.store import (
+    ReconciliationRequired,
+    SessionStore,
+    manifest_changes,
+    workspace_manifest,
+)
 from codepilot.ui.cli import main
 
 
@@ -76,6 +81,25 @@ def test_session_continues_history_without_replaying_tools(
         stored._messages = None
         assert [message.model_dump(mode="json") for message in stored.history()] == expected
     assert (state / "conversation/session.db").stat().st_mode & 0o777 == 0o600
+
+
+def test_run_records_private_workspace_baseline_and_owned_changes(tmp_path: Path) -> None:
+    """每次任务保存私有基线，并独立记录新增、修改和删除路径。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "user.txt").write_text("before", encoding="utf-8")
+    baseline = workspace_manifest(workspace)
+    (workspace / "user.txt").write_text("after", encoding="utf-8")
+    (workspace / "agent.txt").write_text("new", encoding="utf-8")
+    changes = manifest_changes(baseline, workspace_manifest(workspace))
+    assert {item["path"] for item in changes} == {"user.txt", "agent.txt"}
+    assert {item["kind"] for item in changes} == {"modified", "added"}
+
+    state = tmp_path / "state"
+    with SessionStore(state, "baseline") as session:
+        session.begin("run-1", (Message(role="user", content="检查"),), workspace)
+        assert (session.directory / "workspace-baseline.json").stat().st_mode & 0o777 == 0o600
+        assert session.get("workspace_baseline")["count"] == 2
 
 
 def test_resume_cli_in_another_process_and_external_change_requires_reconciliation(

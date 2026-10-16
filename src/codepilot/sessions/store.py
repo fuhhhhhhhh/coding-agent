@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sqlite3
+import stat
 import time
 from pathlib import Path
 from types import TracebackType
@@ -82,6 +83,55 @@ def workspace_stamp(workspace: Path) -> str:
                 while data := stream.read(65536):
                     digest.update(data)
     return digest.hexdigest()
+
+
+def workspace_manifest(workspace: Path) -> dict[str, str]:
+    """生成不含文件正文的路径版本清单，供任务变更归属比较。"""
+    manifest: dict[str, str] = {}
+    count = 0
+    ignored = {
+        ".venv",
+        "node_modules",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
+    for directory, names, files in os.walk(workspace, followlinks=False):
+        names[:] = sorted(name for name in names if name not in ignored and name != ".git")
+        for name in sorted(files):
+            path = Path(directory) / name
+            relative = path.relative_to(workspace).as_posix()
+            count += 1
+            if count > 100000:
+                raise ValueError("workspace manifest exceeds 100000 files")
+            if path.is_symlink():
+                manifest[relative] = "symlink:" + os.readlink(path)
+                continue
+            metadata = path.stat()
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("workspace contains unsupported special file")
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                while data := stream.read(65536):
+                    digest.update(data)
+            manifest[relative] = f"file:{metadata.st_mode & 0o7777:o}:{digest.hexdigest()}"
+    return manifest
+
+
+def manifest_changes(before: dict[str, str], after: dict[str, str]) -> tuple[dict[str, str], ...]:
+    """返回两个清单之间稳定排序的新增、修改和删除记录。"""
+    changes: list[dict[str, str]] = []
+    for path in sorted(set(before) | set(after)):
+        if path not in before:
+            changes.append({"path": path, "kind": "added", "after": after[path]})
+        elif path not in after:
+            changes.append({"path": path, "kind": "deleted", "before": before[path]})
+        elif before[path] != after[path]:
+            changes.append(
+                {"path": path, "kind": "modified", "before": before[path], "after": after[path]}
+            )
+    return tuple(changes)
 
 
 def process_identity(pid: int) -> str:
@@ -265,14 +315,35 @@ class SessionStore:
         if previous is None:
             self.commit("session_created", {}, workspace=identity, status="ready")
 
-    def begin(self, run_id: str, messages: tuple[Message, ...]) -> None:
+    def begin(
+        self, run_id: str, messages: tuple[Message, ...], workspace: Path | None = None
+    ) -> None:
         """副作用前保存新输入与运行意图，崩溃后保持 running 供协调。"""
+        baseline_update: dict[str, Any] = {}
+        if workspace is not None:
+            baseline = workspace_manifest(workspace)
+            baseline_path = self.directory / "workspace-baseline.json"
+            temporary = baseline_path.with_suffix(".tmp")
+            # 基线必须先落到私有目录，事件只引用已完成文件，避免恢复时出现悬空归属证据。
+            temporary.write_text(
+                json.dumps(baseline, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+            )
+            temporary.chmod(0o600)
+            os.replace(temporary, baseline_path)
+            baseline_update = {
+                "path": baseline_path.name,
+                "count": len(baseline),
+                "stamp": hashlib.sha256(
+                    json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest(),
+            }
         self._messages = list(messages)
         self.commit(
             "run_started",
             {"run_id": run_id},
             status="running",
             run_id=run_id,
+            workspace_baseline=baseline_update,
             messages=[message.model_dump(mode="json") for message in messages],
         )
 
@@ -327,6 +398,22 @@ class SessionStore:
         calls = self.get("calls", {})
         for call_id in pending:
             calls[call_id] = "unknown"
+        changes: tuple[dict[str, str], ...] = ()
+        baseline_info = self.get("workspace_baseline")
+        if isinstance(baseline_info, dict):
+            baseline_path = self.directory / str(baseline_info.get("path", ""))
+            try:
+                baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+                current = workspace_manifest(workspace)
+                if not isinstance(baseline, dict) or any(
+                    not isinstance(key, str) or not isinstance(value, str)
+                    for key, value in baseline.items()
+                ):
+                    raise ValueError("invalid workspace baseline")
+                changes = manifest_changes(baseline, current)
+            except (OSError, ValueError, json.JSONDecodeError):
+                # 变更证据损坏不能伪造为空；任务事实仍保存，但明确标记归属未知。
+                changes = ({"kind": "unknown", "reason": "workspace_manifest_unavailable"},)
         self.commit(
             "run_settled",
             {"reason": report.reason if report else "unknown"},
@@ -334,6 +421,7 @@ class SessionStore:
             calls=calls,
             stamp=workspace_stamp(workspace),
             resources=[] if clean else self.get("resources", []),
+            workspace_changes=list(changes),
             messages=[message.model_dump(mode="json") for message in messages],
         )
 
