@@ -172,10 +172,42 @@ def load_product_config(
             if required:
                 raise FileNotFoundError(path)
             continue
-        _deep_merge(merged, _read_product_config(path))
+        layer = _read_product_config(path)
+        if path == project_path:
+            # 仓库内配置来自待检查代码，不能静默改变用户的 Provider、凭据、后端或放权级别。
+            _validate_project_security(layer, merged)
+        _deep_merge(merged, layer)
     if overrides:
         _deep_merge(merged, dict(overrides))
     return ProductConfig.model_validate(merged)
+
+
+def _validate_project_security(layer: Mapping[str, Any], current: Mapping[str, Any]) -> None:
+    """阻止不可信工作区配置扩大 Provider、后端和权限边界。"""
+    provider = layer.get("provider")
+    if isinstance(provider, Mapping):
+        forbidden = {"kind", "base_url", "api_key_env", "api_key_file"}.intersection(provider)
+        if forbidden:
+            names = ", ".join(sorted(str(item) for item in forbidden))
+            raise ValueError(f"工作区配置不能修改 Provider 安全字段：{names}")
+    backend = layer.get("backend")
+    if isinstance(backend, Mapping):
+        forbidden = {"kind", "docker_image"}.intersection(backend)
+        if forbidden:
+            names = ", ".join(sorted(str(item) for item in forbidden))
+            raise ValueError(f"工作区配置不能修改执行后端字段：{names}")
+    requested = layer.get("permission")
+    if requested is None:
+        return
+    if not isinstance(requested, str):
+        raise ValueError("工作区权限配置必须是字符串")
+    current_permission = str(current.get("permission", "ask-edits"))
+    ranks = {"read-only": 0, "ask-edits": 1, "controlled-edit": 2}
+    if requested not in ranks or current_permission not in ranks:
+        raise ValueError("工作区权限配置不是受支持的预设")
+    # 数值越大代表允许的副作用越多；仓库只能收紧，不能把用户审批改成自动编辑。
+    if ranks[requested] > ranks[current_permission]:
+        raise ValueError("工作区配置不能扩大用户权限")
 
 
 def _default_user_config_paths() -> tuple[Path, ...]:

@@ -53,6 +53,8 @@ def test_ask_edit_uses_full_call_and_cancel_has_no_side_effect(tmp_path: Path) -
     second = run(executor, call("write_file", path="value.txt", content="second"))
     assert not second.is_error and (tmp_path / "value.txt").read_text() == "second"
     assert [audit.outcome for audit in executor.audits] == ["cancelled", "approved"]
+    assert approval.requests[1].action.effect == "write"
+    assert approval.requests[1].action.arguments_digest
 
 
 def test_controlled_edit_allows_files_but_asks_shell(tmp_path: Path) -> None:
@@ -96,6 +98,21 @@ def test_compound_strict_read_shell_is_auto_allowed(tmp_path: Path) -> None:
     assert not result.is_error
     assert not approval.requests
     assert executor.audits[0].reason == "safe_process_read"
+
+
+def test_approval_summary_does_not_echo_secret_arguments(tmp_path: Path) -> None:
+    """审批摘要只展示有限参数，不能把模型传入的秘密原文打印到终端。"""
+    registry = create_basic_registry(tmp_path)
+    approval = ScriptedApproval((False,))
+    executor = PermissionedExecutor(registry, PermissionEngine(ask_edits_policy()), approval)
+    result = run(
+        executor,
+        call("shell", command="echo token=secret-value", api_token="secret-value"),
+    )
+    assert result.is_error
+    summary = approval.requests[0].action.argument_summary
+    assert "secret-value" not in summary
+    assert "shell command" in summary
 
 
 def test_container_mode_rejects_local_backend(tmp_path: Path) -> None:

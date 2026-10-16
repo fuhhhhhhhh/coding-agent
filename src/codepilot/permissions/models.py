@@ -12,6 +12,23 @@ Decision = Literal["allow", "deny", "ask"]
 AuditOutcome = Literal["allowed", "denied", "approved", "cancelled"]
 
 
+class Action(Contract):
+    """冻结一次工具调用的影响摘要，供审批展示、复核和审计关联。"""
+
+    tool_name: Identifier
+    effect: Literal["read", "write", "process"]
+    call_id: Identifier
+    arguments_digest: Annotated[str, Field(min_length=64, max_length=64)]
+    argument_summary: str
+    cwd: str
+    backend: Literal["local", "container", "unknown"]
+    backend_id: Identifier
+    resources: tuple[str, ...]
+    network: bool = False
+    secrets: tuple[str, ...] = ()
+    fingerprint: Annotated[str, Field(min_length=64, max_length=64)]
+
+
 class PermissionRule(Contract):
     """声明匹配工具、影响类型和路径前缀后的权限结果。"""
 
@@ -37,6 +54,7 @@ class ApprovalRequest(Contract):
     request_id: Identifier
     tool: ToolSpec
     call: ToolCall
+    action: Action
     reason: str
 
 

@@ -42,8 +42,11 @@ class ConsoleApproval(ApprovalProvider):
     async def approve(self, request: ApprovalRequest) -> bool:
         """显示工具、影响、参数和理由，并等待一次终端回答。"""
         prompt = (
-            f"允许工具 {request.tool.name} ({request.tool.effect})? "
-            f"参数={request.call.arguments} 原因={request.reason} [y/N] "
+            f"允许 {request.action.tool_name} ({request.action.effect})? "
+            f"目录={request.action.cwd} 后端={request.action.backend} "
+            f"参数摘要={request.action.argument_summary} "
+            f"资源={','.join(request.action.resources) or '-'} "
+            f"指纹={request.action.fingerprint[:12]} 原因={request.reason} [y/N] "
         )
         # 一个终端同一时间只能可靠回答一个完整审批问题。
         async with self._lock:

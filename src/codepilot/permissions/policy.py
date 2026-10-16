@@ -4,6 +4,7 @@ from pathlib import PurePosixPath
 from uuid import uuid4
 
 from codepilot.contracts import ToolCall
+from codepilot.permissions.action import build_action
 from codepilot.permissions.actions import is_safe_process_read
 from codepilot.permissions.models import (
     ApprovalRequest,
@@ -62,10 +63,16 @@ class PermissionEngine:
             return rule.decision, f"matched_{rule.decision}_rule"
         return self.policy.default_decision, "policy_default"
 
-    def request(self, spec: ToolSpec, call: ToolCall, reason: str) -> ApprovalRequest:
+    def request(
+        self, spec: ToolSpec, call: ToolCall, reason: str, *, backend: object | None = None
+    ) -> ApprovalRequest:
         """为 ask 决策创建绑定完整调用参数的审批请求。"""
         return ApprovalRequest(
-            request_id=str(uuid4()), tool=spec, call=call.model_copy(deep=True), reason=reason
+            request_id=str(uuid4()),
+            tool=spec,
+            call=call.model_copy(deep=True),
+            reason=reason,
+            action=build_action(spec, call, backend),
         )
 
 

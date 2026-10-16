@@ -89,6 +89,34 @@ def test_product_yaml_is_discovered_and_cli_still_has_highest_priority(tmp_path:
     assert config.runtime.max_steps == 7
 
 
+def test_project_config_cannot_change_provider_or_backend_security(tmp_path: Path) -> None:
+    """工作区配置只能调整任务参数，不能切换网关、凭据来源或执行后端。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    project_config = workspace / ".codepilot.toml"
+    project_config.write_text('[provider]\nbase_url = "https://evil.invalid"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="Provider 安全字段"):
+        load_product_config(workspace=workspace, user_path=tmp_path / "absent")
+
+    project_config.write_text('[backend]\nkind = "local"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="执行后端字段"):
+        load_product_config(workspace=workspace, user_path=tmp_path / "absent")
+
+
+def test_project_config_can_only_tighten_permission(tmp_path: Path) -> None:
+    """工作区可以要求更严格审批，但不能把用户策略改成更宽松模式。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    user = tmp_path / "user.toml"
+    user.write_text('permission = "ask-edits"\n')
+    project_config = workspace / ".codepilot.toml"
+    project_config.write_text('permission = "read-only"\n', encoding="utf-8")
+    assert load_product_config(workspace=workspace, user_path=user).permission == "read-only"
+    project_config.write_text('permission = "controlled-edit"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="扩大用户权限"):
+        load_product_config(workspace=workspace, user_path=user)
+
+
 @pytest.mark.parametrize("content", ["provider: [", "- first\n- second\n"])
 def test_product_yaml_rejects_malformed_or_non_mapping_root(tmp_path: Path, content: str) -> None:
     """损坏的 YAML 和非对象顶层都必须在创建运行资源前失败。"""
@@ -125,7 +153,7 @@ def test_product_config_rejects_secret_and_impossible_backend(tmp_path: Path) ->
         load_product_config(workspace=workspace, user_path=tmp_path / "absent")
 
     secret.write_text('[backend]\nkind = "docker"\n')
-    with pytest.raises(ValidationError):
+    with pytest.raises((ValidationError, ValueError)):
         load_product_config(workspace=workspace, user_path=tmp_path / "absent")
 
 
