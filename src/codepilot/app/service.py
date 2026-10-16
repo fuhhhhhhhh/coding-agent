@@ -16,6 +16,7 @@ from codepilot.context import (
     ContextArtifactStore,
     ContextManager,
     ContextSeed,
+    ModelSummarizer,
     RepositoryRule,
     assemble_initial_context,
 )
@@ -238,6 +239,10 @@ class CodePilotApplication:
                     permission.specs,
                     identity.run_id,
                     api_key=self._api_key,
+                )
+                # 摘要复用同一个 Provider 和 RequestBudget，主请求与压缩请求不能各自绕过额度。
+                context.summarizer = ModelSummarizer(
+                    provider.provider, timeout_seconds=self.config.provider.timeout_seconds
                 )
                 # Provider 最后登记，因此退出时先关闭连接，再关闭后端和 ArtifactStore。
                 resources.push_async_callback(provider.close)
