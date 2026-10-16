@@ -44,16 +44,14 @@ uv build --wheel
 
 配置按默认值、用户级 `~/.config/codepilot/config.yaml`、工作区 `.codepilot/config.yaml`、显式
 `--config`、CLI 覆盖的顺序合并；旧的 `.codepilot.toml` 继续兼容。同一层同时存在多个候选文件会
-直接报错，避免用户修改了一个实际却读取另一个。`codepilot.product.example.yaml` 展示了 Qwen
-网关、Rootless Docker、受控编辑和凭据文件路径。当前机器使用用户级 `config.yaml`，真实密钥保存于
-权限为 `0600` 的 `~/.config/codepilot/credentials.yaml`，不会进入仓库、Trace 或容器。临时设置
-`CODEPILOT_YJT_API_KEY` 时，环境变量优先于文件，适合 CI 或单次覆盖。
+直接报错，避免用户修改了一个实际却读取另一个。`codepilot.product.example.yaml` 展示了 DeepSeek
+官方接口、Rootless Docker 和受控编辑。当前机器使用用户级 `config.yaml`，真实密钥通过
+`DEEPSEEK_API_KEY` 从 `.env` 注入，不进入仓库、Trace 或容器；环境变量适合 CI 或单次覆盖。
 
-当前 Qwen3.5-Flash 配置按模型公开规格使用 1,000,000 Token 总上下文，并为单次回答预留
-65,536 Token，因此输入侧可用预算是 934,464 Token。`max_tokens: 65536` 只是输出硬上限，短回答
-不会为了填满上限而额外生成。Context 当前使用近似估算器而非 Qwen 官方 tokenizer，所以这组配置
-提供保守的治理边界，尚不等于已经完成百万 Token 实际压力测试。模型规格见
-[阿里云百炼 Qwen3.5-Flash 文档](https://help.aliyun.com/zh/model-studio/qwen3-5-flash)。
+当前示例配置使用 DeepSeek 官方 OpenAI-compatible 接口：`https://api.deepseek.com`、
+`deepseek-flash` 和 `DEEPSEEK_API_KEY`。官方 endpoint 不添加 `/v1`；配置只保存环境变量名，
+不会把密钥写入仓库或 Trace。模型能力和上下文预算以官方文档为准；当前产品使用保守的 8,192
+Token 回答上限，避免把未实测的最大规格当成产品保证。
 
 直接运行 `codepilot` 后，输入任务并回车即可执行；`/help` 查看提示，`/exit` 或 Ctrl-D 退出。
 多条任务共享持久历史，各自拥有 task/run ID 和 Trace。消息与工具结果保存在私有 SQLite，
@@ -115,7 +113,7 @@ M10 演示 110KB 工具输出落盘、错误线索与范围读取，并以完整
 规范历史与 Provider prompt 视图分离，摘要用量和压缩前后估算可观察。`--live` 只发送合成历史，
 固定一次 DeepSeek 请求和输出上限；服务端长时间排队时可显式放宽 live 总时限，生产摘要仍使用较短默认值。
 M01—M06 使用 fake provider；M07 另完成受限真实 DeepSeek 验证。P1 的统一入口使用 fake 完成
-Local 与 Rootless Docker 闭环，并通过 OpenAI-compatible 网关使用 `qwen3.5-flash` 完成真实流式
+Local 与 Rootless Docker 闭环，并通过 DeepSeek 官方 OpenAI-compatible 接口使用 `deepseek-flash` 完成真实流式
 只读工具闭环，以及在临时仓库中的编辑、Shell 审批、测试和故障恢复闭环。真实密钥从临时环境变量
 或权限受限的用户凭据文件读取，不写入普通配置、Trace、容器或仓库。
 
