@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from codepilot.app import CodePilotApplication, RunIdentity
 from codepilot.app.service import _state_root
 from codepilot.config import ProductConfig, load_product_config
+from codepilot.credentials import load_workspace_dotenv
 from codepilot.sessions.store import SessionStore
 from codepilot.ui.renderer import EventRenderer
 
@@ -167,15 +168,15 @@ async def _run(arguments: argparse.Namespace, config: ProductConfig) -> int:
 def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
     """持续读取终端任务；单次失败只结束当前任务，不关闭整个交互进程。"""
     session_id = getattr(arguments, "session_id", None) or f"session-{uuid.uuid4().hex}"
-    print("CodePilot 交互模式。输入任务后回车执行；/help 查看帮助，/exit 退出。")
-    print(f"工作区：{arguments.workspace}｜会话：{session_id}")
+    renderer = EventRenderer(sys.stdout)
+    renderer.welcome(arguments.workspace, config.provider.model, config.backend.kind, session_id)
     print(
         "对话与工具输出将保存在私有会话目录；保留期见配置。"
         "可用 sessions delete 删除、sessions prune 清理过期会话。"
     )
     while True:
         try:
-            task = input("codepilot> ").strip()
+            task = input("❯ ").strip()
         except EOFError:
             # 管道关闭或 Ctrl-D 表示调用方已经没有更多任务，应正常退出。
             print()
@@ -286,6 +287,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     try:
         workspace = arguments.workspace.resolve(strict=True)
+        # 在读取配置和解析密钥前自动载入当前项目 .env；用户环境变量优先。
+        load_workspace_dotenv(workspace)
         config = load_product_config(
             workspace=workspace,
             explicit_path=arguments.config,

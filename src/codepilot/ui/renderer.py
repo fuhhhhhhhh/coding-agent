@@ -1,6 +1,7 @@
 """把 Runtime 事件和最终产品结果渲染为人类文本或脱敏 JSONL。"""
 
 import json
+import os
 from typing import TextIO
 
 from codepilot.app.models import ProductRunResult, RunIdentity
@@ -16,6 +17,26 @@ class EventRenderer:
         self.stream = stream
         self.jsonl = jsonl
         self._streamed_text = False
+        self._color = (
+            bool(getattr(stream, "isatty", lambda: False)()) and os.environ.get("TERM") != "dumb"
+        )
+
+    def welcome(self, workspace: object, model: str, backend: str, session_id: str) -> None:
+        """绘制类似现代 Coding Agent 的启动卡片，非 TTY 保持纯文本兼容。"""
+        if self.jsonl:
+            return
+        title = self._style("CodePilot", "1;97")
+        self._line("╭─ " + title + " ─────────────────────────────────────────────╮")
+        self._line(
+            f"│ model     {self._style(model, '36')}  backend {self._style(backend, '36')}".ljust(
+                59
+            )
+            + "│"
+        )
+        self._line(f"│ directory {workspace}".ljust(59) + "│")
+        self._line(f"│ session   {session_id}".ljust(59) + "│")
+        self._line("╰──────────────────────────────────────────────────────────╯")
+        self._line("输入任务开始工作；/help 查看命令，/exit 退出。")
 
     def started(self, identity: RunIdentity, backend: str, provider: str) -> None:
         """在副作用开始前展示本次运行身份和所选执行模式。"""
@@ -29,8 +50,12 @@ class EventRenderer:
                 }
             )
             return
-        self._line(f"会话 {identity.session_id}｜任务 {identity.task_id}｜运行 {identity.run_id}")
-        self._line(f"后端 {backend}｜Provider {provider}")
+        self._line(self._style(f"▸ session {identity.session_id}  task {identity.task_id}", "90"))
+        # 保留稳定的中文身份行，便于旧脚本和用户从终端日志搜索任务。
+        self._line(f"会话 {identity.session_id}｜任务 {identity.task_id}")
+        self._line(
+            f"  backend {self._style(backend, '36')} · provider {self._style(provider, '36')}"
+        )
 
     def __call__(self, event: RuntimeEvent) -> None:
         """按事件类型展示进度；JSONL 使用 Trace 相同的默认脱敏规则。"""
@@ -42,15 +67,20 @@ class EventRenderer:
             self.stream.flush()
             self._streamed_text = True
         elif event.kind == "tool_call_ready" and event.call is not None:
-            self._line(f"\n[工具请求] {event.call.name}")
+            self._line(f"\n  {self._style('◆', '33')} {event.call.name}")
         elif event.kind == "tool_started":
-            self._line(f"[工具开始] {event.call_id}")
+            self._line(f"  {self._style('·', '33')} running {event.call_id}")
         elif event.kind == "tool_finished":
-            self._line(f"[工具结束] {event.call_id}：{event.outcome}")
+            icon = "✓" if event.outcome == "success" else "!"
+            color = "32" if event.outcome == "success" else "31"
+            self._line(f"  {self._style(icon, color)} {event.call_id} · {event.outcome}")
         elif event.kind == "approval_requested":
-            self._line(f"[等待审批] {event.call_id}")
+            self._line(f"  {self._style('?', '33')} approval required · {event.call_id}")
         elif event.kind == "context_compacted":
-            self._line(f"[上下文压缩] {event.prompt_tokens_before} → {event.prompt_tokens_after}")
+            self._line(
+                f"  {self._style('↻', '35')} context compacted "
+                f"{event.prompt_tokens_before} → {event.prompt_tokens_after}"
+            )
 
     def finished(self, result: ProductRunResult) -> None:
         """展示最终回答、停止原因、计数和保留的 Trace 位置。"""
@@ -89,9 +119,16 @@ class EventRenderer:
             self._line(f"\n{answer}")
         elif self._streamed_text:
             self._line("")
+        outcome_color = "32" if result.report.reason == "completed" else "31"
+        status_line = (
+            f"[运行结束] {result.report.reason} · "
+            f"{result.report.steps} steps · {result.report.tool_calls} tools"
+        )
         self._line(
-            f"[运行结束] {result.report.reason}｜步骤 {result.report.steps}｜"
-            f"工具 {result.report.tool_calls}"
+            self._style(
+                status_line,
+                outcome_color,
+            )
         )
         if result.report.reason == "output_limit":
             # 说明安全停止的直接修复方向，同时强调半截工具参数没有被执行。
@@ -125,6 +162,10 @@ class EventRenderer:
         """写入一行并立即刷新，使长任务进度不会滞留在缓冲区。"""
         self.stream.write(value + "\n")
         self.stream.flush()
+
+    def _style(self, value: str, code: str) -> str:
+        """仅在真正终端启用 ANSI 色彩，测试与管道输出保持可比较纯文本。"""
+        return f"\033[{code}m{value}\033[0m" if self._color else value
 
     def _json(self, value: dict[str, object]) -> None:
         """输出一条 UTF-8 JSONL，便于脚本消费而不混入人类前缀。"""

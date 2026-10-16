@@ -12,6 +12,7 @@ from codepilot.config import ProviderConfig
 from codepilot.contracts.models import Contract
 
 _MAX_CREDENTIAL_BYTES = 16 * 1024
+_MAX_DOTENV_BYTES = 64 * 1024
 
 
 class CredentialFile(Contract):
@@ -26,6 +27,36 @@ class CredentialFile(Contract):
         if not value.get_secret_value().strip():
             raise ValueError("api_key must not be blank")
         return value
+
+
+def load_workspace_dotenv(workspace: Path) -> None:
+    """自动加载工作区根目录的简单 ``.env``，不覆盖调用方已经设置的变量。"""
+    path = workspace / ".env"
+    # 缺少 .env 是正常安装状态；不应因为可选本地凭据让 fake Provider 失败。
+    if not path.exists():
+        return
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("workspace .env must be a regular non-symlink file")
+    metadata = path.stat()
+    if metadata.st_size > _MAX_DOTENV_BYTES:
+        raise ValueError("workspace .env exceeds 64 KiB")
+    # .env 只作为本机便利入口；权限过宽时拒绝读取秘密，避免误读共享文件。
+    if os.name == "posix" and stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ValueError("workspace .env permissions must be 0600 or stricter")
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        name, separator, value = line.partition("=")
+        if not separator or not name.isidentifier() or not name.isupper():
+            raise ValueError(f"invalid .env entry at line {line_number}")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        # 显式 shell 环境优先，避免项目 .env 覆盖 CI 或用户临时配置。
+        os.environ.setdefault(name, value)
 
 
 def resolve_provider_api_key(provider: ProviderConfig) -> str | None:

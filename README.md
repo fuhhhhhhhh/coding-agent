@@ -45,15 +45,17 @@ uv build --wheel
 配置按默认值、用户级 `~/.config/codepilot/config.yaml`、工作区 `.codepilot/config.yaml`、显式
 `--config`、CLI 覆盖的顺序合并；旧的 `.codepilot.toml` 继续兼容。同一层同时存在多个候选文件会
 直接报错，避免用户修改了一个实际却读取另一个。`codepilot.product.example.yaml` 展示了 DeepSeek
-官方接口、Rootless Docker 和受控编辑。当前机器使用用户级 `config.yaml`，真实密钥通过
-`DEEPSEEK_API_KEY` 从 `.env` 注入，不进入仓库、Trace 或容器；环境变量适合 CI 或单次覆盖。
+官方接口、Rootless Docker 和受控编辑。当前机器使用用户级 `config.yaml`，启动时会自动读取工作区根目录权限为 0600 的 `.env`，真实密钥通过
+`DEEPSEEK_API_KEY` 注入，不进入仓库、Trace 或容器；已经存在的 shell 环境变量优先，CI 仍可直接设置。
 
 当前示例配置使用 DeepSeek 官方 OpenAI-compatible 接口：`https://api.deepseek.com`、
 `deepseek-flash` 和 `DEEPSEEK_API_KEY`。官方 endpoint 不添加 `/v1`；配置只保存环境变量名，
 不会把密钥写入仓库或 Trace。模型能力和上下文预算以官方文档为准；当前产品使用保守的 8,192
 Token 回答上限，避免把未实测的最大规格当成产品保证。
 
-直接运行 `codepilot` 后，输入任务并回车即可执行；`/help` 查看提示，`/exit` 或 Ctrl-D 退出。
+直接运行 `codepilot` 后会显示模型、后端、目录和会话卡片；输入栏使用 `❯` 提示，工具状态和成功/失败
+使用颜色展示。输入任务并回车即可执行；`/help` 查看提示，`/exit` 或 Ctrl-D 退出。管道和 `--jsonl`
+模式自动关闭颜色，便于脚本消费。
 多条任务共享持久历史，各自拥有 task/run ID 和 Trace。消息与工具结果保存在私有 SQLite，
 Shell/Local/Docker 原始输出在预览截断前分块保存，退出后引用仍可读取；默认保留期为 30 天。
 默认 Trace 仍只保存脱敏元数据，完整对话和原文在独立的私有会话目录中。
