@@ -9,6 +9,7 @@ import time
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
+from types import ModuleType
 
 from pydantic import ValidationError
 
@@ -18,6 +19,16 @@ from codepilot.config import ProductConfig, load_product_config
 from codepilot.credentials import load_workspace_dotenv
 from codepilot.sessions.store import SessionStore
 from codepilot.ui.renderer import EventRenderer
+
+try:
+    import termios as _termios_module
+    import tty as _tty_module
+except ImportError:  # Windows 使用稳定的整行输入回退，避免依赖 Unix 终端接口。
+    _termios: ModuleType | None = None
+    _tty: ModuleType | None = None
+else:
+    _termios = _termios_module
+    _tty = _tty_module
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -176,7 +187,7 @@ def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
     )
     while True:
         try:
-            task = input("❯ ").strip()
+            task = _read_interactive_task("❯ ").strip()
         except EOFError:
             # 管道关闭或 Ctrl-D 表示调用方已经没有更多任务，应正常退出。
             print()
@@ -191,11 +202,7 @@ def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
         # 退出和帮助是交互外壳命令，不能作为不可信任务发送给模型。
         if task in {"/exit", "/quit"}:
             return 0
-        if task == "/help":
-            print(
-                "直接输入自然语言任务；/exit 或 /quit 退出。"
-                "任务共享持久会话，每次执行有独立 Trace。"
-            )
+        if _handle_slash_command(task, arguments, config, session_id):
             continue
         task_arguments = argparse.Namespace(
             **{
@@ -221,6 +228,77 @@ def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
         except Exception as error:
             # 未知异常只展示类型，避免 Provider 异常正文携带请求内容或秘密。
             print(f"当前任务启动失败：{type(error).__name__}；可以继续输入。", file=sys.stderr)
+
+
+def _read_interactive_task(prompt: str) -> str:
+    """读取一行任务；真实 TTY 中提供斜杠命令提示，管道测试继续使用 input。"""
+    if _termios is None or _tty is None or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return input(prompt)
+    original = _termios.tcgetattr(sys.stdin)
+    buffer: list[str] = []
+    menu_shown = False
+    try:
+        _tty.setcbreak(sys.stdin.fileno())
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        while True:
+            char = sys.stdin.read(1)
+            if char in {"\n", "\r"}:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return "".join(buffer)
+            if char == "\x03":
+                raise KeyboardInterrupt
+            if char == "\x04":
+                raise EOFError
+            if char in {"\x7f", "\b"}:
+                if buffer:
+                    buffer.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+            if char == "\x1b":
+                # 方向键等控制序列不进入任务正文；菜单选择留给后续 TUI 增量。
+                continue
+            if not char.isprintable():
+                continue
+            buffer.append(char)
+            sys.stdout.write(char)
+            if "".join(buffer) == "/" and not menu_shown:
+                # 只在用户明确开始斜杠命令时显示，普通自然语言输入不被打扰。
+                sys.stdout.write("\n  /help  /status  /model  /sessions  /exit\n❯ /")
+                menu_shown = True
+            sys.stdout.flush()
+    finally:
+        # 无论 EOF、Ctrl-C 还是异常，都必须恢复终端回显和行模式。
+        _termios.tcsetattr(sys.stdin, _termios.TCSADRAIN, original)
+
+
+def _handle_slash_command(
+    task: str, arguments: argparse.Namespace, config: ProductConfig, session_id: str
+) -> bool:
+    """处理交互外壳命令并返回是否不应将输入发送给模型。"""
+    if not task.startswith("/"):
+        return False
+    command = task.split(maxsplit=1)[0]
+    if command == "/help":
+        print("/help 帮助  /status 当前运行状态  /model 当前模型  /sessions 会话列表  /exit 退出")
+        return True
+    if command == "/status":
+        print(
+            f"会话 {session_id}｜目录 {arguments.workspace}｜"
+            f"模型 {config.provider.model}｜后端 {config.backend.kind}"
+        )
+        return True
+    if command == "/model":
+        print(f"当前模型：{config.provider.model}（{config.provider.kind}）")
+        return True
+    if command == "/sessions":
+        _sessions(argparse.Namespace(**{**vars(arguments), "session_action": "list"}), config)
+        return True
+    if command not in {"/exit", "/quit"}:
+        print(f"未知命令：{command}；输入 /help 查看可用命令。", file=sys.stderr)
+    return True
 
 
 def _sessions(arguments: argparse.Namespace, config: ProductConfig) -> int:

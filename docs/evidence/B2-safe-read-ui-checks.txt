@@ -1,0 +1,14 @@
+离线验收：
+uv run --locked pytest -q
+225 passed, 7 skipped
+
+uv run --locked ruff check src tests
+All checks passed!
+
+uv run --locked ruff format --check src tests
+109 files already formatted
+
+uv run --locked mypy
+Success: no issues found in 109 source files
+
+未运行：Rootless Docker live、真实 DeepSeek、Windows/macOS TTY 手工验收。

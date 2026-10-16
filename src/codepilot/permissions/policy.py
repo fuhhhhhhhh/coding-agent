@@ -4,6 +4,7 @@ from pathlib import PurePosixPath
 from uuid import uuid4
 
 from codepilot.contracts import ToolCall
+from codepilot.permissions.actions import is_safe_process_read
 from codepilot.permissions.models import (
     ApprovalRequest,
     Decision,
@@ -48,6 +49,9 @@ class PermissionEngine:
         # 请求容器模式但执行链没有真实容器后端时继续拒绝，不能只相信策略名称。
         if self.policy.container_mode and not container_available:
             return "deny", "container_backend_unavailable"
+        # 只有预设明确开启时才把严格白名单内的查询 Shell 当作安全读操作。
+        if self.policy.safe_process_reads and is_safe_process_read(call):
+            return "allow", "safe_process_read"
         matches = [rule for rule in self.policy.rules if _rule_matches(rule, spec, call)]
         # 任意匹配到的 deny 都优先于 allow 或 ask，避免规则顺序意外放权。
         for rule in matches:
@@ -83,6 +87,7 @@ def ask_edits_policy() -> PermissionPolicy:
             PermissionRule(decision="ask", effects=("write", "process")),
             PermissionRule(decision="allow", effects=("read",)),
         ),
+        safe_process_reads=True,
     )
 
 
@@ -95,4 +100,5 @@ def controlled_edit_policy() -> PermissionPolicy:
             PermissionRule(decision="allow", effects=("read", "write")),
             PermissionRule(decision="ask", effects=("process",)),
         ),
+        safe_process_reads=True,
     )

@@ -66,6 +66,27 @@ def test_controlled_edit_allows_files_but_asks_shell(tmp_path: Path) -> None:
     assert len(approval.requests) == 1 and approval.requests[0].tool.name == "shell"
 
 
+def test_controlled_edit_auto_allows_strict_read_shell(tmp_path: Path) -> None:
+    """受控编辑预设自动放行严格白名单查询，并留下可解释审计原因。"""
+    registry = create_basic_registry(tmp_path)
+    approval = ScriptedApproval(())
+    executor = PermissionedExecutor(registry, PermissionEngine(controlled_edit_policy()), approval)
+    result = run(executor, call("shell", command="pwd"))
+    assert not result.is_error
+    assert not approval.requests
+    assert executor.audits[0].reason == "safe_process_read"
+
+
+def test_compound_shell_still_requires_approval(tmp_path: Path) -> None:
+    """复合命令即使表面只读也不能绕过审批白名单。"""
+    registry = create_basic_registry(tmp_path)
+    approval = ScriptedApproval((False,))
+    executor = PermissionedExecutor(registry, PermissionEngine(controlled_edit_policy()), approval)
+    result = run(executor, call("shell", command="ls -la && git status --short"))
+    assert result.is_error and "permission_cancelled" in result.content
+    assert approval.requests
+
+
 def test_container_mode_rejects_local_backend(tmp_path: Path) -> None:
     """策略要求容器时，本地注册表即使有允许规则也必须拒绝。"""
     registry = create_basic_registry(tmp_path)

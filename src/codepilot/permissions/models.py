@@ -28,6 +28,7 @@ class PermissionPolicy(Contract):
     default_decision: Decision = "deny"
     rules: tuple[PermissionRule, ...] = ()
     container_mode: bool = False
+    safe_process_reads: bool = False
 
 
 class ApprovalRequest(Contract):

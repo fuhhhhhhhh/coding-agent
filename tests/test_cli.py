@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from codepilot.ui.cli import _overrides, build_parser, main
+from codepilot.config import ProductConfig
+from codepilot.ui.cli import _handle_slash_command, _overrides, build_parser, main
 
 
 def test_cli_worktree_flag_explicitly_enables_isolation() -> None:
@@ -186,6 +187,32 @@ def test_interactive_eof_exits_without_starting_a_task(
 
     assert code == 0
     assert "[运行结束]" not in capsys.readouterr().out
+
+
+def test_interactive_slash_commands_are_handled_by_shell(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """帮助、状态和模型命令在交互外壳处理，不会创建模型任务。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = ProductConfig()
+    arguments = argparse.Namespace(workspace=workspace)
+    assert _handle_slash_command("/help", arguments, config, "session-test")
+    assert _handle_slash_command("/status", arguments, config, "session-test")
+    assert _handle_slash_command("/model", arguments, config, "session-test")
+    output = capsys.readouterr().out
+    assert "/exit" in output and "session-test" in output and config.provider.model in output
+
+
+def test_unknown_slash_command_is_recoverable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """未知斜杠命令只提示用户，后续输入仍可继续。"""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    arguments = argparse.Namespace(workspace=workspace)
+    assert _handle_slash_command("/does-not-exist", arguments, ProductConfig(), "session-test")
+    assert "未知命令" in capsys.readouterr().err
 
 
 def test_run_accepts_shared_options_before_subcommand(
