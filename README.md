@@ -47,6 +47,8 @@ uv build --wheel
 直接报错，避免用户修改了一个实际却读取另一个。`codepilot.product.example.yaml` 展示了 DeepSeek
 官方接口、Rootless Docker 和受控编辑。当前机器使用用户级 `config.yaml`，启动时会自动读取工作区根目录权限为 0600 的 `.env`，真实密钥通过
 `DEEPSEEK_API_KEY` 注入，不进入仓库、Trace 或容器；已经存在的 shell 环境变量优先，CI 仍可直接设置。
+用户级默认配置还可以回退到权限为 0600 的 `~/.config/codepilot/credentials.yaml`，因此从其他工作区
+启动不需要再次 `source` 项目 `.env`。工作区 `.env` 只适合项目本地覆盖，不会覆盖已经存在的环境变量。
 
 当前示例配置使用 DeepSeek 官方 OpenAI-compatible 接口：`https://api.deepseek.com`、
 `deepseek-flash` 和 `DEEPSEEK_API_KEY`。官方 endpoint 不添加 `/v1`；配置只保存环境变量名，
@@ -85,7 +87,8 @@ worktree/补丁。当前会话锁和进程身份核验支持 Linux，其他平�
 默认情况下，Agent 直接修改启动目录，因此未初始化目录和带已有改动的 Git 仓库都能使用；已有改动
 不会因启动任务被清除。模型通过 `shell` 使用原生 Git，可执行 status/diff/init/add/commit/branch/fetch/pull/push
 等命令。Shell 属于 `process` 操作，在
-`controlled-edit` 与 `ask-edits` 权限下需要审批。Docker 默认断网，所以联网远端操作需使用 Local 后端；
+`controlled-edit` 与 `ask-edits` 权限下，严格识别的 `pwd`、`ls`、`git status/log` 等查询会自动放行，
+复合 Shell、写入、网络和未知命令仍需要审批。Docker 默认断网，所以联网远端操作需使用 Local 后端；
 开放容器网络要等网络权限进入统一 Action 后再支持。
 
 需要并行任务隔离时可传 `--worktree`，从 `base_commit` 建立 detached worktree。该模式会保留修改目录、
