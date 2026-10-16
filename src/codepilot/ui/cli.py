@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import re
 import shutil
 import sys
 import time
@@ -204,6 +205,10 @@ def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
             return 0
         if _handle_slash_command(task, arguments, config, session_id):
             continue
+        if _looks_like_cli_command(task):
+            # 交互提示符内的 CLI 命令不能交给模型猜测，否则会触发无关工具探索或长流等待。
+            print("检测到终端命令；请先输入 /exit 退出交互模式，再在 Shell 中执行：" + task)
+            continue
         task_arguments = argparse.Namespace(
             **{
                 **vars(arguments),
@@ -299,6 +304,11 @@ def _handle_slash_command(
     if command not in {"/exit", "/quit"}:
         print(f"未知命令：{command}；输入 /help 查看可用命令。", file=sys.stderr)
     return True
+
+
+def _looks_like_cli_command(task: str) -> bool:
+    """识别用户误输入到交互提示符中的 CodePilot 子命令。"""
+    return bool(re.match(r"^codepilot(?:\s+(?:run|resume|sessions)\b|\s*$)", task))
 
 
 def _sessions(arguments: argparse.Namespace, config: ProductConfig) -> int:

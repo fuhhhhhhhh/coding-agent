@@ -4,7 +4,7 @@
 
 最近完整通过：B1 持久会话、完整输出与保守重开；P1/P2、M01—M10 历史证据保留
 
-实现状态：统一入口默认直写当前目录，已组合持久多轮、跨进程 resume、输出读搜与配额、SQLite 事实/索引、资源核验和保守协调；B2 首个增量增加严格安全读 Shell 自动放行、纯查询 `&&` 组合自动放行、危险复合命令审批、TTY 斜杠菜单和基础会话命令；完整 Action、仓库信任、网络秘密、变更归属和 Docker/worktree 边界仍未通过
+实现状态：统一入口默认直写当前目录，已组合持久多轮、跨进程 resume、输出读搜与配额、SQLite 事实/索引、资源核验和保守协调；B2 首个增量增加严格安全读 Shell 自动放行、纯查询 `&&` 组合自动放行、危险复合命令审批、TTY 斜杠菜单、基础会话命令和 CLI 误输入拦截；完整 Action、仓库信任、网络秘密、变更归属和 Docker/worktree 边界仍未通过
 
 学习状态：用户报告已阅读 M01、M03、M04、M05 核心代码；M02—M10 阅读说明已交付，未验证独立掌握程度。
 
@@ -18,6 +18,7 @@
 - `controlled-edit` 和 `ask-edits` 对无重定向、无网络和严格 Git 查询白名单的命令自动放行；`pwd`、`ls`、`git status/log/branch --show-current/rev-parse/ls-files` 及仅由 `&&` 连接的安全查询可直接执行。`read-only` 仍不因此获得进程能力。
 - 管道、命令替换、未知命令、写 Git 子命令、`printf` 以及混入副作用的 `&&` 组合继续进入逐次审批；审计理由明确记录为 `safe_process_read` 或原有匹配规则。
 - TTY 交互输入 `/` 时显示 `/help`、`/status`、`/model`、`/sessions`、`/exit` 菜单；未知斜杠命令只提示并可继续。非 TTY 仍使用稳定行输入，JSONL 不混入菜单控制序列。
+- 交互提示符中误输入 `codepilot resume/run/sessions ...` 时直接提示先 `/exit` 再在 Shell 执行，不启动 Provider，避免把 CLI 命令当成自然语言任务并触发无关 Shell 探索。
 - 确定性验证：225 passed、7 个显式 Docker live skip；Ruff、格式检查和 mypy 通过。未运行本增量的 Docker live 或真实模型，TTY 手工体验仍需真实终端复核。
 - 设计与学习入口：`docs/design/B2.md`、`docs/learning/B2.md`；本增量不代表 B2 整体通过。
 

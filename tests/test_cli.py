@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 
 from codepilot.config import ProductConfig
-from codepilot.ui.cli import _handle_slash_command, _overrides, build_parser, main
+from codepilot.ui.cli import (
+    _handle_slash_command,
+    _looks_like_cli_command,
+    _overrides,
+    build_parser,
+    main,
+)
 
 
 def test_cli_worktree_flag_explicitly_enables_isolation() -> None:
@@ -213,6 +219,15 @@ def test_unknown_slash_command_is_recoverable(
     arguments = argparse.Namespace(workspace=workspace)
     assert _handle_slash_command("/does-not-exist", arguments, ProductConfig(), "session-test")
     assert "未知命令" in capsys.readouterr().err
+
+
+def test_cli_command_is_not_sent_to_provider() -> None:
+    """交互提示符中的 resume/run/sessions 命令应被识别为外壳误用。"""
+    assert _looks_like_cli_command("codepilot resume session-test")
+    assert _looks_like_cli_command("codepilot sessions list")
+    assert _looks_like_cli_command("codepilot run 检查目录")
+    assert not _looks_like_cli_command("请运行 codepilot resume")
+    assert not _looks_like_cli_command("codepilot帮我检查")
 
 
 def test_run_accepts_shared_options_before_subcommand(
