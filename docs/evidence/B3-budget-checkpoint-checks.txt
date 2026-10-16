@@ -5,6 +5,7 @@ uv run --locked pytest -q
 
 CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_workspace_docker_live.py
 7 passed in 38.24s
+最终产品链装配变更后复验：7 passed in 86.33s
 
 uv run --locked ruff check src tests
 All checks passed!

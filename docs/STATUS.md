@@ -26,9 +26,9 @@
 
 - `BudgetLedger` 统一记录请求、输入 Token 和输出 Token 的预留/结算；未知 usage 不释放请求额度，预算超限发生在网络请求前。
 - 上下文压缩结果写入会话私有 `checkpoints/latest.json`，原子替换并保持 0600；从摘要标题提取目标、约束、待办、修改、测试和风险到 `WorkingState`。
-- 当前验证：定向 B3/Context/Provider 测试通过；完整全量与 Rootless Docker 需本轮结束时更新。真实 Provider 本轮按低成本请求验证，不能把摘要随机文本当作状态事实。
+- 当前验证：B3/Context/Provider 定向测试、全量测试和 Rootless Docker 均通过。真实 DeepSeek 摘要一次失败后调整演示上限并一次成功，不能把摘要随机文本当作状态事实。
 - 设计与学习入口：`docs/design/B3.md`、`docs/learning/B3.md`。
-- 当前 B2 增量确定性验证：231 passed、7 个 Rootless Docker live 用例通过；Ruff、格式检查、mypy 和 wheel 构建通过。真实 Provider 本轮未重复调用，TTY 手工体验仍需真实终端复核。
+- 当前 B3 增量确定性验证：234 passed、7 个 Rootless Docker live 用例通过；Ruff、格式检查、mypy 和 wheel 构建通过。TTY 手工体验仍需真实终端复核。
 - 设计与学习入口：`docs/design/B2.md`、`docs/learning/B2.md`；本增量不代表 B2 整体通过。
 
 ## B1 本轮完成与验证
