@@ -1,10 +1,10 @@
 # 开发状态
 
-当前里程碑：B1 可靠执行与持久会话基础已通过受限真实验收；B2 受控执行增量已通过离线与 Rootless Docker 验证，整体仍在实施
+当前里程碑：B1 可靠执行与持久会话基础已通过受限真实验收；B2 基础增量已验证，当前进入 B3 长任务、恢复与 Provider 可靠性
 
 最近完整通过：B1 持久会话、完整输出与保守重开；P1/P2、M01—M10 历史证据保留
 
-实现状态：统一入口默认直写当前目录，已组合持久多轮、跨进程 resume、输出读搜与配额、SQLite 事实/索引、资源核验和保守协调；B2 已增加严格安全读 Shell 自动放行、纯查询 `&&` 组合自动放行、危险复合命令审批、TTY 斜杠菜单、CLI 误输入拦截、Action 审批指纹、项目配置收紧和直接工作区变更基线；网络秘密、自动撤销和 Docker/worktree Git 边界仍未通过
+实现状态：统一入口默认直写当前目录，已组合持久多轮、跨进程 resume、输出读搜与配额、SQLite 事实/索引、资源核验和保守协调；B2 已增加安全 Action 与工作区基线；B3 当前增加共享 BudgetLedger、持久 ContextCheckpoint 和结构化 WorkingState。Provider 有界重试、事件迁移、复杂崩溃协调和第二协议仍未通过
 
 学习状态：用户报告已阅读 M01、M03、M04、M05 核心代码；M02—M10 阅读说明已交付，未验证独立掌握程度。
 
@@ -21,6 +21,13 @@
 - 交互提示符中误输入 `codepilot resume/run/sessions ...` 时直接提示先 `/exit` 再在 Shell 执行，不启动 Provider，避免把 CLI 命令当成自然语言任务并触发无关 Shell 探索。
 - Action 审批现在显示实际 cwd、后端、资源和短指纹，Shell/秘密参数只显示脱敏摘要；执行前复核指纹。项目配置不能修改 Provider 安全字段、执行后端或扩大用户权限。
 - 每个正式 run 保存私有工作区基线并在结束时记录路径级新增/修改/删除摘要，支持非 Git/脏目录事实审查；基线损坏时标记未知，不提供盲目撤销。
+
+## B3 当前增量：预算账本与持久上下文检查点
+
+- `BudgetLedger` 统一记录请求、输入 Token 和输出 Token 的预留/结算；未知 usage 不释放请求额度，预算超限发生在网络请求前。
+- 上下文压缩结果写入会话私有 `checkpoints/latest.json`，原子替换并保持 0600；从摘要标题提取目标、约束、待办、修改、测试和风险到 `WorkingState`。
+- 当前验证：定向 B3/Context/Provider 测试通过；完整全量与 Rootless Docker 需本轮结束时更新。真实 Provider 本轮按低成本请求验证，不能把摘要随机文本当作状态事实。
+- 设计与学习入口：`docs/design/B3.md`、`docs/learning/B3.md`。
 - 当前 B2 增量确定性验证：231 passed、7 个 Rootless Docker live 用例通过；Ruff、格式检查、mypy 和 wheel 构建通过。真实 Provider 本轮未重复调用，TTY 手工体验仍需真实终端复核。
 - 设计与学习入口：`docs/design/B2.md`、`docs/learning/B2.md`；本增量不代表 B2 整体通过。
 

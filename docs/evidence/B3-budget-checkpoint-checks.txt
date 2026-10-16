@@ -1,0 +1,29 @@
+B3 第一组机制验收：
+
+uv run --locked pytest -q
+234 passed, 7 skipped
+
+CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_workspace_docker_live.py
+7 passed in 38.24s
+
+uv run --locked ruff check src tests
+All checks passed!
+
+uv run --locked ruff format --check src tests
+113 files already formatted
+
+uv run --locked mypy
+Success: no issues found in 113 source files
+
+uv build --wheel
+Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+
+真实 DeepSeek 摘要（第一次，旧演示 max_tokens=320）：
+requests=1, reason=summary_failed:OutputLimitError, passed=false
+
+真实 DeepSeek 摘要（修正演示上限 1024 后）：
+model=deepseek-flash, requests=1, max_requests=1, input_tokens=261,
+output_tokens=304, estimated_tokens_after=616, compacted=true, passed=true。
+固定检查全部通过：前缀保留、最近工具对保留、parser.py、测试证据、Windows 风险和签名约束均被独立检查。
+
+真实请求只使用官方 DeepSeek、一次摘要请求；未打印密钥，摘要正文只保留在命令输出，不写入仓库。

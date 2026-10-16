@@ -39,6 +39,7 @@ from codepilot.providers.openai_compatible import OpenAICompatibleProvider, Requ
 from codepilot.providers.stream import StreamingProvider
 from codepilot.runtime import Runner
 from codepilot.scheduler import ScheduledExecutor
+from codepilot.sessions.checkpoints import CheckpointStore
 from codepilot.sessions.outputs import CURRENT_OUTPUT, OutputStore
 from codepilot.sessions.store import SessionStore, process_identity, safe_id
 from codepilot.tools import create_basic_registry
@@ -216,7 +217,12 @@ class CodePilotApplication:
                 # 先登记已构造资源，后续装配或启动失败也会进入相同清理出口。
                 # 会话持有 Artifact，run 退出只清理执行资源，不删除可恢复正文。
                 resources.push_async_callback(backend.close)
-                context = ContextManager(backend, store, limits=self.config.context)
+                context = ContextManager(
+                    backend,
+                    store,
+                    limits=self.config.context,
+                    checkpoint_store=CheckpointStore(session.directory / "checkpoints"),
+                )
                 scheduler = ScheduledExecutor(context, self.config.scheduler_concurrency)
                 permission = PermissionedExecutor(
                     scheduler,

@@ -14,12 +14,14 @@ from codepilot.context.models import (
     ContextLimits,
     ContextRecord,
     ContextView,
+    SummaryResult,
 )
 from codepilot.context.summarizer import Summarizer
 from codepilot.contracts import Message, ToolCall, ToolResult
 from codepilot.contracts.models import Contract
 from codepilot.contracts.stream import Usage
 from codepilot.observability.trace import emit
+from codepilot.sessions.checkpoints import CheckpointStore
 from codepilot.sessions.outputs import CURRENT_OUTPUT, OutputStore
 from codepilot.sessions.tools import ReadOutputTool, SearchOutputTool
 from codepilot.tools.base import Tool, ToolFailure, ToolOutput, ToolSpec
@@ -98,12 +100,14 @@ class ContextManager:
         *,
         limits: ContextLimits | None = None,
         summarizer: Summarizer | None = None,
+        checkpoint_store: CheckpointStore | None = None,
     ) -> None:
         """绑定下游执行器、外部 artifact store、预算策略和可选摘要器。"""
         self.registry = registry
         self.store = store
         self.limits = limits or ContextLimits()
         self.summarizer = summarizer
+        self.checkpoint_store = checkpoint_store
         output = CURRENT_OUTPUT.get()
         self._artifact_registry = ToolRegistry(
             (
@@ -238,6 +242,19 @@ class ContextManager:
             tokens_after=after,
             usage=usage,
         )
+        if self.checkpoint_store is not None:
+            # 检查点写入失败不能覆盖旧摘要，也不能伪造压缩已持久化。
+            try:
+                self.checkpoint_store.save(
+                    [message.model_dump(mode="json") for message in old_messages],
+                    SummaryResult(
+                        content=summary.content.removeprefix("[历史压缩摘要]\n"), usage=usage
+                    ),
+                    tokens_before=before,
+                    tokens_after=after,
+                )
+            except OSError as error:
+                self._compaction_failed(f"checkpoint_failed:{type(error).__name__}", before, after)
         emit(
             "context_compacted",
             outcome="cache" if cache_hit else "model",

@@ -9,6 +9,7 @@ from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolPara
 
 from codepilot.contracts import Message
 from codepilot.contracts.stream import StreamChunk, Usage
+from codepilot.providers.budget import BudgetLedger
 from codepilot.providers.stream import OutputLimitError, StreamContractError
 from codepilot.tools.base import ToolSpec
 
@@ -22,12 +23,16 @@ class RequestBudget:
             raise ValueError("request budget must be positive")
         self.max_requests = max_requests
         self.used = 0
+        self.ledger = BudgetLedger(max_requests=max_requests)
 
     def consume(self) -> None:
         """在网络请求前消耗一次额度，额度耗尽时不接触远端。"""
-        if self.used >= self.max_requests:
-            raise RuntimeError("provider request budget exhausted")
-        self.used += 1
+        self.ledger.reserve_request()
+        self.used = self.ledger.snapshot.requests
+
+    def settle(self, usage: Usage) -> None:
+        """把 Provider usage 结算到同一账本，缺失字段保持保守占用。"""
+        self.ledger.settle(usage.input_tokens, usage.output_tokens)
 
 
 class OpenAICompatibleProvider:
@@ -88,13 +93,15 @@ class OpenAICompatibleProvider:
             async for chunk in response:
                 # 兼容独立 usage 尾片段和附着在 finish 片段的两种实现。
                 if chunk.usage is not None:
+                    usage = Usage(
+                        input_tokens=chunk.usage.prompt_tokens,
+                        output_tokens=chunk.usage.completion_tokens,
+                        source="provider",
+                    )
+                    self.budget.settle(usage)
                     yield StreamChunk(
                         kind="usage_updated",
-                        usage=Usage(
-                            input_tokens=chunk.usage.prompt_tokens,
-                            output_tokens=chunk.usage.completion_tokens,
-                            source="provider",
-                        ),
+                        usage=usage,
                     )
                 for choice in chunk.choices:
                     if choice.index != 0 or finish is not None:

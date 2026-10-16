@@ -24,6 +24,7 @@ from codepilot.contracts import Message, ToolCall, ToolResult
 from codepilot.contracts.stream import Usage
 from codepilot.providers.deepseek import DeepSeekProvider, RequestBudget
 from codepilot.runtime import Runner
+from codepilot.sessions.checkpoints import CheckpointStore
 from codepilot.tools.base import ToolSpec
 
 
@@ -276,7 +277,7 @@ async def run_live(
         max_retries=0,
         timeout=20.0,
     ) as client:
-        provider = DeepSeekProvider(client, model=model, budget=budget, max_tokens=320)
+        provider = DeepSeekProvider(client, model=model, budget=budget, max_tokens=1024)
         summarizer = ModelSummarizer(provider, timeout_seconds=timeout_seconds)
         with tempfile.TemporaryDirectory(prefix="codepilot-m10-live-") as temporary:
             manager = ContextManager(
@@ -290,6 +291,7 @@ async def run_live(
                     recent_rounds=1,
                 ),
                 summarizer=summarizer,
+                checkpoint_store=CheckpointStore(Path(temporary) / "checkpoints"),
             )
             source = _live_history()
             try:
