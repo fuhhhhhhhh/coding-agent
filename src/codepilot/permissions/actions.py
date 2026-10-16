@@ -15,7 +15,15 @@ def is_safe_process_read(call: ToolCall) -> bool:
     command = call.arguments.get("command")
     if not isinstance(command, str) or not command.strip():
         return False
-    # 组合符号会改变实际执行图；不能通过关键词判断整个字符串没有副作用。
+    # 只接受由 && 连接的安全查询；其他组合符号仍然回到人工审批。
+    if "&&" in command:
+        parts = command.split("&&")
+        return len(parts) > 1 and all(_is_safe_single_command(part) for part in parts)
+    return _is_safe_single_command(command)
+
+
+def _is_safe_single_command(command: str) -> bool:
+    """判断一段不含组合操作符的命令是否属于严格查询白名单。"""
     if any(char in command for char in _SHELL_META):
         return False
     try:
