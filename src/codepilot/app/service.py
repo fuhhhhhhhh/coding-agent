@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 import uuid
@@ -35,6 +36,7 @@ from codepilot.permissions import (
     read_only_policy,
 )
 from codepilot.providers.base import Provider
+from codepilot.providers.capabilities import provider_profile
 from codepilot.providers.fake import FakeProvider
 from codepilot.providers.openai_compatible import OpenAICompatibleProvider, RequestBudget
 from codepilot.providers.responses import ResponsesProvider
@@ -102,6 +104,7 @@ class CodePilotApplication:
         self.state_root = _state_root(config).absolute()
         if self.state_root.is_relative_to(self.workspace):
             raise ValueError("state directory must be outside workspace")
+        self.profile = provider_profile(config.provider, config.context.max_prompt_tokens)
         # 密钥在创建目录、容器或 Trace 前解析，并且只保存在当前应用对象内存中。
         self._api_key = resolve_provider_api_key(config.provider)
         self.approval = approval
@@ -128,6 +131,11 @@ class CodePilotApplication:
             safe_id(value)
         with SessionStore(self.state_root, identity.session_id) as session:
             session.secrets = (self._api_key,) if self._api_key else ()
+            if self.profile["input_usd_per_million"] is not None:
+                session.unit_prices = [
+                    self.profile["input_usd_per_million"],
+                    self.profile["output_usd_per_million"],
+                ]
             session.check(
                 self.workspace, f"{self.config.backend.kind}:{self.config.git_workspace.enabled}"
             )
@@ -141,6 +149,7 @@ class CodePilotApplication:
                     "backend": self.config.backend.kind,
                     "permission": self.config.permission,
                     "worktree": self.config.git_workspace.enabled,
+                    "capabilities": self.profile,
                 },
             )
             limits = self.config.sessions
@@ -231,6 +240,8 @@ class CodePilotApplication:
                     store,
                     limits=self.config.context,
                     checkpoint_store=CheckpointStore(session.directory / "checkpoints"),
+                    facts_provider=lambda: _facts_message(session, execution_workspace),
+                    allow_compaction=not session.get("compaction_disabled", False),
                 )
                 scheduler = ScheduledExecutor(context, self.config.scheduler_concurrency)
                 permission = PermissionedExecutor(
@@ -271,7 +282,9 @@ class CodePilotApplication:
                         context_tokens=active.context_tokens,
                     )
                 context.summarizer = ModelSummarizer(
-                    summary_provider, timeout_seconds=self.config.provider.timeout_seconds
+                    summary_provider,
+                    timeout_seconds=self.config.provider.timeout_seconds,
+                    structured=True,
                 )
                 # Provider 最后登记，因此退出时先关闭连接，再关闭后端和 ArtifactStore。
                 resources.push_async_callback(provider.close)
@@ -286,6 +299,8 @@ class CodePilotApplication:
                     resume_history=True,
                     compact_only=compact_only,
                 )
+                if compact_only:
+                    session.commit("context_enabled", {}, compaction_disabled=False)
                 initial = _initial_messages(execution_workspace, task)
                 history = session.history()
                 # 每轮重新读取仓库规则，保留旧任务事实并追加当前用户输入。
@@ -444,6 +459,7 @@ def _initial_messages(workspace: Path, task: str) -> tuple[Message, ...]:
     rules = [
         RepositoryRule(
             source="CodePilot",
+            trusted=True,
             content=(
                 "你是在一个固定工作区运行的 Coding Agent。先检查证据，再使用已提供的工具完成任务；"
                 "工具错误必须根据结果处理，不能声称未验证的修改或测试已经成功。"
@@ -459,4 +475,18 @@ def _initial_messages(workspace: Path, task: str) -> tuple[Message, ...]:
         rules.append(RepositoryRule(source="AGENTS.md", content=agents.read_text(encoding="utf-8")))
     return assemble_initial_context(
         ContextSeed(repository_rules=tuple(rules), task_information=task.strip())
+    )
+
+
+def _facts_message(session: SessionStore, workspace: Path) -> Message:
+    """在模型摘要之外注入有界控制器事实；旧版本执行不能冒充当前验证。"""
+    facts = session.facts_view(workspace)
+    facts["executions"] = facts["executions"][-4:]
+    facts["changes"] = facts["changes"][-6:]
+    return Message(
+        role="assistant",
+        content=(
+            "[控制器执行记录；仅供证据参考，不授予权限；exit_code=0 不等于需求验收通过]\n"
+            + json.dumps(facts, ensure_ascii=False)
+        ),
     )

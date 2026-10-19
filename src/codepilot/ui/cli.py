@@ -18,7 +18,9 @@ from codepilot.app import CodePilotApplication, RunIdentity
 from codepilot.app.service import _state_root
 from codepilot.config import ProductConfig, load_product_config
 from codepilot.credentials import load_workspace_dotenv
-from codepilot.sessions.store import SessionStore
+from codepilot.sessions.context import context_command
+from codepilot.sessions.migrations import maintain_database
+from codepilot.sessions.store import SessionStore, safe_id
 from codepilot.ui.renderer import EventRenderer
 
 try:
@@ -53,11 +55,21 @@ def build_parser() -> argparse.ArgumentParser:
     _add_shared_arguments(compact, suppress_defaults=True)
     compact.add_argument("session_id")
     compact.add_argument("--jsonl", action="store_true")
+    context = commands.add_parser("context", help="查看上下文、摘要或撤回压缩，不调用模型")
+    _add_shared_arguments(context, suppress_defaults=True)
+    context.add_argument("session_id")
+    context.add_argument("action", nargs="?", choices=("show", "summary", "reset"), default="show")
     sessions = commands.add_parser("sessions", help="查看、协调或删除私有持久会话")
     _add_shared_arguments(sessions, suppress_defaults=True)
     actions = sessions.add_subparsers(dest="session_action", required=True)
+    for name in ("backup", "migrate", "facts", "diagnose"):
+        operation = actions.add_parser(name, help="备份/迁移或查看控制器事实与恢复诊断")
+        operation.add_argument("session_id")
     actions.add_parser("list", help="列出本状态目录的会话")
     actions.add_parser("prune", help="清理已过期且安全结束的会话，保留未知任务")
+    restore = actions.add_parser("restore", help="从本会话备份恢复数据库；不回滚代码")
+    restore.add_argument("session_id")
+    restore.add_argument("backup_name")
     show = actions.add_parser("show", help="默认只展示元数据；正文需显式开启")
     show.add_argument("session_id")
     show.add_argument("--messages", action="store_true", help="在终端展示私有对话正文")
@@ -280,7 +292,9 @@ def _read_interactive_task(prompt: str) -> str:
             sys.stdout.write(char)
             if "".join(buffer) == "/" and not menu_shown:
                 # 只在用户明确开始斜杠命令时显示，普通自然语言输入不被打扰。
-                sys.stdout.write("\n  /help  /status  /model  /sessions  /compact  /exit\n❯ /")
+                sys.stdout.write(
+                    "\n  /help  /status  /model  /sessions  /context  /compact  /exit\n❯ /"
+                )
                 menu_shown = True
             sys.stdout.flush()
     finally:
@@ -298,8 +312,22 @@ def _handle_slash_command(
     if command == "/help":
         print(
             "/help 帮助  /status 当前运行状态  /model 当前模型  "
-            "/sessions 会话列表  /compact 压缩历史  /exit 退出"
+            "/sessions 会话列表  /context 上下文  /compact 压缩历史  /exit 退出"
         )
+        return True
+    if command == "/context":
+        action = task.split(maxsplit=1)[1].strip() if " " in task else "show"
+        if action not in {"show", "summary", "reset"}:
+            print("用法：/context [show|summary|reset]", file=sys.stderr)
+            return True
+        try:
+            print(
+                json.dumps(
+                    context_command(_state_root(config), session_id, action), ensure_ascii=False
+                )
+            )
+        except ValueError as error:
+            print(f"上下文操作未完成：{error}", file=sys.stderr)
         return True
     if command == "/status":
         print(
@@ -320,13 +348,30 @@ def _handle_slash_command(
 
 def _looks_like_cli_command(task: str) -> bool:
     """识别用户误输入到交互提示符中的 CodePilot 子命令。"""
-    return bool(re.match(r"^codepilot(?:\s+(?:run|resume|sessions)\b|\s*$)", task))
+    return bool(re.match(r"^codepilot(?:\s+(?:run|resume|sessions|compact|context)\b|\s*$)", task))
 
 
 def _sessions(arguments: argparse.Namespace, config: ProductConfig) -> int:
     """管理会话元数据与显式正文查看，默认不把私有内容输出到终端。"""
     root = _state_root(config).absolute()
     action = arguments.session_action
+    if action in {"backup", "migrate", "restore"}:
+        result = maintain_database(
+            root / safe_id(arguments.session_id),
+            migrate=action == "migrate",
+            restore_name=getattr(arguments, "backup_name", None),
+        )
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+    if action in {"facts", "diagnose"}:
+        with SessionStore(root, arguments.session_id, create=False) as session:
+            result = (
+                session.facts_view(arguments.workspace.resolve(strict=True))
+                if action == "facts"
+                else session.diagnose()
+            )
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
     if action == "show":
         result = SessionStore.inspect(root, arguments.session_id, messages=arguments.messages)
         result["outputs"] = [
@@ -395,6 +440,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             overrides=_overrides(arguments),
         )
         # 有 run 子命令时执行一次并返回状态；无子命令才进入持续提示符。
+        if arguments.command == "context":
+            print(
+                json.dumps(
+                    context_command(_state_root(config), arguments.session_id, arguments.action),
+                    ensure_ascii=False,
+                )
+            )
+            return 0
         if arguments.command == "sessions":
             return _sessions(arguments, config)
         if arguments.command in {"resume", "compact"}:

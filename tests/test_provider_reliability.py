@@ -232,6 +232,8 @@ def test_production_summary_and_main_share_session_attempts(
                 assert not body.get("tools")
                 assert "上下文压缩器" in body["messages"][0]["content"]
             content = "L" * 8000 if count == 1 else "目标：检查。待办：继续。"
+            if count in {2, 4}:
+                content = json.dumps({"summary": content, "source_indices": [0]})
             parts = [
                 {
                     "id": "id",

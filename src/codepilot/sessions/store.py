@@ -8,6 +8,7 @@ import re
 import sqlite3
 import stat
 import time
+from decimal import Decimal
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Self
@@ -17,9 +18,12 @@ from codepilot.contracts import Message, ToolResult
 from codepilot.contracts.run import ObservationRejected, RunObservation, RunReport
 from codepilot.contracts.stream import Usage
 from codepilot.providers.budget import BudgetExceededError
+from codepilot.providers.capabilities import estimated_cost
+from codepilot.sessions.facts import annotate_validity, execution_fact
+from codepilot.sessions.migrations import DATABASE_VERSION, EVENT_VERSION, SNAPSHOT_SQL
 from codepilot.sessions.outputs import private_directory
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = DATABASE_VERSION
 
 
 class ReconciliationRequired(ValueError):
@@ -140,7 +144,9 @@ def manifest_changes(before: dict[str, str], after: dict[str, str]) -> tuple[dic
 def process_identity(pid: int) -> str:
     """读取 Linux 进程启动时钟，PID 复用时不能把新进程当作旧资源。"""
     try:
-        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        # 僵尸已无法执行副作用；不能因无法等待非子进程就永久阻断协调。
+        return "" if fields[0] == "Z" else fields[19]
     except (OSError, IndexError):
         return ""
 
@@ -163,28 +169,37 @@ class SessionStore:
         os.close(descriptor)
         db_path.chmod(0o600)
         self.db = sqlite3.connect(db_path)
-        self.db.execute("PRAGMA journal_mode=DELETE")
         self.db.execute("PRAGMA synchronous=FULL")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
         # 未来版本不可被旧程序降级写入，保留原数据供明确迁移。
         if version not in {0, SCHEMA_VERSION}:
             self.db.close()
-            raise ValueError("unsupported session schema version")
-        self.db.execute(
-            "CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, "
-            "version INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL)"
-        )
-        self.db.execute(
-            "CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-        )
-        self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-        self.db.commit()
+            raise ValueError(
+                "session schema requires explicit sessions migrate"
+                if version == 1
+                else "unsupported session schema version"
+            )
+        if version == 0:
+            # 现有库在获取会话锁前只读取版本，不重复 DDL 或改写版本号。
+            self.db.execute("PRAGMA journal_mode=DELETE")
+            self.db.execute(
+                "CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, "
+                "version INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL)"
+            )
+            self.db.execute(
+                "CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            )
+            self.db.execute(SNAPSHOT_SQL)
+            self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            self.db.commit()
         self.lock_fd: int | None = None
         self._messages: list[Message] | None = None
         self.request_limit = 1000
         self.history_limit = 16 * 1024**2
         self.secrets: tuple[str, ...] = ()
+        self.execution_workspace: Path | None = None
         self.provider_tracks_attempts = False
+        self.unit_prices: list[float] | None = None
         self.input_token_limit = 100_000_000
         self.output_token_limit = 10_000_000
 
@@ -236,7 +251,7 @@ class SessionStore:
         with self.db:
             self.db.execute(
                 "INSERT INTO events(version,kind,payload) VALUES(?,?,?)",
-                (SCHEMA_VERSION, kind, json.dumps(envelope, ensure_ascii=False)),
+                (EVENT_VERSION, kind, json.dumps(envelope, ensure_ascii=False)),
             )
             for key, value in updates.items():
                 self.db.execute(
@@ -325,6 +340,7 @@ class SessionStore:
         self, run_id: str, messages: tuple[Message, ...], workspace: Path | None = None
     ) -> None:
         """副作用前保存新输入与运行意图，崩溃后保持 running 供协调。"""
+        self.execution_workspace = workspace
         baseline_update: dict[str, Any] = {}
         if workspace is not None:
             baseline = workspace_manifest(workspace)
@@ -351,6 +367,7 @@ class SessionStore:
             run_id=run_id,
             workspace_baseline=baseline_update,
             messages=[message.model_dump(mode="json") for message in messages],
+            goal_revision=sum(message.role == "user" for message in messages),
         )
 
     def observe(self, observation: RunObservation) -> None:
@@ -383,7 +400,25 @@ class SessionStore:
             calls[observation.result.call_id] = (
                 "failed" if observation.result.is_error else "succeeded"
             )
-        self.commit(observation.kind, observation.model_dump(mode="json"), calls=calls)
+        actions = self.get("active_actions", {})
+        facts = self.get("execution_facts", [])
+        if observation.call is not None:
+            # 执行前持久意图归属，结果不能靠模型提供的名称猜测来源。
+            actions[observation.call.call_id] = {"name": observation.call.name}
+        if observation.result is not None and self.execution_workspace is not None:
+            action = actions.pop(observation.result.call_id, None)
+            # 只有控制器登记过的调用才能成为事实，审批拒绝仍记为错误而非成功。
+            if action is not None:
+                facts.append(
+                    execution_fact(observation, action, workspace_stamp(self.execution_workspace))
+                )
+        self.commit(
+            observation.kind,
+            observation.model_dump(mode="json"),
+            calls=calls,
+            active_actions=actions,
+            execution_facts=facts[-100:],
+        )
 
     def reserve_provider_attempt(
         self, input_tokens: int, output_tokens: int, attempt_id: str | None = None
@@ -411,6 +446,7 @@ class SessionStore:
         if identity in pending:
             raise ValueError("duplicate provider attempt")
         pending[identity] = [input_tokens, output_tokens]
+        ledger.setdefault("attempt_prices", {})[identity] = self.unit_prices
         self.commit(
             "provider_attempt_reserved",
             {"attempt_id": identity},
@@ -425,6 +461,20 @@ class SessionStore:
         if ledger is None or identity not in ledger["pending"]:
             raise ValueError("unknown provider attempt")
         reserved_input, reserved_output = ledger["pending"][identity]
+        prices = ledger.get("attempt_prices", {}).pop(identity, None)
+        # 按发送时定价结算，换模型或协议后不能套用新价格重算旧请求。
+        if (
+            prices is not None
+            and usage.input_tokens is not None
+            and usage.output_tokens is not None
+        ):
+            cost = estimated_cost(usage.input_tokens, usage.output_tokens, prices)
+            ledger["known_cost_usd"] = str(
+                Decimal(ledger.get("known_cost_usd", "0")) + Decimal(cost)
+            )
+        else:
+            ledger["unpriced_attempts"] = ledger.get("unpriced_attempts", 0) + 1
+        ledger["cost_status"] = "estimate_only; pending/legacy/unpriced usage remains unknown"
         ledger["input"] += usage.input_tokens or 0
         ledger["output"] += usage.output_tokens or 0
         if usage.input_tokens is not None and usage.output_tokens is not None:
@@ -493,6 +543,8 @@ class SessionStore:
             workspace_changes=list(changes),
             messages=[message.model_dump(mode="json") for message in messages],
         )
+
+        self.save_snapshot()
 
     def reconcile(self, workspace: Path) -> None:
         """用户确认实际工作区后结束未知调用，保持旧事实且禁止重放。"""
@@ -569,7 +621,7 @@ class SessionStore:
         db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
         try:
             db.execute("BEGIN")
-            if db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+            if db.execute("PRAGMA user_version").fetchone()[0] not in {1, SCHEMA_VERSION}:
                 raise ValueError("unsupported session schema version")
             snapshot = {
                 key: json.loads(value) for key, value in db.execute("SELECT key,value FROM state")
@@ -582,6 +634,8 @@ class SessionStore:
                     "request_attempts",
                     "provider_budget",
                     "workspace_changes",
+                    "execution_facts",
+                    "goal_revision",
                     "resources",
                     "calls",
                     "configuration",
@@ -616,18 +670,75 @@ class SessionStore:
             if record.get("state") != "cleaned":
                 raise ValueError("session retains worktree or undelivered patch; refusing deletion")
 
+    def diagnose(self) -> dict[str, Any]:
+        """展示恢复阻碍与已登记副作用阶段，不把未知结果解释成未执行。"""
+        calls = self.get("calls", {})
+        return {
+            "status": self.get("status"),
+            "calls": calls,
+            "resources": self.get("resources", []),
+            "provider_pending": self.get("provider_budget", {}).get("pending", {}),
+            "recovery": "explicit_reconcile_required"
+            if self.get("status") in {"running", "needs_reconciliation"}
+            else "check_workspace_before_resume",
+            "automatic_replay": False,
+        }
+
+    def save_snapshot(self) -> None:
+        """保存带事件覆盖点与来源哈希的索引快照，消息原文仍由事件持有。"""
+        digest = hashlib.sha256()
+        last = 0
+        for row in self.db.execute("SELECT seq,version,kind,payload FROM events ORDER BY seq"):
+            digest.update(json.dumps(tuple(row), ensure_ascii=False).encode())
+            last = row[0]
+        state = dict(self.db.execute("SELECT key,value FROM state"))
+        state_json = json.dumps(state, sort_keys=True)
+        digest.update(state_json.encode())
+        with self.db:
+            self.db.execute(
+                "INSERT OR REPLACE INTO snapshots VALUES(1,?,?,?)",
+                (last, digest.hexdigest(), state_json),
+            )
+
+    def facts_view(self, workspace: Path) -> dict[str, Any]:
+        """给用户及下一轮上下文返回可失效的事实视图，未知验证始终明确。"""
+        return {
+            "goal_revision": self.get("goal_revision", 0),
+            "changes": self.get("workspace_changes", []),
+            "executions": annotate_validity(
+                self.get("execution_facts", []), workspace_stamp(workspace)
+            ),
+        }
+
     def rebuild(self) -> None:
-        """从事务事件重建视图；不截断或猜测损坏的已提交事件。"""
+        """核验快照覆盖前缀后重放后缀；损坏事件和偏移不猜测丢弃。"""
         updates: dict[str, Any] = {}
+        snapshot = self.db.execute(
+            "SELECT sequence,digest,state FROM snapshots WHERE id=1"
+        ).fetchone()
+        covered = snapshot[0] if snapshot else 0
+        digest = hashlib.sha256()
         expected_sequence = 1
-        for sequence, version, payload in self.db.execute(
-            "SELECT seq,version,payload FROM events ORDER BY seq"
+        for sequence, version, kind, payload in self.db.execute(
+            "SELECT seq,version,kind,payload FROM events ORDER BY seq"
         ):
-            # 缺失或损坏的是已提交事实时不能擅自删尾并继续副作用。
-            if version != SCHEMA_VERSION or sequence != expected_sequence:
+            # 即使有快照，序号与完整前缀也要核对，不能用缓存掩盖事实损坏。
+            if version != EVENT_VERSION or sequence != expected_sequence:
                 raise ValueError("invalid event version or sequence")
             expected_sequence += 1
-            updates.update(json.loads(payload)["updates"])
+            digest.update(
+                json.dumps((sequence, version, kind, payload), ensure_ascii=False).encode()
+            )
+            if snapshot and sequence == covered:
+                digest.update(snapshot[2].encode())
+                if digest.hexdigest() != snapshot[1]:
+                    raise ValueError("snapshot source digest mismatch")
+                updates = {key: json.loads(value) for key, value in json.loads(snapshot[2]).items()}
+            elif sequence > covered:
+                updates.update(json.loads(payload)["updates"])
+        # 快照指向不存在事件时不可当成有效索引；零覆盖只能对应空事件。
+        if snapshot and (covered >= expected_sequence or covered < 1):
+            raise ValueError("snapshot coverage mismatch")
         self._messages = None
         with self.db:
             self.db.execute("DELETE FROM state")

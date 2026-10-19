@@ -1,0 +1,90 @@
+B3 收尾联合验收，2026-10-19 UTC
+基准提交 92c2f18；本记录对应之后的备份迁移/恢复、事实与上下文控制提交。
+支持范围：Linux；离线主环境 CPython 3.14.7；独立 wheel CPython 3.11.16。
+未复用第三方 Agent 代码；SQLite 使用标准库一致性备份，Provider 使用锁定 SDK。
+
+最终检查：
+  uv run --locked pytest -q
+    281 passed, 7 skipped in 26.10s
+  7 skipped 均为显式 Docker live 未启用，另行实际运行如下。
+  uv run --locked ruff check src tests scripts
+    All checks passed!
+  uv run --locked ruff format --check src tests scripts
+    124 files already formatted
+  uv run --locked mypy
+    Success: no issues found in 124 source files
+  uv build --wheel
+    Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+  git diff --check
+    passed
+
+Rootless Docker：
+  CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_workspace_docker_live.py
+    7 passed in 33.35s
+  此后维护命令变化由最终定向/全量与安装版真实 Docker 验收覆盖，未反复重跑无关后端测试。
+  工具容器断网，Provider 从宿主连接官方接口，镜像 codepilot-sandbox:0.1.0。
+  docker context show => rootless
+  docker ps --filter label=codepilot.managed=true --format '{{.ID}} {{.Names}}' => 空
+  实际无受管活动容器，独立于 ProductRunResult.backend_closed 记录；未修改公共 daemon。
+
+确定性与真实进程边界：
+  tests/test_b3_recovery.py：
+    v1 升级前备份可独立读取、私有权限；SQL 故障事务回滚；备份失败不升级；活跃写锁拒绝。
+    快照后缀保留 running；内容与覆盖偏移损坏均拒绝；事件版本保持 v1，数据库布局为 v2。
+    context reset 归档损坏检查点、保留规范消息、暂停自动压缩；超限不背后重新摘要。
+    严格 JSON/来源编号错误拒绝，事实消息放在最新用户修订之前，不拆开工具调用/结果。
+    精确 endpoint 价格归属，未知网关价格未知，超已知窗口预检拒绝；发送时费率不因换模型改写。
+    数据库 restore 保留用户文件和较大计量/pending，强制协调；清空 state 索引仍从事件保留预算。
+    真正 CLI migrate/diagnose/context 不调用 Provider；未知 run 不允许 reset。
+  三处真实控制器 os._exit(73)，不是模拟终态：
+    before_model：请求前退出，无文件副作用，新进程先阻断。
+    during_shell：登记 PID/start 后子进程实际追加 counter，控制器退出，活跃进程阻止协调。
+    after_tool：Shell 实际完成、结果尚未入库时退出，结果保持 unknown，不伪造成功。
+    测试只终止核对过身份的归属进程组；协调后新 CLI run 不重复追加文件。
+    僵尸进程已不能产生副作用，process_identity 不再把它当作永久活跃进程。
+  tests/test_sessions.py：失败测试→编辑→成功测试的控制器记录带退出码及工作区版本；
+    旧失败在新版本 current=false，成功记录仍 independent_verdict=not_run；外部修改使旧记录失效。
+  原 100 回合/五次滚动检查点、拒绝、取消、半截流、超长 Retry-After、预算和两协议回归继续通过。
+
+真实模型与四层验收：
+  组合：官方 https://api.deepseek.com / deepseek-flash / chat-completions 与 responses。
+  预算预先冻结：全轮最多 24 尝试；首次失败各 1，修正后每协议会话最多 11，修复 run 最多 7。
+  初始两次真实请求：provider_error / BadRequestError / 零工具；公开/隐藏验收均失败。
+    原因定位为控制器事实放在请求末尾 assistant 位置；修正为最近用户消息之前。
+    失败保留 B3-finish-live-initial.json，未知 usage 未冒充零，不重放工具。
+  修正后两协议各 7 请求完成两个模块的 Unicode casefold 与稳定去重：
+    模型自述单列；工具结果含初始 FAILED 和修复后 OK；Runtime completed 单列；
+    独立控制器重新运行公开 unittest 与未提供给模型的希腊 sigma/空白/稳定顺序用例，均通过。
+    独立核对测试文件和用户笔记原文未变；无 Git 提交或容器联网。
+  各再发一次严格 JSON 压缩：steps=0、tools=0、工作区未变；来源编号校验成功。
+  各通过全新安装版 CLI 进程 resume：一次请求、零工具、工作区未变、后端关闭。
+  各执行上下文 reset 与 SQLite backup：无额外模型请求，checkpoint 归档、自动压缩暂停。
+  总计 20 次尝试 = 初始失败 2 + 成功链 18。
+  成功链 usage：64,179 输入 / 9,704 输出；初始失败 usage 未知。费用仅估算、不报告实际扣费。
+  完整四层数据、控制器事实、最终源码与预算见 B3-finish-live.json。
+  可重复运行的有界验收入口（会产生真实调用，必须显式 --live）：
+    uv run --locked python scripts/verify_b3_live.py --live \
+      --config-context WORKSPACE_WITH_USER_CONFIG --output PRIVATE_REPORT_PATH
+  脚本只允许官方 Flash；每协议最多 11，合计最多 22；该未来复跑不包含本轮已有的两次失败。
+  本轮实际先用等价临时脚本跑产品链，脚本随后整理为可移植的复核入口；未额外重复真实调用。
+
+干净 wheel 安装与历史迁移：
+  uv venv --python 3.11 /tmp/codepilot-b3-wheel-verify
+  首次不带锁约束安装依赖遇 files.pythonhosted.org 超时；未将缺包启动计为通过。
+  uv export --locked --no-dev --no-emit-project --format requirements-txt \
+    --output-file /tmp/b3-wheel-requirements.txt
+  uv pip install --offline --python /tmp/codepilot-b3-wheel-verify/bin/python \
+    -c /tmp/b3-wheel-requirements.txt dist/codepilot-0.1.0-py3-none-any.whl
+  最终 wheel 更新后再 --no-deps --reinstall-package codepilot，复验通过。
+  仓库外从 site-packages 加载，Local run/context/backup 均 0；v1 resume 明确阻断，
+    migrate 备份升级后 resume 成功；同一安装版 Rootless Docker run、清理及用户文件保留均通过。
+  详见 B3-wheel-finish.json。
+  另复制上一轮真实 DeepSeek 会话的 v1 库（不修改原用户会话），升级后 87 个事件逐条不变、
+    11 次尝试保留、21 条规范历史可读，零模型调用；见 B3-historical-migration.json。
+
+文档与阶段判断：
+  B3 在上述明确组合与故障范围完成受限验收，不等于整产品成熟或所有平台兼容。
+  B2 网络/秘密、硬磁盘配额、worktree+Docker Git、安全撤销保留未完成；B4 未实施。
+  未运行 Windows/macOS、其他模型/站点、1M 实际输入/65K 实际输出、真实硬件磁盘满。
+  SQLite 故障和网络故障部分为确定性注入，不能冒充真实服务端/磁盘曾出现相同故障。
+  数据库备份不含工作区/输出；摘要来源校验不证明语义完全正确；账户费率和账单不由本工具保证。

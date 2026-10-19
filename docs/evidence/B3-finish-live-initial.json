@@ -1,0 +1,53 @@
+{
+  "root": "/tmp/codepilot-b3-finish-3s4bs_lg",
+  "date": "2026-10-19",
+  "model": "deepseek-flash",
+  "endpoint": "https://api.deepseek.com",
+  "maximum_requests": 24,
+  "results": [
+    {
+      "protocol": "chat-completions",
+      "session": "finish-chat-completions",
+      "workspace": "/tmp/codepilot-b3-finish-3s4bs_lg/chat-completions",
+      "model_claim": "",
+      "runtime": "provider_error",
+      "detail": "BadRequestError",
+      "requests_repair": 1,
+      "tool_results": [],
+      "independent": {
+        "public_tests": false,
+        "hidden_tests": false,
+        "tests_unchanged": true,
+        "note_unchanged": true,
+        "backend_closed": true
+      },
+      "controller_facts": {
+        "goal_revision": 1,
+        "changes": [],
+        "executions": []
+      }
+    },
+    {
+      "protocol": "responses",
+      "session": "finish-responses",
+      "workspace": "/tmp/codepilot-b3-finish-3s4bs_lg/responses",
+      "model_claim": "",
+      "runtime": "provider_error",
+      "detail": "BadRequestError",
+      "requests_repair": 1,
+      "tool_results": [],
+      "independent": {
+        "public_tests": false,
+        "hidden_tests": false,
+        "tests_unchanged": true,
+        "note_unchanged": true,
+        "backend_closed": true
+      },
+      "controller_facts": {
+        "goal_revision": 1,
+        "changes": [],
+        "executions": []
+      }
+    }
+  ]
+}

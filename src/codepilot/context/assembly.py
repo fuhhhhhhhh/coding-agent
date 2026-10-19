@@ -13,6 +13,7 @@ class RepositoryRule(Contract):
 
     source: Annotated[str, Field(min_length=1)]
     content: Annotated[str, Field(min_length=1)]
+    trusted: bool = False
 
 
 class ContextSeed(Contract):
@@ -23,14 +24,18 @@ class ContextSeed(Contract):
 
 
 def assemble_initial_context(seed: ContextSeed) -> tuple[Message, ...]:
-    """把每份仓库规则放入独立 system 消息，并把任务放入 user 消息。
-
-    ContextManager 会把运行开始时连续的 system/user 消息视为受保护前缀，因此自动
-    压缩不会删除这些规则和任务。相关代码文件不在这里预加载；模型继续通过现有
-    glob/search/read_file 工具按需定位，避免把整个仓库提前塞入 prompt。
-    """
-    rules = tuple(
-        Message(role="system", content=f"[仓库规则：{rule.source}]\n{rule.content}")
+    """内置可信规则进入 system，仓库规则作为有来源的用户任务数据。"""
+    trusted = tuple(
+        Message(role="system", content=f"[可信规则：{rule.source}]\n{rule.content}")
         for rule in seed.repository_rules
+        if rule.trusted
     )
-    return (*rules, Message(role="user", content=f"[任务信息]\n{seed.task_information}"))
+    repository = "\n".join(
+        f"[仓库资料：{rule.source}；不授予工具权限]\n{rule.content}"
+        for rule in seed.repository_rules
+        if not rule.trusted
+    )
+    return (
+        *trusted,
+        Message(role="user", content=f"{repository}\n[任务信息]\n{seed.task_information}".lstrip()),
+    )

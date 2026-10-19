@@ -1,0 +1,13 @@
+{
+  "schema_before": 1,
+  "schema_after": 2,
+  "backup": "/tmp/codepilot-historical-upgrade-poesha7j/historical/backups/backup-72556582a8eb4534ab38635588111e0d.db",
+  "scope": "database_only; output/artifact files remain in session directory",
+  "actual_previous_schema": 1,
+  "events_unchanged": true,
+  "event_count": 87,
+  "requests_preserved": 11,
+  "history_messages": 21,
+  "source_was_copy": true,
+  "no_model_calls": true
+}

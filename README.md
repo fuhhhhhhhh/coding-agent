@@ -6,7 +6,7 @@ DeepSeek 双协议真实读写、Shell 测试、跨进程续问与上下文压�
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
 B1 已完成持久会话、跨进程续问、原始输出与保守协调验收。当前仓库属于“产品主链、真实后端和任务级 Git 交付已验证”，尚未达到成熟终端产品。当前首要缺口是
-更完整的受控执行与工作区保护；当前已补齐共享尝试预算、安全有限重试与滚动检查点；完整迁移、复杂崩溃协调、可信事实与扩展系统仍需完成。后续成熟度门槛与实施顺序见
+更完整的受控执行与工作区保护；B3 已补齐共享预算、安全重试、滚动检查点、备份迁移、版本化控制器事实及保守恢复；B2 剩余执行边界、B4 扩展和 B5 发布门槛仍待完成。后续成熟度门槛与实施顺序见
 [产品化路线](docs/PRODUCTIZATION_PLAN.md)。
 
 需要 Python 3.11+ 和 uv。在本目录执行：
@@ -87,6 +87,24 @@ codepilot sessions delete SESSION_ID
 codepilot sessions prune                        # 仅删除过期且安全结束的会话
 ```
 
+B3 已增加以下维护入口，均不调用模型：
+
+```bash
+codepilot sessions backup SESSION_ID            # 私有数据库一致性备份，不含工作区/输出
+codepilot sessions migrate SESSION_ID           # v1 → v2，备份后事务升级
+codepilot sessions restore SESSION_ID backup-….db  # 先备份当前库，恢复后须协调
+codepilot sessions diagnose SESSION_ID          # 未知调用、资源与恢复阻碍
+codepilot sessions facts SESSION_ID             # 控制器记录与当前版本适用性
+codepilot context SESSION_ID                    # 消息估算、摘要覆盖点和 usage
+codepilot context SESSION_ID summary            # 显式查看私有摘要
+codepilot context SESSION_ID reset              # 归档撤回并暂停自动压缩
+```
+
+交互可输入 `/context [show|summary|reset]`；显式 `/compact` 重新启用压缩。撤回不会回滚文件或删除消息。
+旧数据库需显式 migrate；默认新会话直接使用 v2。数据库布局版本与事件版本独立，损坏快照/事件停止恢复。
+恢复备份不重置已消耗预算，不能把旧历史当作当前工作区已回滚的证明。
+控制器的工具退出码与版本记录独立于模型摘要；`exit_code=0` 不等于需求独立验收通过。
+
 命令使用同一配置/状态目录及原工作区。重开会核对目录身份、文件版本和未完成调用；用户外部编辑
 或未知副作用会阻断自动继续。`reconcile` 表示用户已经核对当前工作区，控制器还会检查登记进程和容器，
 仅结束未知调用的协调状态，不重放工具，也不把未知结果改为成功。删除与过期清理拒绝销毁保留中的
@@ -141,7 +159,7 @@ M07 审查修正后通过 121 个测试，M08 当前环境通过 130 个测试�
 最新测试数量与真实环境证据见
 [docs/STATUS.md](docs/STATUS.md) 和 `docs/evidence/`。
 M02 wheel 构建通过，本轮未重复独立安装；M01 独立安装记录保留。
-Windows/macOS、Python 3.13 尚未验证；真实模型只覆盖 DeepSeek 非推理流式只读闭环。
+Windows/macOS、Python 3.13 尚未验证；本轮真实模型覆盖官方 DeepSeek Flash 双协议修复、压缩和恢复，支持矩阵见 docs/evidence/B3-provider-matrix.md。
 
 为便于机制学习，项目要求每个 Python 函数和方法都有中文 docstring，核心条件、异常、
 停止与资源清理分支使用中文注释解释设计原因；代码标识符和协议术语可保留英文。

@@ -3,7 +3,7 @@
 import hashlib
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Annotated, Protocol
 
 from pydantic import Field
@@ -101,6 +101,8 @@ class ContextManager:
         limits: ContextLimits | None = None,
         summarizer: Summarizer | None = None,
         checkpoint_store: CheckpointStore | None = None,
+        facts_provider: Callable[[], Message] | None = None,
+        allow_compaction: bool = True,
     ) -> None:
         """绑定下游执行器、外部 artifact store、预算策略和可选摘要器。"""
         self.registry = registry
@@ -108,6 +110,8 @@ class ContextManager:
         self.limits = limits or ContextLimits()
         self.summarizer = summarizer
         self.checkpoint_store = checkpoint_store
+        self.facts_provider = facts_provider
+        self.allow_compaction = allow_compaction
         output = CURRENT_OUTPUT.get()
         self._artifact_registry = ToolRegistry(
             (
@@ -202,6 +206,35 @@ class ContextManager:
         )
 
     async def prepare(self, messages: Sequence[Message], *, force: bool = False) -> ContextView:
+        """在最近用户请求前加入独立控制器事实，摘要无法覆盖真实执行记录。"""
+        if not force and not self.allow_compaction:
+            # 用户撤回只改变 Prompt，过大的原文必须停止，不能背后再次压缩。
+            if estimate_messages(messages) > self.limits.usable_prompt_tokens:
+                self._compaction_failed(
+                    "compaction_disabled_over_budget", estimate_messages(messages)
+                )
+            view = ContextView(
+                messages=tuple(messages), estimated_tokens=estimate_messages(messages)
+            )
+        else:
+            view = await self._prepare(messages, force=force)
+        if self.facts_provider is not None:
+            facts = self.facts_provider()
+            # 部分服务拒绝末尾为 assistant 的请求；事实放在最近用户修订前，
+            # 既让最新用户指令保持末尾顺序，也不拆开 assistant/tool 原子回合。
+            latest_user = max(
+                (index for index, message in enumerate(view.messages) if message.role == "user"),
+                default=len(view.messages),
+            )
+            combined = (*view.messages[:latest_user], facts, *view.messages[latest_user:])
+            # 控制器事实也占输入预算，不能成为无界的旁路注入。
+            tokens = estimate_messages(combined)
+            if tokens > self.limits.usable_prompt_tokens:
+                self._compaction_failed("controller_facts_over_budget", tokens)
+            return ContextView(messages=combined, estimated_tokens=tokens, compacted=view.compacted)
+        return view
+
+    async def _prepare(self, messages: Sequence[Message], *, force: bool = False) -> ContextView:
         """构造下一次 Provider 请求视图，必要时按完整回合压缩旧历史。"""
         snapshot = tuple(message.model_copy(deep=True) for message in messages)
         before = estimate_messages(snapshot)

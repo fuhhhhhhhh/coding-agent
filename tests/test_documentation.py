@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYTHON_ROOTS = (
     PROJECT_ROOT / "src" / "codepilot",
     PROJECT_ROOT / "tests",
+    PROJECT_ROOT / "scripts",
     PROJECT_ROOT / "examples" / "fixture_repo",
 )
 

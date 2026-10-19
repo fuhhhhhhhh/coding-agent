@@ -371,7 +371,18 @@ def test_continuous_session_uses_failed_test_then_repairs_and_rechecks(
         message.tool_result for message in results[-1].report.messages if message.tool_result
     ]
     assert tool_results[0].is_error and not tool_results[-1].is_error
-    assert (workspace / "user.txt").read_text() == "keep"
+    with SessionStore(tmp_path / "state", "repair", create=False) as stored:
+        facts = stored.facts_view(workspace)
+        assert facts["goal_revision"] == 3
+        executions = {item["call_id"]: item for item in facts["executions"]}
+        assert executions["failed-test"]["exit_code"] != 0
+        assert executions["failed-test"]["current"] is False
+        assert executions["passed-test"]["exit_code"] == 0
+        assert executions["passed-test"]["current"] is True
+        assert executions["passed-test"]["independent_verdict"] == "not_run"
+        (workspace / "user.txt").write_text("later user edit")
+        assert not any(item["current"] for item in stored.facts_view(workspace)["executions"])
+    assert (workspace / "user.txt").read_text() == "later user edit"
     verifier = subprocess.run(
         [sys.executable, "-c", "from answer import answer; assert answer == 42"],
         cwd=workspace,

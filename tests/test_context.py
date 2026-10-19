@@ -133,18 +133,20 @@ def tool_round(index: int, size: int = 260) -> tuple[Message, Message]:
 
 
 def test_initial_context_keeps_repository_rules_and_task_separate() -> None:
-    """仓库规则使用 system 角色，任务使用 user 角色，不预加载无关代码文件。"""
+    """只有明确可信规则进入 system；仓库文本留在用户任务数据中。"""
     messages = assemble_initial_context(
         ContextSeed(
             repository_rules=(
+                RepositoryRule(source="CodePilot", content="内置权限边界", trusted=True),
                 RepositoryRule(source="AGENTS.md", content="所有注释使用中文"),
                 RepositoryRule(source="src/AGENTS.md", content="工具结果必须有界"),
             ),
             task_information="修复解析器并运行测试",
         )
     )
-    assert [message.role for message in messages] == ["system", "system", "user"]
-    assert "AGENTS.md" in messages[0].content
+    assert [message.role for message in messages] == ["system", "user"]
+    assert "AGENTS.md" in messages[1].content
+    assert "AGENTS.md" not in messages[0].content
     assert "修复解析器" in messages[-1].content
     assert all(not message.tool_calls and message.tool_result is None for message in messages)
 

@@ -1,0 +1,53 @@
+{
+  "root": "/tmp/codepilot-wheel-b3-ue5w9g2b",
+  "package_path": "/tmp/codepilot-b3-wheel-verify/lib/python3.11/site-packages/codepilot/__init__.py",
+  "python": "3.11",
+  "local_commands": [
+    {
+      "command": [
+        "run",
+        "检查"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "context",
+        "installed"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "sessions",
+        "backup"
+      ],
+      "returncode": 0
+    }
+  ],
+  "legacy_resume_blocked": true,
+  "migration": {
+    "schema_before": 1,
+    "schema_after": 2,
+    "backup": "/tmp/codepilot-wheel-b3-ue5w9g2b/state/installed/backups/backup-fccb9ed3fbe44e2aa40f302aa060902a.db",
+    "scope": "database_only; output/artifact files remain in session directory"
+  },
+  "resumed": true,
+  "docker_result": {
+    "kind": "product_result",
+    "session_id": "installed-docker",
+    "task_id": "task-faaf602dcb17414399d7981568c46a79",
+    "run_id": "run-925f8cca49e944cba9687b1886d1e5fb",
+    "state": "completed",
+    "reason": "completed",
+    "error_type": null,
+    "steps": 2,
+    "tool_calls": 1,
+    "answer": "Fake provider 已完成一次只读工作区检查。",
+    "trace_path": "/tmp/codepilot-wheel-b3-ue5w9g2b/state/installed-docker/task-faaf602dcb17414399d7981568c46a79/run-925f8cca49e944cba9687b1886d1e5fb/traces/trace-34e7f1d1-4c3a-4fa8-8b8e-35a09878a5dc.jsonl",
+    "backend_closed": true,
+    "context_artifacts_cleaned": true,
+    "delivery": null
+  },
+  "note_preserved": true
+}
