@@ -59,6 +59,8 @@ class RuntimeEvent(Contract):
     sequence: Annotated[int, Field(ge=1)]
     kind: Literal[
         "model_requested",
+        "provider_attempt",
+        "provider_retry",
         "text_delta",
         "tool_call_delta",
         "tool_call_ready",
@@ -89,3 +91,4 @@ class RuntimeEvent(Contract):
     prompt_tokens_after: int | None = None
     outcome: str = ""
     error_type: str = ""
+    attempt_id: str = ""

@@ -37,6 +37,7 @@ from codepilot.permissions import (
 from codepilot.providers.base import Provider
 from codepilot.providers.fake import FakeProvider
 from codepilot.providers.openai_compatible import OpenAICompatibleProvider, RequestBudget
+from codepilot.providers.responses import ResponsesProvider
 from codepilot.providers.stream import StreamingProvider
 from codepilot.runtime import Runner
 from codepilot.scheduler import ScheduledExecutor
@@ -113,6 +114,7 @@ class CodePilotApplication:
         session_id: str | None = None,
         task_id: str | None = None,
         run_id: str | None = None,
+        compact_only: bool = False,
     ) -> ProductRunResult:
         """执行一个新任务，并在返回结果前关闭后端、客户端及临时 Artifact。"""
         if not task.strip():
@@ -135,6 +137,7 @@ class CodePilotApplication:
                 configuration={
                     "provider": self.config.provider.kind,
                     "model": self.config.provider.model,
+                    "protocol": self.config.provider.protocol,
                     "backend": self.config.backend.kind,
                     "permission": self.config.permission,
                     "worktree": self.config.git_workspace.enabled,
@@ -142,6 +145,8 @@ class CodePilotApplication:
             )
             limits = self.config.sessions
             session.request_limit = limits.max_requests
+            session.input_token_limit = limits.max_input_tokens
+            session.output_token_limit = limits.max_output_tokens
             session.history_limit = limits.history_bytes
             page_size = session.db.execute("PRAGMA page_size").fetchone()[0]
             session.db.execute(
@@ -164,7 +169,7 @@ class CodePilotApplication:
             )
             token = CURRENT_OUTPUT.set(output)
             try:
-                result = await self._execute(task, identity, session)
+                result = await self._execute(task, identity, session, compact_only=compact_only)
                 session.finish(result.report, self.workspace, clean=result.resources.backend_closed)
                 return result
             except BaseException:
@@ -178,7 +183,7 @@ class CodePilotApplication:
                 CURRENT_OUTPUT.reset(token)
 
     async def _execute(
-        self, task: str, identity: RunIdentity, session: SessionStore
+        self, task: str, identity: RunIdentity, session: SessionStore, *, compact_only: bool = False
     ) -> ProductRunResult:
         """在持久会话锁内执行单次 run，复用原有装配与清理链。"""
         run_directory = self.state_root / identity.session_id / identity.task_id / identity.run_id
@@ -243,9 +248,30 @@ class CodePilotApplication:
                     identity.run_id,
                     api_key=self._api_key,
                 )
-                # 摘要复用同一个 Provider 和 RequestBudget，主请求与压缩请求不能各自绕过额度。
+                # 专用摘要器不暴露工作区工具，但必须共享主请求的逐尝试账本和连接生命周期。
+                summary_provider = provider.provider
+                if isinstance(provider.provider, OpenAICompatibleProvider):
+                    active = provider.provider
+                    active.budget.on_reserve = session.reserve_provider_attempt
+                    active.budget.on_settle = session.settle_provider_attempt
+                    session.provider_tracks_attempts = True
+                    # 摘要只复用已支持协议，不假设供应商子类构造器拥有相同参数。
+                    summary_kind = (
+                        ResponsesProvider
+                        if isinstance(active, ResponsesProvider)
+                        else OpenAICompatibleProvider
+                    )
+                    summary_provider = summary_kind(
+                        active.client,
+                        model=active.model,
+                        budget=active.budget,
+                        max_tokens=min(active.max_tokens, 4096),
+                        extra_body=active.extra_body,
+                        retry=active.retry,
+                        context_tokens=active.context_tokens,
+                    )
                 context.summarizer = ModelSummarizer(
-                    provider.provider, timeout_seconds=self.config.provider.timeout_seconds
+                    summary_provider, timeout_seconds=self.config.provider.timeout_seconds
                 )
                 # Provider 最后登记，因此退出时先关闭连接，再关闭后端和 ArtifactStore。
                 resources.push_async_callback(provider.close)
@@ -258,6 +284,7 @@ class CodePilotApplication:
                     context=context,
                     on_observation=session.observe,
                     resume_history=True,
+                    compact_only=compact_only,
                 )
                 initial = _initial_messages(execution_workspace, task)
                 history = session.history()
@@ -385,13 +412,20 @@ def _create_provider(
         timeout=provider.timeout_seconds,
         max_retries=0,
     )
-    # 这里仅承诺 OpenAI Chat Completions 兼容；能力探测和复杂重试属于 P6。
-    compatible = OpenAICompatibleProvider(
+    # 协议差异只在适配器边界选择，Runtime 与工具执行链保持共享。
+    adapter = ResponsesProvider if provider.protocol == "responses" else OpenAICompatibleProvider
+    compatible = adapter(
         client,
         tools,
         model=provider.model,
-        budget=RequestBudget(provider.max_requests),
+        budget=RequestBudget(
+            provider.max_requests,
+            max_input_tokens=provider.total_input_tokens,
+            max_output_tokens=provider.total_output_tokens,
+        ),
         max_tokens=provider.max_tokens,
+        retry=provider.retry,
+        context_tokens=config.context.max_prompt_tokens,
     )
     return _ProviderHandle(compatible, client)
 

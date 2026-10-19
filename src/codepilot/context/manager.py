@@ -21,7 +21,7 @@ from codepilot.contracts import Message, ToolCall, ToolResult
 from codepilot.contracts.models import Contract
 from codepilot.contracts.stream import Usage
 from codepilot.observability.trace import emit
-from codepilot.sessions.checkpoints import CheckpointStore
+from codepilot.sessions.checkpoints import CheckpointStore, source_digest
 from codepilot.sessions.outputs import CURRENT_OUTPUT, OutputStore
 from codepilot.sessions.tools import ReadOutputTool, SearchOutputTool
 from codepilot.tools.base import Tool, ToolFailure, ToolOutput, ToolSpec
@@ -210,13 +210,49 @@ class ContextManager:
             estimate_message(message) > self.limits.usable_prompt_tokens for message in snapshot
         ):
             self._compaction_failed("single_message_too_large", before)
-        if not force and before <= self.limits.compact_trigger_tokens:
-            return ContextView(messages=snapshot, estimated_tokens=before)
         try:
             prefix, rounds = _split_atomic_rounds(snapshot)
         except ContextPreparationError as error:
-            # 配对损坏时不能继续摘要，否则可能把一次工具调用和错误结果混成可信事实。
+            # 历史配对先验证，检查点不能掩盖未完成工具副作用。
             self._compaction_failed(str(error), before)
+        checkpoint = None
+        if self.checkpoint_store is not None:
+            try:
+                checkpoint = self.checkpoint_store.load()
+            except (OSError, ValueError) as error:
+                # 损坏检查点不静默吞掉并重写，保留原件供用户核对。
+                self._compaction_failed(f"checkpoint_invalid:{type(error).__name__}", before)
+        covered = 0
+        previous_summary: Message | None = None
+        flat = tuple(message for group in rounds for message in group)
+        if checkpoint is not None and checkpoint.schema_version == 2:
+            count = checkpoint.covered_messages
+            boundaries = {
+                sum(len(group) for group in rounds[:index]) for index in range(len(rounds) + 1)
+            }
+            if (
+                count > 0
+                and count in boundaries
+                and source_digest([message.model_dump(mode="json") for message in flat[:count]])
+                == checkpoint.source_digest
+            ):
+                covered = count
+                # 摘要是历史数据，不提升为 system 权限；当前用户修订仍在后续消息中。
+                previous_summary = Message(
+                    role="assistant", content=f"[历史压缩摘要]\n{checkpoint.summary}"
+                )
+        restored = (
+            (*prefix, previous_summary, *flat[covered:])
+            if previous_summary is not None
+            else snapshot
+        )
+        effective = estimate_messages(restored)
+        if not force and effective <= self.limits.compact_trigger_tokens:
+            return ContextView(
+                messages=restored,
+                estimated_tokens=effective,
+                compacted=previous_summary is not None,
+            )
         keep_count = min(self.limits.recent_rounds, len(rounds))
         old_rounds = rounds[:-keep_count] if keep_count else rounds
         recent_rounds = rounds[-keep_count:] if keep_count else ()
@@ -227,7 +263,10 @@ class ContextManager:
             return ContextView(messages=snapshot, estimated_tokens=before)
         old_messages = tuple(message for group in old_rounds for message in group)
         try:
-            summary, usage, cache_hit = await self._summary(old_messages)
+            summary_input = old_messages
+            if previous_summary is not None and covered <= len(old_messages):
+                summary_input = (previous_summary, *old_messages[covered:])
+            summary, usage, cache_hit = await self._summary(summary_input)
         except Exception as error:
             # 摘要失败不能退回一个已经超过触发阈值的 prompt 并继续请求模型。
             self._compaction_failed(f"summary_failed:{type(error).__name__}", before)
@@ -283,7 +322,7 @@ class ContextManager:
         if self.summarizer is None:
             raise RuntimeError("summarizer is required after compact trigger")
         result = await self.summarizer.summarize(messages, self.limits.compact_target_tokens)
-        summary = Message(role="system", content=f"[历史压缩摘要]\n{result.content}")
+        summary = Message(role="assistant", content=f"[历史压缩摘要]\n{result.content}")
         self._summary_cache[cache_key] = summary
         return summary, result.usage, False
 

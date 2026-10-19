@@ -111,7 +111,7 @@ class EventRecorder:
         records = []
         for event in self.events:
             record = self.redacted(event)
-            for field in ("run_id", "turn_id", "call_id"):
+            for field in ("run_id", "turn_id", "call_id", "attempt_id"):
                 value = record[field]
                 if value:
                     record[field] = ids.setdefault(value, f"id-{len(ids) + 1}")

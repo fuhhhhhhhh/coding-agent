@@ -26,3 +26,18 @@ def test_prompt_startup_does_not_load_sdk_or_create_state(tmp_path: Path) -> Non
     assert process.returncode == 0, process.stderr
     assert "CodePilot" in process.stdout
     assert not state.exists()
+
+
+def test_checkpoint_module_imports_in_fresh_process() -> None:
+    """检查点可独立导入，不能依赖 app 先导入才能避开循环依赖。"""
+    process = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import codepilot.sessions.checkpoints; import sys; assert 'openai' not in sys.modules",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=15,
+    )
+    assert process.returncode == 0, process.stderr

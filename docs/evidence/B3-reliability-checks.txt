@@ -1,0 +1,92 @@
+B3 联合增量验收，2026-10-19 UTC
+基准提交：799744a；本文件对应随后“持久尝试预算、双协议、滚动检查点”提交。
+执行环境：Linux，uv 锁定环境，官方 DeepSeek Flash，用户级 Rootless Docker。
+
+最终确定性/静态命令：
+  uv run --locked pytest -q
+    265 passed, 7 skipped in 35.27s
+    7 skipped 均为显式 live 开关未启用的 Docker 测试；随后单独执行。
+  uv run --locked ruff check src tests
+    All checks passed!
+  uv run --locked ruff format --check src tests
+    118 files already formatted
+  uv run --locked mypy
+    Success: no issues found in 118 source files
+  uv build --wheel
+    Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+  git diff --check
+    passed
+  配置密钥通过现有 resolver 在内存中与全部变更/新增文件逐字节比较：未发现；没有打印密钥。
+
+Rootless Docker：
+  CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_workspace_docker_live.py
+    7 passed in 28.60s
+  用户 daemon /run/user/1016/docker.sock；不修改/重启公共 Docker。
+  本轮真实修复、resume、compact 均使用同一 codepilot-sandbox:0.1.0 镜像与默认断网工具后端。
+  每个实际产品结果的 backend_closed 均独立核对为 true。
+
+核心故障断言：
+  tests/test_provider_reliability.py：
+    429 后成功，两次真实 SDK transport 尝试；401/402/500 仅一次；原始错误正文不进 Trace。
+    ConnectError / ConnectTimeout 可证明未发送，允许第二次；ReadTimeout / WriteError 不重发。
+    Retry-After 超长、非法、负数、NaN 均停止；事件屏障中取消退避，不发送后续 HTTP/工具。
+    半截 write_file 流后 ReadError：零工具、无目标文件、保留未知预留、不重放。
+    真实产品装配：摘要无 tools，主调用/摘要共用 SQLite 账本；compact 只多一次摘要、零主步骤/工具。
+    策略允许五次但预算一次：实际只发一次；巨型工具 Schema 在 HTTP 前拒绝。
+  tests/test_b3.py：乱序 ID 结算、未知 usage 保守占用、跨进程预留不清零、超报先记账再停止。
+    真实子进程在 begin + reserve 后 os._exit(23)：重开阻断，显式 reconcile 不释放 pending。
+  tests/test_context.py：100 回合，五个 Context 实例分别压缩，后四次只处理旧摘要+新增历史；
+    复用不调用摘要器；用户修订保留；JSON 损坏停止并保留文件。
+  tests/test_responses.py：真实 SDK SSE 函数/结果 call_id 配对写入；缺终态、incomplete、failed、
+    最终调用清单篡改均零工具，不把 EOF 当完成。
+  tests/test_startup.py：检查点优先导入无循环，启动不提前加载 OpenAI SDK。
+
+真实联合验收，详细四层数据见 B3-live-repositories.json：
+  endpoint https://api.deepseek.com，model deepseek-flash，SDK openai 2.54.0。
+  两个临时 Git 目录中相同 CSV 缺陷；不是用户真实工作文件，没有提交、推送或容器网络。
+  硬限制：修复各 8 次请求/4096 输出 Token/240 秒；有限脚本审批只应用于合成临时目录。
+  Chat Completions：6 请求/6 工具，29.169 秒；Responses：7 请求/9 工具，25.782 秒。
+  工具记录分别确认修复前 FAILED 与修复后 OK，不只相信模型声称已测试。
+  独立控制器各自运行公开 unittest、未提供给模型的引号换行/转义引号用例；均通过。
+  核对测试文件与用户笔记原文未变，工具后端已关闭。
+  各新开安装版 codepilot resume 进程：一次请求，零工具，工作区不变，能回答修复与测试。
+  各使用较小阈值配置新开两个 CLI 进程：第一进程摘要+主回复两次请求；第二进程一次主请求，
+    checkpoint v2 覆盖数保持，零新摘要事件，证明跨进程实际复用而非只读取 JSON。
+  各运行安装版 codepilot compact SESSION_ID：一次摘要请求，steps=0/tool_calls=0，
+    Runtime completed / detail=context_compacted，工作区不变，后端关闭。
+  总计 23 次真实请求；65,607 输入 Token、7,990 输出 Token；最终两个账本 pending 均为空。
+  不估算账户金额，不宣称费用硬上限；默认用户配置/模型保持不变。
+
+复核/重做入口：
+  JSON 的 fixture 包含初始 records.py、任务、公开/隐藏判据与预算；environment 保存具体组合。
+  实际修复通过 CodePilotApplication.run + 有限 ScriptedApproval；未另写 Agent 循环。
+  临时根目录和各 session/workspace 在 JSON，仍存在时可执行：
+    codepilot resume SESSION_ID '只根据已有历史回顾修复，不调用工具。' \
+      --workspace WORKSPACE --state-directory ROOT/state --jsonl
+    codepilot compact SESSION_ID --workspace WORKSPACE --state-directory ROOT/state \
+      --config ROOT/PROTOCOL-compact.yaml --jsonl
+  这些会消耗真实额度；临时路径不是安装或长期存储承诺。
+  独立验收：在对应 WORKSPACE 执行 python3 -m unittest -q，并单独核对隐藏 CSV 判据与保护文件。
+  续问次数与 checkpoint coverage 必须由 SessionStore 前后读数核对，不能用模型自述替代。
+
+开发中发现并修正的失败：
+  1. Responses 工具结果测试预期过时，实际 write_file 返回 written: path=... bytes=...，
+     修正断言以核对真实内部契约；不是将错误忽略成通过。
+  2. 测试凭据字符串过短（test）碰撞测试临时目录名，脱敏改变路径身份；改用无路径碰撞的合成值。
+  3. 生产摘要测试最初未达到触发阈值，改成明确越过阈值并断言 SDK 请求数。
+  4. 独立安装版压缩验收发现 checkpoints 优先导入触发循环；SummaryResult 仅作注解，
+     改 TYPE_CHECKING 延迟导入，新增全新解释器回归。该失败发生在新增模型调用之前。
+  5. SDK 将 ConnectTimeout 包装为 APITimeoutError，与一般连接错误不同；新增真实 SDK 传输
+     参数化回归，仅依据明确 cause 放行，读取超时保持不可重试。
+  6. 开发中格式/长行检查失败已修正；最终命令全部通过。
+
+未运行/仍待阶段验证：
+  Windows/macOS、其他 Python 版本矩阵、1M 实际输入、65K 实际生成、其他模型/网关。
+  网络级注入 429/断流只做真实 SDK MockTransport 确定性故障，不声称真实服务端故障重试已实测。
+  B3 数据库备份迁移、可信结构化事实、三处副作用真实崩溃矩阵、上下文审查撤回与完整能力费用表。
+  B2 网络/秘密、硬磁盘配额、worktree+Docker Git、安全撤销缺口仍保留，不跨 B4。
+
+收尾资源独立核对：
+  docker context show => rootless
+  docker ps --filter label=codepilot.managed=true --format '{{.ID}} {{.Names}}' => 空
+  实际无受管活动容器；这项独立检查与 ProductRunResult.backend_closed 标志分开记录。

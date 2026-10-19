@@ -1,6 +1,6 @@
 # CodePilot 产品化路线与成熟度门槛
 
-版本日期：2026-10-15（Asia/Shanghai）；本轮是规划修订，不代表新增运行能力。
+版本日期：2026-10-19（UTC）；阶段门槛保持，实际通过范围以 STATUS 和 evidence 为准。
 
 ## 1. 目标、事实与规划权威
 
@@ -22,12 +22,12 @@
 | 权限 | allow/deny/ask、审批绑定 ToolCall、审计 | P3 可信配置、Action、网络/秘密；P7 扩展权限不能越过父级 |
 | Local / Docker | 真实 Rootless Docker、断网、资源约束、取消清理 | Local 是可信宿主执行；bind mount 无硬磁盘配额；P3 补输出及存储，P5 协调遗留资源 |
 | Context | 大结果引用、近似预算、完整回合压缩；B1 已捕获截断前原文并持久保留引用 | P4 完整请求预算、滚动检查点、来源核验 |
-| Provider | fake、OpenAI-compatible 产品配置；DeepSeek 真实工具/摘要证据；脱敏错误类别 | P6 错误分类、有限重试、能力表、第二协议；同一 Chat Completions 的不同站点不算第二协议 |
+| Provider | fake、Chat Completions / Responses；DeepSeek 双协议真实修复、脱敏错误与安全有限重试 | P6 完整能力与费用矩阵；同协议不同站点不算第二协议，当前通过范围不推广到其他站点 |
 | Trace / 恢复 | 脱敏 JSONL；B1 SQLite 事务事件/索引、资源归属、跨进程续问、未知副作用阻断 | B3 迁移、滚动检查点和复杂崩溃协调；不承诺自动重放未知操作 |
 | 评测 | 临时仓库、失败反馈、独立验证器 | P3 起固定任务回归；P8 完成可复现 checkout、真实仓库、重复试验和发布门槛 |
 | Skills / Hooks / MCP / 子 Agent | 尚未实现 | P7 分项接入、分别验收；多 Agent 不是单 Agent 可用性的前置条件 |
 
-真实 Provider 的当前边界：网关 qwen3.5-flash 有成功证据；该网关上的 qwen-turbo、qwen3-coder-plus 返回不完整/空流，结论只适用于“模型 + 网关流式接口”组合。官方 deepseek-chat 已成功调用 Shell Git。错误类别可诊断，但当前没有自动重试。Docker 默认断网，联网 fetch/push 未通过；显式 worktree + Docker 的 `.git` 指向容器外，容器内 Git 暂不可用。
+真实 Provider 的当前边界：网关 qwen3.5-flash 有成功证据；该网关上的 qwen-turbo、qwen3-coder-plus 返回不完整/空流，结论只适用于“模型 + 网关流式接口”组合。官方 deepseek-chat 已成功调用 Shell Git。当前已接入安全有界重试，仅明确 429 拒绝及可证明未发送的建连失败允许重试；未知接受状态不重放。官方 DeepSeek Flash 的 Chat Completions 与 Responses 均通过真实读写、Shell 测试、resume 和压缩验收。Docker 默认断网，联网 fetch/push 未通过；显式 worktree + Docker 的 `.git` 指向容器外，容器内 Git 暂不可用。
 
 ## 2. 阶段顺序、交付单位与完成判据
 
@@ -42,6 +42,8 @@ P1/P2 保留真实验收记录。后续按 **B1 → B2 → B3 → B4 → B5 五�
 | **B3 长任务、恢复与 Provider 可靠性** | 多次压缩仍保留证据，检查点可跨进程读取，崩溃后保守继续，所有请求受共享预算约束 | P4 全部、P5.2/P5.3 的快照/迁移/完整协调深化、P6 全部；在 B1 已有存储上演进，不重建第二套会话系统 |
 | **B4 扩展与后台协作** | Skills/Hooks/MCP 与后台任务、受限子 Agent 共用产品治理链 | P7 全部；内部先后台任务再子 Agent，最终一起验收，不按工具数量交付 |
 | **B5 真实任务评测与发布** | 干净安装后完成真实仓库任务，质量、成本、失败和支持范围可核对 | P8 全部门槛与最终发布；P8 的交互、固定任务回归和安装检查同时贯穿 B1—B4 |
+
+本轮 B3 联合通过范围（2026-10-19）：逐尝试持久预算、明确拒绝的有界重试、检查点来源匹配及跨进程滚动复用、主动 `/compact`、双协议真实 CSV 修复与独立测试。完整数据库备份/迁移、三处副作用崩溃矩阵、控制器可信事实和费用能力全矩阵仍是 B3 的必过项，未删除或改写为已完成；B4 尚未启动。详见 `docs/evidence/B3-live-repositories.json`。
 
 B1 基础持久化提前，完整崩溃恢复不等同于读回消息。重开已结束且环境核验通过的会话可以创建新 run；遇 running/unknown、未配对调用或副作用不明时进入 needs_reconciliation，不自动执行旧工具。B3 才深化完整崩溃协调流程。
 

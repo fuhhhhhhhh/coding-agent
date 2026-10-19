@@ -62,11 +62,13 @@ class Runner:
         context: ContextManager | None = None,
         on_observation: Callable[[RunObservation], None] | None = None,
         resume_history: bool = False,
+        compact_only: bool = False,
     ) -> None:
         """为一次运行创建隔离状态，并绑定可选的 prompt 上下文治理器。"""
         self._observer_failed = False
         self.on_observation = on_observation
         self.resume_history = resume_history
+        self.compact_only = compact_only
         self.provider = provider
         self.recorder = recorder if recorder is not None else EventRecorder()
         self.context = context
@@ -203,7 +205,7 @@ class Runner:
             # 预期限制与契约失败共用一个集中的终态转换入口。
             return self._finish(stop.reason, stop.detail)
         else:
-            return self._finish("completed")
+            return self._finish("completed", "context_compacted" if self.compact_only else "")
         finally:
             CURRENT_TURN.reset(turn_token)
             CURRENT_RECORDER.reset(recorder_token)
@@ -223,13 +225,16 @@ class Runner:
             try:
                 # ContextManager 只生成 Provider 视图，不修改报告持有的规范历史。
                 history = (
-                    (await self.context.prepare(self._messages)).messages
+                    (await self.context.prepare(self._messages, force=self.compact_only)).messages
                     if self.context is not None
                     else tuple(message.model_copy(deep=True) for message in self._messages)
                 )
             except ContextPreparationError as error:
                 # 预算或摘要失败发生在网络请求前，因此不计入 Provider 步数。
                 raise _Stop("context_limit", str(error)) from error
+            # 显式压缩只执行同一 Context 服务，不额外发送主请求或启动工具。
+            if self.compact_only:
+                return
             self._steps = next_step
             emit("model_requested")
             self._observe("model_requested")

@@ -11,9 +11,12 @@ import time
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Self
+from uuid import uuid4
 
 from codepilot.contracts import Message, ToolResult
 from codepilot.contracts.run import ObservationRejected, RunObservation, RunReport
+from codepilot.contracts.stream import Usage
+from codepilot.providers.budget import BudgetExceededError
 from codepilot.sessions.outputs import private_directory
 
 SCHEMA_VERSION = 1
@@ -181,6 +184,9 @@ class SessionStore:
         self.request_limit = 1000
         self.history_limit = 16 * 1024**2
         self.secrets: tuple[str, ...] = ()
+        self.provider_tracks_attempts = False
+        self.input_token_limit = 100_000_000
+        self.output_token_limit = 10_000_000
 
     def __enter__(self) -> Self:
         """独占会话写锁，活跃控制器存在时立即拒绝第二个恢复进程。"""
@@ -350,7 +356,7 @@ class SessionStore:
     def observe(self, observation: RunObservation) -> None:
         """同步保存模型回复、工具意图与结果；持久化失败阻止后续执行。"""
         # 在任何 Provider 请求前预扣共享次数，不能用换 run 绕过上限。
-        if observation.kind == "model_requested":
+        if observation.kind == "model_requested" and not self.provider_tracks_attempts:
             count = self.get("request_attempts", 0)
             if count >= self.request_limit:
                 raise ObservationRejected("session_limit", "request_budget_exhausted")
@@ -378,6 +384,69 @@ class SessionStore:
                 "failed" if observation.result.is_error else "succeeded"
             )
         self.commit(observation.kind, observation.model_dump(mode="json"), calls=calls)
+
+    def reserve_provider_attempt(
+        self, input_tokens: int, output_tokens: int, attempt_id: str | None = None
+    ) -> str:
+        """每次真实网络尝试前持久预扣，摘要、重试和恢复共享同一额度。"""
+        count = self.get("request_attempts", 0)
+        ledger = self.get(
+            "provider_budget",
+            {"input": 0, "output": 0, "pending": {}, "legacy_requests_without_usage": count},
+        )
+        pending = ledger["pending"]
+        if count >= self.request_limit:
+            raise BudgetExceededError("session request budget exhausted")
+        if (
+            ledger["input"] + sum(v[0] for v in pending.values()) + input_tokens
+            > self.input_token_limit
+        ):
+            raise BudgetExceededError("session input token budget exhausted")
+        if (
+            ledger["output"] + sum(v[1] for v in pending.values()) + output_tokens
+            > self.output_token_limit
+        ):
+            raise BudgetExceededError("session output token budget exhausted")
+        identity = attempt_id or uuid4().hex
+        if identity in pending:
+            raise ValueError("duplicate provider attempt")
+        pending[identity] = [input_tokens, output_tokens]
+        self.commit(
+            "provider_attempt_reserved",
+            {"attempt_id": identity},
+            request_attempts=count + 1,
+            provider_budget=ledger,
+        )
+        return identity
+
+    def settle_provider_attempt(self, identity: str, usage: Usage) -> None:
+        """结算指定尝试并保留缺失计量的占用；崩溃未结算项不会自动释放。"""
+        ledger = self.get("provider_budget")
+        if ledger is None or identity not in ledger["pending"]:
+            raise ValueError("unknown provider attempt")
+        reserved_input, reserved_output = ledger["pending"][identity]
+        ledger["input"] += usage.input_tokens or 0
+        ledger["output"] += usage.output_tokens or 0
+        if usage.input_tokens is not None and usage.output_tokens is not None:
+            del ledger["pending"][identity]
+        else:
+            ledger["pending"][identity] = [
+                reserved_input if usage.input_tokens is None else 0,
+                reserved_output if usage.output_tokens is None else 0,
+            ]
+        self.commit(
+            "provider_attempt_settled",
+            {"attempt_id": identity, "usage": usage.model_dump()},
+            provider_budget=ledger,
+        )
+        # 已发生用量必须先保存；服务端超报不能等下一次请求才被发现。
+        if ledger["input"] + sum(v[0] for v in ledger["pending"].values()) > self.input_token_limit:
+            raise BudgetExceededError("session input token budget exhausted")
+        if (
+            ledger["output"] + sum(v[1] for v in ledger["pending"].values())
+            > self.output_token_limit
+        ):
+            raise BudgetExceededError("session output token budget exhausted")
 
     def resource(self, kind: str, identity: dict[str, Any]) -> None:
         """副作用资源创建后立即记录身份，后续检查不得只依赖模型描述。"""
@@ -511,6 +580,8 @@ class SessionStore:
                     "status",
                     "run_id",
                     "request_attempts",
+                    "provider_budget",
+                    "workspace_changes",
                     "resources",
                     "calls",
                     "configuration",

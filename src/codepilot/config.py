@@ -12,6 +12,7 @@ from pydantic import Field, field_validator, model_validator
 from codepilot.context import ContextLimits
 from codepilot.contracts.models import Contract
 from codepilot.contracts.run import RunLimits
+from codepilot.providers.reliability import RetryPolicy
 from codepilot.workspace import BackendLimits
 
 _MAX_CONFIG_BYTES = 256 * 1024
@@ -28,6 +29,7 @@ class ProviderConfig(Contract):
     """保存 Provider 选择、模型、网络入口和有限请求参数。"""
 
     kind: Literal["fake", "openai-compatible"] = "fake"
+    protocol: Literal["chat-completions", "responses"] = "chat-completions"
     model: Annotated[str, Field(min_length=1)] = "fake-codepilot"
     base_url: str | None = None
     api_key_env: Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")] | None = "CODEPILOT_API_KEY"
@@ -35,6 +37,9 @@ class ProviderConfig(Contract):
     max_tokens: Annotated[int, Field(ge=1, le=65_536)] = 2_048
     max_requests: Annotated[int, Field(ge=1, le=100)] = 8
     timeout_seconds: Annotated[float, Field(gt=0, le=600)] = 60.0
+    retry: RetryPolicy = RetryPolicy()
+    total_input_tokens: Annotated[int, Field(ge=1)] | None = None
+    total_output_tokens: Annotated[int, Field(ge=1)] | None = None
 
     @field_validator("api_key_file", mode="before")
     @classmethod
@@ -101,6 +106,8 @@ class SessionConfig(Contract):
     history_bytes: Annotated[int, Field(ge=1024)] = 16 * 1024**2
     database_bytes: Annotated[int, Field(ge=1024**2)] = 64 * 1024**2
     max_requests: Annotated[int, Field(ge=1)] = 1000
+    max_input_tokens: Annotated[int, Field(ge=1)] = 100_000_000
+    max_output_tokens: Annotated[int, Field(ge=1)] = 10_000_000
     retention_days: Annotated[int, Field(ge=1, le=3650)] = 30
 
 
@@ -186,7 +193,9 @@ def _validate_project_security(layer: Mapping[str, Any], current: Mapping[str, A
     """阻止不可信工作区配置扩大 Provider、后端和权限边界。"""
     provider = layer.get("provider")
     if isinstance(provider, Mapping):
-        forbidden = {"kind", "base_url", "api_key_env", "api_key_file"}.intersection(provider)
+        forbidden = {"kind", "protocol", "base_url", "api_key_env", "api_key_file"}.intersection(
+            provider
+        )
         if forbidden:
             names = ", ".join(sorted(str(item) for item in forbidden))
             raise ValueError(f"工作区配置不能修改 Provider 安全字段：{names}")

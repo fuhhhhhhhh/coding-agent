@@ -2,11 +2,11 @@
 
 逐阶段实现 Python 终端 Coding Agent。当前已有 `codepilot` 交互入口与 `codepilot run` 单次入口，并完成非流式与流式 Agent 循环、六个基础工具、权限审批、
 Local 评测纠错、脱敏 Trace、Rootless Docker 沙箱和两层上下文治理，并已完成受限的
-DeepSeek 流式只读闭环与真实上下文压缩验证。
+DeepSeek 双协议真实读写、Shell 测试、跨进程续问与上下文压缩验证。
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
 B1 已完成持久会话、跨进程续问、原始输出与保守协调验收。当前仓库属于“产品主链、真实后端和任务级 Git 交付已验证”，尚未达到成熟终端产品。当前首要缺口是
-更完整的受控执行与工作区保护；上下文完整计量、复杂崩溃协调、Provider 可靠性与扩展系统也仍需完成。后续成熟度门槛与实施顺序见
+更完整的受控执行与工作区保护；当前已补齐共享尝试预算、安全有限重试与滚动检查点；完整迁移、复杂崩溃协调、可信事实与扩展系统仍需完成。后续成熟度门槛与实施顺序见
 [产品化路线](docs/PRODUCTIZATION_PLAN.md)。
 
 需要 Python 3.11+ 和 uv。在本目录执行：
@@ -63,6 +63,17 @@ uv build --wheel
 多条任务共享持久历史，各自拥有 task/run ID 和 Trace。消息与工具结果保存在私有 SQLite，
 Shell/Local/Docker 原始输出在预览截断前分块保存，退出后引用仍可读取；默认保留期为 30 天。
 默认 Trace 仍只保存脱敏元数据，完整对话和原文在独立的私有会话目录中。
+
+Provider 默认为 Chat Completions。支持 Responses 的 endpoint 可以显式运行
+`codepilot --protocol responses`（或配置 `provider.protocol: responses`）；当前真实验收仅覆盖
+官方 DeepSeek Flash 的两协议组合，不代表其他兼容站点可用。默认最多三次安全尝试，只有
+429 明确拒绝及可证明未发送的建连失败重试；流中断和未知服务端接受状态不重放。
+摘要、重试及主请求共用持久预算，`sessions show` 可查看 usage 与 pending，未知费用不当作零。
+
+交互输入 `/compact`，或在 Shell 执行 `codepilot compact SESSION_ID --workspace .`，
+可主动压缩已有完整回合；它只调用无工具摘要器，不发主请求、不执行文件或 Shell 工具。
+历史不足时仅检查；跨进程会优先复用来源匹配的检查点，损坏时明确停止。摘要仍可能遗漏信息，
+原始消息不会被摘要替换。
 
 ```bash
 codepilot sessions list

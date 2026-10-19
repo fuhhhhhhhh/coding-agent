@@ -49,6 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("session_id")
     resume.add_argument("task", nargs="?", help="可选续问；省略则进入交互")
     resume.add_argument("--jsonl", action="store_true")
+    compact = commands.add_parser("compact", help="核验并压缩已保存会话，不执行工作区工具")
+    _add_shared_arguments(compact, suppress_defaults=True)
+    compact.add_argument("session_id")
+    compact.add_argument("--jsonl", action="store_true")
     sessions = commands.add_parser("sessions", help="查看、协调或删除私有持久会话")
     _add_shared_arguments(sessions, suppress_defaults=True)
     actions = sessions.add_subparsers(dest="session_action", required=True)
@@ -79,6 +83,7 @@ def _add_shared_arguments(
         help="最高优先级 YAML 或 TOML 配置文件",
     )
     parser.add_argument("--provider", choices=("fake", "openai-compatible"), default=missing)
+    parser.add_argument("--protocol", choices=("chat-completions", "responses"), default=missing)
     parser.add_argument("--model", default=missing)
     parser.add_argument("--base-url", default=missing)
     parser.add_argument("--api-key-env", default=missing)
@@ -112,6 +117,7 @@ def _overrides(arguments: argparse.Namespace) -> dict[str, object]:
         key: value
         for key, value in {
             "kind": arguments.provider,
+            "protocol": getattr(arguments, "protocol", None),
             "model": arguments.model,
             "base_url": arguments.base_url,
             "api_key_env": arguments.api_key_env,
@@ -171,6 +177,7 @@ async def _run(arguments: argparse.Namespace, config: ProductConfig) -> int:
         session_id=identity.session_id,
         task_id=identity.task_id,
         run_id=identity.run_id,
+        compact_only=getattr(arguments, "compact_only", False),
     )
     renderer.finished(result)
     delivery_failed = result.delivery is not None and result.delivery.state == "failed_retained"
@@ -203,7 +210,8 @@ def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
         # 退出和帮助是交互外壳命令，不能作为不可信任务发送给模型。
         if task in {"/exit", "/quit"}:
             return 0
-        if _handle_slash_command(task, arguments, config, session_id):
+        compact_only = task == "/compact"
+        if not compact_only and _handle_slash_command(task, arguments, config, session_id):
             continue
         if _looks_like_cli_command(task):
             # 交互提示符内的 CLI 命令不能交给模型猜测，否则会触发无关工具探索或长流等待。
@@ -213,6 +221,7 @@ def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
             **{
                 **vars(arguments),
                 "task": task,
+                "compact_only": compact_only,
                 "session_id": session_id,
                 "task_id": None,
                 "run_id": None,
@@ -271,7 +280,7 @@ def _read_interactive_task(prompt: str) -> str:
             sys.stdout.write(char)
             if "".join(buffer) == "/" and not menu_shown:
                 # 只在用户明确开始斜杠命令时显示，普通自然语言输入不被打扰。
-                sys.stdout.write("\n  /help  /status  /model  /sessions  /exit\n❯ /")
+                sys.stdout.write("\n  /help  /status  /model  /sessions  /compact  /exit\n❯ /")
                 menu_shown = True
             sys.stdout.flush()
     finally:
@@ -287,7 +296,10 @@ def _handle_slash_command(
         return False
     command = task.split(maxsplit=1)[0]
     if command == "/help":
-        print("/help 帮助  /status 当前运行状态  /model 当前模型  /sessions 会话列表  /exit 退出")
+        print(
+            "/help 帮助  /status 当前运行状态  /model 当前模型  "
+            "/sessions 会话列表  /compact 压缩历史  /exit 退出"
+        )
         return True
     if command == "/status":
         print(
@@ -385,10 +397,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         # 有 run 子命令时执行一次并返回状态；无子命令才进入持续提示符。
         if arguments.command == "sessions":
             return _sessions(arguments, config)
-        if arguments.command == "resume":
+        if arguments.command in {"resume", "compact"}:
             # 不存在会话或身份变化必须在提示符和模型请求前明确失败。
             with SessionStore(_state_root(config), arguments.session_id, create=False) as session:
                 session.check(workspace, f"{config.backend.kind}:{config.git_workspace.enabled}")
+            if arguments.command == "compact":
+                arguments.task = "/compact"
+                arguments.compact_only = True
+                arguments.task_id = None
+                arguments.run_id = None
+                return asyncio.run(_run(arguments, config))
             if arguments.task is not None:
                 arguments.task_id = None
                 arguments.run_id = None

@@ -79,6 +79,8 @@ class EventRenderer:
             self._line(f"  {self._style(icon, color)} {event.call_id} · {event.outcome}")
         elif event.kind == "approval_requested":
             self._line(f"  {self._style('?', '33')} approval required · {event.call_id}")
+        elif event.kind == "provider_retry":
+            self._line(f"  ↻ {event.outcome} · {event.duration_seconds:g} 秒后重试；Ctrl-C 可取消")
         elif event.kind == "context_compacted":
             self._line(
                 f"  {self._style('↻', '35')} context compacted "
@@ -95,6 +97,9 @@ class EventRenderer:
             ),
             "",
         )
+        if result.report.detail == "context_compacted":
+            # 手动压缩不是新助手回答，不能重复显示历史最后一条回复冒充本次生成。
+            answer = ""
         if self.jsonl:
             self._json(
                 {
@@ -118,6 +123,8 @@ class EventRenderer:
             )
             return
         # 非流式 Provider 没有 text_delta，需要从 RunReport 补上正式回答。
+        if result.report.detail == "context_compacted":
+            self._line("[上下文] 已完成历史检查或压缩；未执行主模型请求和工作区工具。")
         if answer and not self._streamed_text:
             self._line(f"\n{answer}")
         elif self._streamed_text:
@@ -145,6 +152,14 @@ class EventRenderer:
             if error_type in {"APIConnectionError", "APITimeoutError"}:
                 # 连接和超时通常可以安全地由用户重新发起任务，但不能谎称一定未到达服务端。
                 self._line("[建议] 检查网关网络状态后重试；详细类型已写入 Trace。")
+            elif error_type in {"AuthenticationError", "PermissionDeniedError"}:
+                self._line("[建议] 检查当前 Provider 对应的用户凭据和权限；认证失败不会自动重试。")
+            elif error_type == "RateLimitError":
+                self._line("[建议] 限流重试已停止；稍后继续，检查额度或 Retry-After。")
+            elif error_type == "BudgetExceededError":
+                self._line(
+                    "[建议] 请求或 Token 预算已耗尽；查看 sessions show 的预算记录后调整配置。"
+                )
         if result.resources.trace_path is not None:
             self._line(f"[Trace] {result.resources.trace_path}")
         if result.delivery is not None:

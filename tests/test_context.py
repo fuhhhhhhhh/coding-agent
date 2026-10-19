@@ -279,7 +279,8 @@ def test_compaction_preserves_prefix_recent_pair_and_records_cost(tmp_path: Path
         assert isinstance(view, ContextView) and view.compacted
         assert view.messages[0:2] == history[0:2]
         assert view.messages[-2:] == rounds[-1]
-        assert view.messages[2].role == "system"
+        # 历史摘要来自模型和工具数据，不能提升为系统权限。
+        assert view.messages[2].role == "assistant"
         assert "用户目标与约束" in view.messages[2].content
         # 摘要器得到前三个完整 assistant+tool 组，没有拆开任何调用与结果。
         assert len(summarizer.requests[0]) == 6
@@ -460,5 +461,77 @@ def test_invalid_tool_pairing_is_observable_and_never_summarized(tmp_path: Path)
         assert not summarizer.requests
         assert manager.records[-1].kind == "compaction_failed"
         assert manager.records[-1].outcome == "history_pairing_invalid"
+
+    asyncio.run(scenario())
+
+
+def test_rolling_checkpoint_restores_and_only_summarizes_new_rounds(tmp_path: Path) -> None:
+    """百回合五次压缩跨实例恢复，摘要输入只包含旧摘要和新增完整工具对。"""
+    from codepilot.sessions.checkpoints import CheckpointStore
+
+    async def scenario() -> None:
+        """每二十回合重新构造 Context，模拟跨 run 或重启恢复。"""
+        summarizer = RecordingSummarizer()
+        checkpoint = CheckpointStore(tmp_path / "checkpoints")
+        prefix = (
+            Message(role="system", content="不能修改接口"),
+            Message(role="user", content="修复解析器"),
+        )
+        for total in (20, 40, 60, 80, 100):
+            manager = ContextManager(
+                ScriptedExecutor("small"),
+                ContextArtifactStore(tmp_path / "artifacts"),
+                limits=limits(
+                    max_prompt_tokens=50_000,
+                    compact_trigger_tokens=30_000,
+                    compact_target_tokens=20_000,
+                ),
+                summarizer=summarizer,
+                checkpoint_store=checkpoint,
+            )
+            history = (
+                *prefix,
+                *(message for index in range(total) for message in tool_round(index)),
+            )
+            view = await manager.compact(history)
+            assert view.messages[:2] == prefix
+            assert view.messages[-2:] == tool_round(total - 1)
+            assert len(summarizer.requests[-1]) == (38 if total == 20 else 41)
+            if total != 20:
+                assert summarizer.requests[-1][0].content.startswith("[历史压缩摘要]")
+            restored = await manager.prepare(history)
+            assert restored.messages == view.messages
+            assert len(summarizer.requests) == total // 20
+        loaded = checkpoint.load()
+        assert loaded is not None and loaded.covered_messages == 198
+        # 新用户修订放在规范历史末尾，不被旧摘要吞掉或提升权限。
+        updated = await manager.prepare(
+            (*history, Message(role="user", content="现在只读，不修改文件"))
+        )
+        assert updated.messages[-1].content == "现在只读，不修改文件"
+        assert updated.messages[2].role == "assistant"
+
+    asyncio.run(scenario())
+
+
+def test_corrupt_checkpoint_stops_without_overwriting(tmp_path: Path) -> None:
+    """检查点损坏时保留原件并在摘要或主请求前停止。"""
+    from codepilot.sessions.checkpoints import CheckpointStore
+
+    async def scenario() -> None:
+        """把 JSON 破坏后验证不静默重新压缩覆盖损坏证据。"""
+        checkpoint = CheckpointStore(tmp_path / "checkpoints")
+        path = checkpoint.directory / "latest.json"
+        path.write_text('{"truncated":', encoding="utf-8")
+        summarizer = RecordingSummarizer()
+        manager = ContextManager(
+            ScriptedExecutor("small"),
+            ContextArtifactStore(tmp_path / "artifacts"),
+            summarizer=summarizer,
+            checkpoint_store=checkpoint,
+        )
+        with pytest.raises(ContextPreparationError, match="checkpoint_invalid"):
+            await manager.prepare((Message(role="user", content="检查"),))
+        assert path.read_text() == '{"truncated":' and not summarizer.requests
 
     asyncio.run(scenario())
