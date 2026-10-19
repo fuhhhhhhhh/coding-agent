@@ -4,8 +4,8 @@ provider:
   model: deepseek-flash
   base_url: https://api.deepseek.com
   api_key_env: DEEPSEEK_API_KEY
-  max_tokens: 8192
-  max_requests: 8
+  max_tokens: 65536
+  max_requests: 64
   timeout_seconds: 180
 
 # Shell 和文件工具在用户级 Rootless Docker 中运行，避免直接执行在宿主机。
@@ -18,9 +18,9 @@ permission: controlled-edit
 scheduler_concurrency: 4
 
 runtime:
-  max_steps: 12
-  max_tool_calls: 24
-  timeout_seconds: 900
+  max_steps: 64
+  max_tool_calls: 256
+  timeout_seconds: 3600
   max_consecutive_failures: 3
 
 # 默认直接修改启动目录；需要并行隔离或补丁交付时再显式开启 worktree。

@@ -6,7 +6,20 @@ from pathlib import Path
 from codepilot.app.models import ProductRunResult, ResourceOwnership, RunIdentity
 from codepilot.contracts import RunState
 from codepilot.contracts.run import RunReport
+from codepilot.contracts.stream import RuntimeEvent
 from codepilot.ui.renderer import EventRenderer
+
+
+def test_model_wait_is_visible_only_in_human_output() -> None:
+    """等待模型时人类输出给出取消提示，JSONL 仍只有稳定事件。"""
+    event = RuntimeEvent(run_id="run-wait", turn_id="turn-1", sequence=1, kind="model_requested")
+    stream = io.StringIO()
+    EventRenderer(stream)(event)
+    assert "正在等待模型响应" in stream.getvalue()
+    assert "Ctrl-C" in stream.getvalue()
+    machine = io.StringIO()
+    EventRenderer(machine, jsonl=True)(event)
+    assert "正在等待" not in machine.getvalue()
 
 
 def test_output_limit_explains_that_partial_tool_was_not_executed(tmp_path: Path) -> None:

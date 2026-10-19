@@ -1,17 +1,20 @@
 """用 OpenAI SDK 适配采用 Chat Completions 协议的兼容网关。"""
 
+from __future__ import annotations
+
 import json
 from collections.abc import AsyncIterator, Mapping, Sequence
-from typing import Literal, cast
-
-from openai import AsyncOpenAI, omit
-from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
+from typing import TYPE_CHECKING, Literal, cast
 
 from codepilot.contracts import Message
 from codepilot.contracts.stream import StreamChunk, Usage
 from codepilot.providers.budget import BudgetLedger
 from codepilot.providers.stream import OutputLimitError, StreamContractError
 from codepilot.tools.base import ToolSpec
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+    from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
 
 class RequestBudget:
@@ -63,9 +66,12 @@ class OpenAICompatibleProvider:
 
     async def stream(self, messages: Sequence[Message]) -> AsyncIterator[StreamChunk]:
         """发起一次有限流式请求，并在完整结束前不产生可执行工具调用。"""
+        # SDK 只在实际请求时加载，打开提示符和离线工具不承担联网依赖的导入成本。
+        from openai import omit
+
         payload = _messages(messages)
         tools = cast(
-            list[ChatCompletionToolParam],
+            "list[ChatCompletionToolParam]",
             [
                 {
                     "type": "function",
@@ -166,7 +172,7 @@ def messages_to_openai(messages: Sequence[Message]) -> list[ChatCompletionMessag
                 for call in message.tool_calls
             ]
         payload.append(item)
-    return cast(list[ChatCompletionMessageParam], payload)
+    return cast("list[ChatCompletionMessageParam]", payload)
 
 
 # 保留模块内短别名，使协议转换在流式热路径中仍容易辨认。

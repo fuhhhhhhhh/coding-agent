@@ -62,7 +62,10 @@ class EventRenderer:
         if self.jsonl:
             self._json(EventRecorder.redacted(event))
             return
-        if event.kind == "text_delta":
+        if event.kind == "model_requested":
+            # 请求已发起但首个分片未到时给出明确反馈，避免把远端等待误认为终端挂起。
+            self._line("  · 正在等待模型响应…（Ctrl-C 可取消）")
+        elif event.kind == "text_delta":
             self.stream.write(event.text)
             self.stream.flush()
             self._streamed_text = True

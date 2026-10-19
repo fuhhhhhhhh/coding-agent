@@ -1,14 +1,14 @@
 """组装并运行正式产品链，统一拥有 Provider、后端和临时资源生命周期。"""
 
+from __future__ import annotations
+
 import asyncio
 import os
 import time
 import uuid
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Protocol
-
-from openai import AsyncOpenAI
+from typing import TYPE_CHECKING, Protocol
 
 from codepilot.app.models import ProductRunResult, ResourceOwnership, RunIdentity
 from codepilot.config import ProductConfig
@@ -47,6 +47,9 @@ from codepilot.tools import create_basic_registry
 from codepilot.tools.base import ToolSpec
 from codepilot.workspace import DockerExecutionBackend, ExecutionBackend, LocalExecutionBackend
 from codepilot.workspace.git import GitDelivery, GitTaskWorkspace
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
 
 
 class EventConsumer(Protocol):
@@ -373,6 +376,9 @@ def _create_provider(
     if api_key is None:
         # fake 已在前一分支返回；真实 Provider 到这里必须已经解析出凭据。
         raise ValueError("real provider API key was not resolved")
+    # 只有真实任务需要 SDK；启动提示符和 fake 运行不导入完整客户端。
+    from openai import AsyncOpenAI
+
     client = AsyncOpenAI(
         api_key=api_key,
         base_url=provider.base_url,

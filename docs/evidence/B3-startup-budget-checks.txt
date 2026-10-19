@@ -1,0 +1,20 @@
+2026-10-19（Asia/Shanghai）
+
+启动测量：已安装 /home/fuxiangyu/.local/bin/codepilot，testcodingagent 目录。
+修改前 importtime 累计 565085 us；修改后 232989 us，openai_loaded=False。
+三次启动输入 /exit 退出，墙钟 0.222 / 0.218 / 0.208 秒；均退出 0。
+
+定向测试：22 passed，含真实子进程启动无 SDK/无状态目录、JSONL 等待事件兼容、SDK MockTransport 流式回归。
+Ruff check、format check、mypy 通过。
+最终全量：236 passed、7 skipped（25.13 秒）；wheel 构建通过，git diff --check 通过。
+
+真实安装版 CLI：用户配置输出上限 65536，默认 DeepSeek Flash + Rootless Docker。
+仅用显式临时配置把验收请求/步骤设为 1、工具设为 0；未读取或打印凭据值。
+模型正文：有回复，不作为验收结论。
+工具结果：0 次调用。
+Runtime：completed，1 步，退出 0。
+独立判据：有效 product_result、正文非空、无错误类型、backend_closed=true。
+usage：1948 输入、76 输出 Token；总墙钟 4.026 秒。
+
+未运行：本次完整 Docker live 套件（未改容器实现）；Windows/macOS；完整 65K 生成和 1M 输入。
+本次没有复现用户那次长时间启动，不能把所有等待均归因于 SDK 导入。
