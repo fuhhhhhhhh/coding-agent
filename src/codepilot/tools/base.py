@@ -21,6 +21,9 @@ class ToolSpec(Contract):
     resources: tuple[str, ...]
     default_timeout: Annotated[float, Field(gt=0)]
     supports_cancel: bool
+    background: bool = False
+    control: bool = False
+    provenance: str = ""
 
 
 class ToolFailure(Exception):

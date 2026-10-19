@@ -21,6 +21,7 @@ from codepilot.credentials import load_workspace_dotenv
 from codepilot.sessions.context import context_command
 from codepilot.sessions.migrations import maintain_database
 from codepilot.sessions.store import SessionStore, safe_id
+from codepilot.tasks.controls import task_command
 from codepilot.ui.renderer import EventRenderer
 
 try:
@@ -55,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_shared_arguments(compact, suppress_defaults=True)
     compact.add_argument("session_id")
     compact.add_argument("--jsonl", action="store_true")
+    tasks = commands.add_parser("tasks", help="查看持久任务或向活跃控制器发送取消/终端输入")
+    _add_shared_arguments(tasks, suppress_defaults=True)
+    tasks.add_argument("action", choices=("list", "show", "cancel", "input"))
+    tasks.add_argument("session_id")
+    tasks.add_argument("task_id", nargs="?")
     context = commands.add_parser("context", help="查看上下文、摘要或撤回压缩，不调用模型")
     _add_shared_arguments(context, suppress_defaults=True)
     context.add_argument("session_id")
@@ -293,7 +299,7 @@ def _read_interactive_task(prompt: str) -> str:
             if "".join(buffer) == "/" and not menu_shown:
                 # 只在用户明确开始斜杠命令时显示，普通自然语言输入不被打扰。
                 sys.stdout.write(
-                    "\n  /help  /status  /model  /sessions  /context  /compact  /exit\n❯ /"
+                    "\n  /help  /status  /model  /sessions  /tasks  /context  /compact  /exit\n❯ /"
                 )
                 menu_shown = True
             sys.stdout.flush()
@@ -312,7 +318,7 @@ def _handle_slash_command(
     if command == "/help":
         print(
             "/help 帮助  /status 当前运行状态  /model 当前模型  "
-            "/sessions 会话列表  /context 上下文  /compact 压缩历史  /exit 退出"
+            "/sessions 会话列表  /tasks 后台任务  /context 上下文  /compact 压缩历史  /exit 退出"
         )
         return True
     if command == "/context":
@@ -338,6 +344,16 @@ def _handle_slash_command(
     if command == "/model":
         print(f"当前模型：{config.provider.model}（{config.provider.kind}）")
         return True
+    if command == "/tasks":
+        try:
+            print(
+                json.dumps(
+                    task_command(_state_root(config), session_id, "list"), ensure_ascii=False
+                )
+            )
+        except ValueError as error:
+            print(f"任务查询未完成：{error}", file=sys.stderr)
+        return True
     if command == "/sessions":
         _sessions(argparse.Namespace(**{**vars(arguments), "session_action": "list"}), config)
         return True
@@ -348,7 +364,9 @@ def _handle_slash_command(
 
 def _looks_like_cli_command(task: str) -> bool:
     """识别用户误输入到交互提示符中的 CodePilot 子命令。"""
-    return bool(re.match(r"^codepilot(?:\s+(?:run|resume|sessions|compact|context)\b|\s*$)", task))
+    return bool(
+        re.match(r"^codepilot(?:\s+(?:run|resume|sessions|compact|context|tasks)\b|\s*$)", task)
+    )
 
 
 def _sessions(arguments: argparse.Namespace, config: ProductConfig) -> int:
@@ -440,6 +458,30 @@ def main(argv: Sequence[str] | None = None) -> int:
             overrides=_overrides(arguments),
         )
         # 有 run 子命令时执行一次并返回状态；无子命令才进入持续提示符。
+        if arguments.command == "tasks":
+            data = ""
+            if arguments.action == "input":
+                # 用户输入不进入模型或 shell 参数；控制信箱 0600，消费后立即删除。
+                import getpass
+
+                data = (
+                    getpass.getpass("终端输入（不回显）：") + "\n"
+                    if sys.stdin.isatty()
+                    else sys.stdin.read(4097)
+                )
+            print(
+                json.dumps(
+                    task_command(
+                        _state_root(config),
+                        arguments.session_id,
+                        arguments.action,
+                        arguments.task_id,
+                        data,
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+            return 0
         if arguments.command == "context":
             print(
                 json.dumps(

@@ -14,6 +14,11 @@ class ExecutionBackend(Protocol):
     """统一任务工作区中的工具、命令、取消、产物和生命周期。"""
 
     @property
+    def root(self) -> Path:
+        """返回控制器固定的实际工作区，供 Action 与扩展共同核对身份。"""
+        ...
+
+    @property
     def backend_id(self) -> str:
         """返回控制器生成的后端实例 ID，用于关联资源归属和审计。"""
         ...

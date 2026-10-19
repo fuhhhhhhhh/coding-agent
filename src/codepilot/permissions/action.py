@@ -33,6 +33,7 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
         backend_kind,
         backend_id,
         spec.resources,
+        spec.provenance,
     )
     return Action(
         tool_name=spec.name,
@@ -63,6 +64,8 @@ def _argument_summary(arguments: dict[str, Any]) -> str:
             rendered = "<redacted>"
         elif key == "command":
             rendered = "<shell command; see digest>"
+        elif key in {"data", "arguments"}:
+            rendered = "<private input; see digest>"
         else:
             rendered = str(value)
         parts.append(f"{key}={rendered[:120]}")

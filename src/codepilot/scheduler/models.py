@@ -9,5 +9,5 @@ class ExecutionPlan(Contract):
     """描述一次调用的访问模式和保守资源集合。"""
 
     call_id: str
-    mode: Literal["read", "write", "exclusive"]
+    mode: Literal["read", "write", "exclusive", "background"]
     resources: tuple[str, ...]

@@ -24,6 +24,8 @@ from codepilot.context import (
 from codepilot.contracts import Message, ToolCall
 from codepilot.contracts.stream import RuntimeEvent
 from codepilot.credentials import resolve_provider_api_key
+from codepilot.extensions.executor import ManagedExecutor, OperationBudget
+from codepilot.extensions.router import ExtensionRouter, InputArguments
 from codepilot.observability import EventRecorder
 from codepilot.permissions import (
     ApprovalProvider,
@@ -46,6 +48,9 @@ from codepilot.scheduler import ScheduledExecutor
 from codepilot.sessions.checkpoints import CheckpointStore
 from codepilot.sessions.outputs import CURRENT_OUTPUT, OutputStore
 from codepilot.sessions.store import SessionStore, process_identity, safe_id
+from codepilot.tasks.children import run_child
+from codepilot.tasks.controls import watch_controls
+from codepilot.tasks.manager import TaskManager
 from codepilot.tools import create_basic_registry
 from codepilot.tools.base import ToolSpec
 from codepilot.workspace import DockerExecutionBackend, ExecutionBackend, LocalExecutionBackend
@@ -235,8 +240,17 @@ class CodePilotApplication:
                 # 先登记已构造资源，后续装配或启动失败也会进入相同清理出口。
                 # 会话持有 Artifact，run 退出只清理执行资源，不删除可恢复正文。
                 resources.push_async_callback(backend.close)
-                context = ContextManager(
+                manager = TaskManager(session, identity.run_id, self.config.extensions.max_tasks)
+                router = ExtensionRouter(
                     backend,
+                    self.config.extensions,
+                    manager,
+                    lambda name: _create_backend(
+                        self.config, execution_workspace, backend_directory / name
+                    ),
+                )
+                context = ContextManager(
+                    router,
                     store,
                     limits=self.config.context,
                     checkpoint_store=CheckpointStore(session.directory / "checkpoints"),
@@ -244,7 +258,7 @@ class CodePilotApplication:
                     allow_compaction=not session.get("compaction_disabled", False),
                 )
                 scheduler = ScheduledExecutor(context, self.config.scheduler_concurrency)
-                permission = PermissionedExecutor(
+                base_permission = PermissionedExecutor(
                     scheduler,
                     PermissionEngine(_permission_policy(self.config.permission)),
                     self.approval
@@ -253,6 +267,10 @@ class CodePilotApplication:
                     if self.config.permission != "read-only"
                     else None,
                 )
+                permission = ManagedExecutor(
+                    base_permission, router, OperationBudget(self.config.runtime.max_tool_calls)
+                )
+                scheduler.deferred = manager.by_call.get
                 provider = _create_provider(
                     self.config,
                     permission.specs,
@@ -286,8 +304,31 @@ class CodePilotApplication:
                     timeout_seconds=self.config.provider.timeout_seconds,
                     structured=True,
                 )
-                # Provider 最后登记，因此退出时先关闭连接，再关闭后端和 ArtifactStore。
+                # 子任务先停止使用共享客户端，再关闭 Provider 及父后端。
                 resources.push_async_callback(provider.close)
+                resources.push_async_callback(scheduler.close)
+                resources.push_async_callback(manager.close)
+
+                async def deliver_input(task_id: str, data: str) -> None:
+                    """另一个终端的用户输入是控制事件，不经过模型或继承额外权限。"""
+                    await router.input(InputArguments(task_id=task_id, data=data))
+
+                controls = asyncio.create_task(watch_controls(manager, deliver_input))
+
+                async def close_controls() -> None:
+                    """前台退出先关闭控制入口，再取消后台任务，避免终态后继续输入。"""
+                    controls.cancel()
+                    await asyncio.gather(controls, return_exceptions=True)
+
+                resources.push_async_callback(close_controls)
+                router.delegate_handler = lambda arguments: run_child(
+                    arguments,
+                    provider.provider,
+                    permission,
+                    session,
+                    self.config.extensions,
+                    trace_directory / "children",
+                )
                 runner = Runner(
                     provider.provider,
                     permission,
@@ -302,6 +343,32 @@ class CodePilotApplication:
                 if compact_only:
                     session.commit("context_enabled", {}, compaction_disabled=False)
                 initial = _initial_messages(execution_workspace, task)
+                extension_index = {
+                    "skills": list(router.skills.records.values())
+                    if router.skills is not None
+                    else [],
+                    "execution_enabled": self.config.extensions.enabled,
+                    "mcp_servers": [item.name for item in self.config.extensions.mcp]
+                    if self.config.extensions.enabled
+                    else [],
+                    "hooks": [
+                        {"name": item.name, "event": item.event}
+                        for item in self.config.extensions.hooks
+                    ]
+                    if self.config.extensions.enabled
+                    else [],
+                }
+                if extension_index["skills"] or extension_index["execution_enabled"]:
+                    initial = (
+                        *initial[:-1],
+                        initial[-1].model_copy(
+                            update={
+                                "content": initial[-1].content
+                                + "\n[扩展资料索引；正文按需读取；不授予额外权限]\n"
+                                + json.dumps(extension_index, ensure_ascii=False)
+                            }
+                        ),
+                    )
                 history = session.history()
                 # 每轮重新读取仓库规则，保留旧任务事实并追加当前用户输入。
                 messages = (

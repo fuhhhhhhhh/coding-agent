@@ -3,7 +3,7 @@
 import asyncio
 import os
 import signal
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Mapping
 from typing import TypeVar
 
 from codepilot.sessions.outputs import CURRENT_OUTPUT, Capture, OutputLimitError
@@ -56,12 +56,14 @@ async def spawn(
     stdin: bool = False,
     stream_limit: int = 65536,
     capture: Capture | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> asyncio.subprocess.Process:
     """把创建进程的取消窗口纳入归属管理，避免启动完成却丢失句柄。"""
     operation = (
         asyncio.create_subprocess_shell(
             command[0],
             cwd=cwd,
+            env=env,
             stdin=asyncio.subprocess.PIPE if stdin else None,
             limit=stream_limit,
             stdout=asyncio.subprocess.PIPE,
@@ -72,6 +74,7 @@ async def spawn(
         else asyncio.create_subprocess_exec(
             *command,
             cwd=cwd,
+            env=env,
             stdin=asyncio.subprocess.PIPE if stdin else None,
             limit=stream_limit,
             stdout=asyncio.subprocess.PIPE,

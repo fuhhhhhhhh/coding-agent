@@ -12,6 +12,7 @@ from pydantic import Field, field_validator, model_validator
 from codepilot.context import ContextLimits
 from codepilot.contracts.models import Contract
 from codepilot.contracts.run import RunLimits
+from codepilot.extensions.models import ExtensionConfig
 from codepilot.providers.reliability import RetryPolicy
 from codepilot.workspace import BackendLimits
 
@@ -114,6 +115,7 @@ class SessionConfig(Contract):
 class ProductConfig(Contract):
     """描述统一产品入口装配一次 Agent 运行所需的全部非秘密参数。"""
 
+    extensions: ExtensionConfig = ExtensionConfig()
     sessions: SessionConfig = SessionConfig()
     provider: ProviderConfig = ProviderConfig()
     backend: BackendConfig = BackendConfig()
@@ -191,6 +193,10 @@ def load_product_config(
 
 def _validate_project_security(layer: Mapping[str, Any], current: Mapping[str, Any]) -> None:
     """阻止不可信工作区配置扩大 Provider、后端和权限边界。"""
+    extensions = layer.get("extensions")
+    if extensions is not None and extensions != {"enabled": False}:
+        # 工作区只能关闭执行扩展，不能借配置自动启动进程或扩大任务额度。
+        raise ValueError("工作区配置只能禁用 extensions，执行配置必须来自用户")
     provider = layer.get("provider")
     if isinstance(provider, Mapping):
         forbidden = {"kind", "protocol", "base_url", "api_key_env", "api_key_file"}.intersection(

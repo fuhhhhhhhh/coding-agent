@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Protocol
@@ -48,6 +49,8 @@ class ScheduledExecutor:
         self._waiting: list[_Waiter] = []
         self._active: list[ExecutionPlan] = []
         self._next_ticket = 1
+        self.deferred: Callable[[str], asyncio.Task[None] | None] | None = None
+        self._releases: set[asyncio.Task[None]] = set()
 
     @property
     def specs(self) -> tuple[ToolSpec, ...]:
@@ -76,11 +79,31 @@ class ScheduledExecutor:
             return await self.registry.execute(call)
         finally:
             # 正常、错误、超时和运行中取消都通过同一出口唤醒候选调用。
-            await self._release(plan)
+            pending = self.deferred(call.call_id) if self.deferred is not None else None
+            # 只保留后台进程租约；子 Runner 的每次读取自行调度，外层读租约会形成嵌套死锁。
+            if plan.mode == "background" and pending is not None and not pending.done():
+                release = asyncio.create_task(self._release_when_done(plan, pending))
+                self._releases.add(release)
+                release.add_done_callback(self._releases.discard)
+            else:
+                await self._release(plan)
+
+    async def _release_when_done(self, plan: ExecutionPlan, pending: asyncio.Task[None]) -> None:
+        """后台实际结束后释放租约，工具返回任务 ID 不代表写资源已经空闲。"""
+        await asyncio.gather(pending, return_exceptions=True)
+        await self._release(plan)
+
+    async def close(self) -> None:
+        """后台任务先由所有者清理，此处等待全部资源租约回收。"""
+        await asyncio.gather(*self._releases, return_exceptions=True)
 
     def plan(self, call: ToolCall) -> ExecutionPlan:
         """根据工具声明和实际路径参数生成保守的动态资源计划。"""
         spec = next((item for item in self.specs if item.name == call.name), None)
+        if spec is not None and spec.control:
+            return ExecutionPlan(call_id=call.call_id, mode="read", resources=("task-control",))
+        if spec is not None and spec.background:
+            return ExecutionPlan(call_id=call.call_id, mode="background", resources=("workspace",))
         if spec is None or spec.effect == "process":
             return ExecutionPlan(call_id=call.call_id, mode="exclusive", resources=("workspace",))
         path = _safe_path(call.arguments.get("path"))
@@ -126,6 +149,9 @@ class ScheduledExecutor:
 
     def _can_start(self, waiter: _Waiter) -> bool:
         """检查全局容量、活动冲突和同资源先到等待项。"""
+        # 控制操作不占工作区资源，必须越过等待写入与容量限制才能取消占用者。
+        if waiter.plan.resources == ("task-control",):
+            return True
         if len(self._active) >= self.max_concurrency:
             return False
         if any(_conflicts(waiter.plan, active) for active in self._active):
@@ -174,6 +200,11 @@ def _declared_resources(spec: ToolSpec) -> tuple[str, ...]:
 
 def _conflicts(left: ExecutionPlan, right: ExecutionPlan) -> bool:
     """判断两个计划能否同时活动；纯读取之间允许共享。"""
+    if "task-control" in left.resources or "task-control" in right.resources:
+        return False
+    if "background" in {left.mode, right.mode}:
+        # 已审批后台进程允许前台读取，读取不承诺稳定快照；所有其他写/进程等待。
+        return "read" not in {left.mode, right.mode}
     if "exclusive" in {left.mode, right.mode}:
         return True
     if left.mode == right.mode == "read":

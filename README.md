@@ -6,7 +6,7 @@ DeepSeek 双协议真实读写、Shell 测试、跨进程续问与上下文压�
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
 B1 已完成持久会话、跨进程续问、原始输出与保守协调验收。当前仓库属于“产品主链、真实后端和任务级 Git 交付已验证”，尚未达到成熟终端产品。当前首要缺口是
-更完整的受控执行与工作区保护；B3 已补齐共享预算、安全重试、滚动检查点、备份迁移、版本化控制器事实及保守恢复；B2 剩余执行边界、B4 扩展和 B5 发布门槛仍待完成。后续成熟度门槛与实施顺序见
+更完整的受控执行与工作区保护；B3 已补齐共享预算、安全重试、滚动检查点、备份迁移、版本化控制器事实及保守恢复；B4 已接入受控扩展、后台任务和只读子代理并通过受限验收；B2 剩余执行边界和 B5 发布门槛仍待完成。后续成熟度门槛与实施顺序见
 [产品化路线](docs/PRODUCTIZATION_PLAN.md)。
 
 需要 Python 3.11+ 和 uv。在本目录执行：
@@ -182,3 +182,22 @@ Windows/macOS、Python 3.13 尚未验证；本轮真实模型覆盖官方 DeepSe
 本轮实际两次请求、一次只读工具，最小闭环通过；这不是完整编程任务评测。
 
 阅读：[机制与边界](docs/design/M07.md)、[阅读说明](docs/learning/M07.md)。
+
+B4 扩展与后台协作使用同一产品入口，配置示例见 [extensions.yaml](examples/extensions.yaml)。
+执行扩展默认关闭；需在可信用户配置或显式 `--config` 中设置 `extensions.enabled: true`。
+启用后模型可使用后台命令、只读 explore/review、受控 Hook 和已配置的本地 stdio MCP。
+技能放在 `.codepilot/skills/名称/SKILL.md`，YAML 头含 name/description；先发现元数据，再按需加载正文。
+技能与仓库规则不能授予执行权限。Hook/MCP 程序须在所选后端中可用，Docker 不回退宿主执行。
+
+交互 `/tasks` 查看任务。运行中在另一个终端使用相同工作区和状态配置：
+
+```bash
+codepilot tasks list SESSION
+codepilot tasks show SESSION JOB
+codepilot tasks cancel SESSION JOB
+codepilot tasks input SESSION JOB  # TTY 输入不回显并附换行；stdin 保留原字节
+```
+
+这些管理命令不请求模型。后台任务只归当前 run 所有，前台退出会取消并等待清理；重启不自动复活。
+MCP 为逐调用独立进程，只读子代理共用父预算且不能写入、执行 Shell 或继续委派。
+完整契约、验证范围和推荐阅读顺序见 [B4 设计](docs/design/B4.md) 与 [B4 阅读说明](docs/learning/B4.md)。

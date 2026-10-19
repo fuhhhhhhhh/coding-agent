@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "An incremental, provider-neutral terminal coding agent"
 requires-python = ">=3.11"
 dependencies = [
+    "jsonschema>=4.23,<5",
+    "mcp>=1.26,<2",
     "openai>=2,<3",
     "pydantic>=2.12,<3",
     "pyyaml>=6.0.3,<7",
@@ -22,6 +24,7 @@ dev = [
     "ruff>=0.14,<1",
     "mypy>=1.18,<2",
     "types-pyyaml>=6.0.12,<7",
+    "types-jsonschema>=4.23",
 ]
 
 [tool.pytest.ini_options]

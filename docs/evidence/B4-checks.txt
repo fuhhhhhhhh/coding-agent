@@ -1,0 +1,79 @@
+2026-10-19 UTC — B4 扩展与后台协作，明确支持范围内受限验收
+
+统一入口和参考：
+  CodePilotApplication + 原 Runner；未增加第二套 Agent 循环。
+  MCP 官方 Python SDK 1.30.0（uv.lock），jsonschema 4.26.0。
+  官方源码/说明 https://github.com/modelcontextprotocol/python-sdk 于本轮核对。
+  可执行扩展默认关闭，不改变用户 Provider/凭据/默认后端配置。
+
+最终离线：
+  uv run --locked ruff check src tests => All checks passed!
+  uv run --locked ruff format --check src tests => 136 files already formatted
+  uv run --locked mypy => Success: no issues found in 137 source files
+  uv run --locked pytest -q --basetemp=/dev/shm/codepilot-b4-acceptance
+    305 passed, 8 skipped in 13.30s
+    8 skipped 是显式 live Docker 开关，随后独立运行。
+  uv build --wheel => Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+
+真实 Rootless Docker：
+  CODEPILOT_DOCKER_LIVE=1 uv run --locked pytest -q tests/test_b4_docker_live.py tests/test_workspace_docker_live.py --basetemp=/dev/shm/codepilot-b4-docker-acceptance
+    8 passed in 72.28s
+  新联合测试：后台独立容器取消，主后端仍可读；官方 SDK 实际 stdio MCP；
+    Docker PTY READY/input/退出，私有原始输出确实存在且不含合成秘密输入。
+  用户级 rootless context；未修改、重启公共 Docker，镜像仍 codepilot-sandbox:0.1.0。
+  独立 docker context show => rootless
+  独立 docker ps --filter label=codepilot.managed=true => 空，无受管活动容器。
+
+干净安装与现有命令：
+  锁文件导出精确依赖约束，Python 3.11.16 新建 /dev/shm/codepilot-b4-wheel-env。
+  安装本轮 wheel 后，在 /tmp 执行 Python -m pytest /绝对路径/tests/test_b4.py：
+    24 passed in 4.55s；导入路径为新环境 site-packages/codepilot，非源码 editable。
+  包含真实 Local/PTTY/MCP、完整产品装配、Hook 拒绝与超时、后台崩溃/控制信箱等。
+  用户 codepilot 命令按精确锁版本重新安装 editable，Python 3.11；tasks --help 成功。
+  已安装 codepilot tasks list 查询真实成功会话成功，两个任务 succeeded，不消耗模型。
+
+真实官方 DeepSeek Flash + Rootless Docker（完整四层数据见 B4-live*.json）：
+  总调用硬上限先 24，失败诊断后按用户高预算授权提高为本轮 48；实际 9 + 15 + 17 = 41。
+  1) 首轮 9：父 Hook 等外层子读租约，子读取又排在 Hook 后面，形成循环等待。
+     明确停止本次拥有控制器；状态 needs_reconciliation，不重放写入。失败证据保留。
+  2) 第二轮 15：修复死锁后，子报告硬编码 2048 输出导致 output_limit；再次委派/等待消耗
+     剩余额度。公开和隐藏修复测试通过，整体 provider_error，仍判联合失败。
+  3) 第三轮 17：子输出可配置 8192，仍取父输出上限的最小值，父子共用 SQLite 预算。
+     model_claim：模型报告修复、后台测试与 MCP；单独保存，不能代替判据。
+     tool_result：load_skill/delegate/read/write/task_start/status/mcp_list/call 实际执行；
+       9 个 Hook 结果有记录；MCP echo 返回 verified，后台 unittest 退出 0。
+       两个任务 succeeded；子报告 source_calls 对应真实只读结果，判定仍为 not_run。
+       额外一次 Git 查询退出 129，模型回退 read_file 核验；未删掉此工具错误。
+     runtime_outcome：completed；父 15 steps / 17 tools；父子共 17 requests。
+     independent_verdict：控制器公开 unittest 退出 0；隐藏希腊 Sigma/连字测试退出 0；
+       除 keys.py 外测试、笔记、catalog.py、oracle.py、Skill 均逐字不变；
+       后端关闭、session ready、resources=[]、pending={}、所需功能全部实际到达。
+     成功链 usage：93,127 输入 / 2,364 输出 Token；不是账户计费硬上限。
+  三次均在合成临时目录，不修改用户 testcodingagent 或真实项目；有限脚本审批仅用于此 fixture。
+  真实测试使用当前 CodePilotApplication，不用另写脚本循环代替 Runtime。
+
+重要确定性故障：
+  - Skill 链接/哈希漂移/巨型正文、目录规则顺序/来源/限额、项目不能启用执行扩展。
+  - Hook block/非法参数改写、真实进程超时与 block/continue、审批中替换脚本。
+  - MCP 非法参数、目录漂移、同名、远端 Schema 引用、断开/巨型消息；远端副作用未到达。
+  - 后台写租约、前台读取、等待写入时取消、外部控制信箱、父退出多个任务清理。
+  - 控制器真实 os._exit 后拒绝续跑、资源核验/协调后 unknown、不重复追加。
+  - 子权限上限、共享请求账本、父 Hook 与子后续读取嵌套死锁回归。
+  - 原文级 PTY 回显检查；完成日志不能被退出码/输出引用覆盖。
+
+开发中修正且保留记录：
+  - 最初测试因服务器存储负载在 SQLite fsync 长等待；只停止自己的精确 PID，测试临时目录改用 tmpfs。
+  - 控制监听器清理吞取消会阻塞退出；settle 清理后继续传播调用方新取消。
+  - 后台取消与公平写队列死锁；可信控制通道绕过资源等待。
+  - 真实模型暴露子外层读租约循环等待；外层 delegate 释放，子工具自行租约。
+  - 子输出预算过低导致报告截断；改可信配置，同时仍受父共享预算约束。
+  - PTY 最终摘要覆盖日志使旧“不回显”断言过弱；保留日志、检查实际 .bin 原文；
+    Docker 第二层 PTY 也关闭回显。首次增强断言误用 OutputStore.root，修正 directory 后通过。
+  - 一次中文注释检查发现 type-ignore 英文注释，改准确 Literal 类型后全量通过。
+
+未运行/需要其他真实环境验证：
+  B4 新子任务的 Responses 真实模型联合测试（B3 双协议证据保留）；其他模型/网关；
+  Windows/macOS、物理掉电、巨大真实仓库/压力与长时间运行、全功能终端作业控制。
+  未实现远程/OAuth/有状态 MCP、写 Agent/团队、永久后台托管、任意运行中目标修改、异步通知服务。
+  B2 遗留网络/秘密、硬磁盘配额、worktree+Docker Git、安全撤销边界不因此通过。
+  未做 B5 外部真实仓库固定 checkout/repeated trial/正式发布，不把本轮受限验收称成熟产品。

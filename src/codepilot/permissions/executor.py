@@ -84,7 +84,11 @@ class PermissionedExecutor:
         else:
             self._audit(request, decision, "allowed", reason)
         # 审批返回后重新核对 Action；后续接入会话信任时也必须沿用同一复核点。
-        if build_action(spec, call, backend).fingerprint != request.action.fingerprint:
+        current_spec = self._spec_for(call.name)
+        if (
+            current_spec is None
+            or build_action(current_spec, call, backend).fingerprint != request.action.fingerprint
+        ):
             self._audit(request, "deny", "denied", "action_changed_after_approval")
             return self._error(call, "permission_denied: action changed after approval")
         return await self.registry.execute(call)

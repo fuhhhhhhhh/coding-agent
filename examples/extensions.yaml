@@ -1,0 +1,24 @@
+# 仅作为可信用户配置或显式 --config 使用；项目配置不能启用执行扩展。
+# 使用方法：codepilot --config /绝对路径/extensions.yaml
+# 这里只覆盖扩展设置，Provider/凭据/后端仍读取现有用户配置。
+extensions:
+  enabled: true
+  skills: true
+  max_tasks: 2
+  task_timeout_seconds: 120.0
+  child_requests: 4
+  child_tool_calls: 8
+  child_output_tokens: 8192
+  # Hook 命令在所选工作区后端运行；必须已经安装所需程序。
+  # argv 最后自动附加事件 JSON；只接受 decision/message 两个返回字段。
+  # hooks:
+  #   - name: guard
+  #     event: before_tool
+  #     argv: [python3, .codepilot/hooks/guard.py]
+  #     timeout_seconds: 5.0
+  #     failure: block
+  # MCP 每次 list/call 独立启动，只支持不依赖跨调用内存状态的 stdio 服务。
+  # mcp:
+  #   - name: local
+  #     argv: [python3, -u, .codepilot/mcp/server.py]
+  #     timeout_seconds: 15.0

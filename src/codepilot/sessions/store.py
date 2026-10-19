@@ -597,10 +597,15 @@ class SessionStore:
         self._messages = messages
         calls = self.get("calls", {})
         calls.update(dict.fromkeys(pending, "unknown"))
+        tasks = self.get("tasks", {})
+        for record in tasks.values():
+            if record.get("state") in {"queued", "running"}:
+                record["state"] = "unknown"
         self.commit(
             "user_reconciled",
             {},
             calls=calls,
+            tasks=tasks,
             status="ready",
             resources=[],
             stamp=workspace_stamp(workspace),
@@ -630,6 +635,7 @@ class SessionStore:
                 key: snapshot.get(key)
                 for key in (
                     "status",
+                    "tasks",
                     "run_id",
                     "request_attempts",
                     "provider_budget",

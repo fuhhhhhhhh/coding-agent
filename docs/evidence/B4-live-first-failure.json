@@ -1,0 +1,27 @@
+{
+  "root": "/dev/shm/codepilot-b4-live-buwtxwo6",
+  "request_attempts": 9,
+  "status": "needs_reconciliation",
+  "tasks": {
+    "job-b790d8adb91341f487d05f703a37c440": {
+      "task_id": "job-b790d8adb91341f487d05f703a37c440",
+      "parent_run": "run-037332370c014dcea03e8cbc35461478",
+      "parent_call": "call_00_d2EogvTEKAHs6wLuHP9N8459",
+      "kind": "explore",
+      "state": "failed",
+      "created_at": 1792383392.7828915,
+      "output": "",
+      "error_type": "ToolFailure"
+    }
+  },
+  "budget": {
+    "input": 34488,
+    "output": 892,
+    "pending": {},
+    "legacy_requests_without_usage": 0,
+    "attempt_prices": {},
+    "known_cost_usd": "0.0114168",
+    "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+  },
+  "independent_verdict": "failed: nested child read lease and parent hook formed cyclic wait; interrupted owned controller; regression fixed"
+}
