@@ -264,3 +264,19 @@ codepilot --backend docker --docker-image codepilot-sandbox:0.1.0 --bounded-work
 生产 `read_file` 默认分页，返回 SHA-256、总行数和 next_cursor；续页必须携带原版本。修改已有文件先用 read_file 读取或提供明确 expected_sha256，过期版本拒绝写入。`edit_file.additional_edits` 最多追加 15 个文件，整批预检查后逐文件执行，失败明确列出 applied/failed/unattempted，不承诺跨文件原子事务。检索遵守忽略规则，隐藏/忽略文件显式选择，报告扫描范围和截断。
 
 限容 tmpfs 会随容器停止消失；控制器在修改后保存检查点、最终退出前导出，导出失败保留容器。OOM/主机故障仍可能损失检查点后的内容，不承诺掉电耐久性。控制器私有产物的会话逻辑额度和保留期另行配置，不等于宿主物理磁盘硬配额。详见 [B2 设计](docs/design/B2.md) 和 [阅读顺序](docs/learning/B2.md)。
+
+### 崩溃后的限容任务恢复
+
+B3 已有长任务、预算和会话恢复基础；限容副本现也支持跨控制器恢复：
+
+```bash
+codepilot sessions diagnose SESSION
+codepilot recover SESSION RUN
+codepilot recover SESSION RUN --apply
+codepilot sessions reconcile SESSION --accept-workspace
+codepilot delivery SESSION RUN
+```
+
+请沿原 `--workspace`、`--state-directory` 定位会话，恢复结果会给出包含路径的后续命令。默认预览不暂停容器；`--apply` 只保存产物并清理核验归属的容器，不重跑旧 Shell、不自动交付。确认源版本与产物后才用原 `delivery --apply`。恢复后新任务仍通过 `resume`，执行模式需与原会话一致。
+
+活盘丢失时只能恢复已提交检查点，结果明确标记可能丢失更新。创建结果未知、绑定/归档损坏、仍有活跃控制器或未知源交付均拒绝绕过；未交付产物不随会话到期静默删除。旧版本没有容器绑定的任务不自动猜测恢复。设计与阅读入口见 B3 文档。

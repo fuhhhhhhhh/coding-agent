@@ -553,6 +553,13 @@ class SessionStore:
         """用户确认实际工作区后结束未知调用，保持旧事实且禁止重放。"""
         if self.get("workspace", [None])[0] != str(workspace):
             raise ValueError("workspace mismatch")
+        # 限容活盘和未知源交付不能靠接受工作区绕过，先保存产物再协调旧调用。
+        if any(
+            item["state"] in {"active", "preparing", "applying", "undoing", "unreadable"}
+            or item.get("container_phase") not in {None, "closed"}
+            for item in self.bounded_workspaces()
+        ):
+            raise ValueError("bounded workspace requires recover or transfer reconciliation first")
         # 活跃资源先独立检查，不能仅凭用户确认误杀或忽略仍运行的进程。
         for resource in self.get("resources", []):
             # 外来所有者的资源不能由当前会话确认或清理。
@@ -671,6 +678,12 @@ class SessionStore:
         """私有记录可删除，但仍保留的代码工作树与补丁不能随会话销毁。"""
         if self.get("status") in {"running", "needs_reconciliation"}:
             raise ValueError("reconcile session before deletion")
+        # 已结束但未交付的副本仍是用户劳动，TTL 不能授权丢弃这些代码。
+        if any(
+            item["state"] not in {"applied", "undone", "empty"}
+            for item in self.bounded_workspaces()
+        ):
+            raise ValueError("session retains bounded artifacts; refusing deletion")
         # 只要存在未完成交付清单就保守保留，不能用 TTL 代替代码归属核验。
         for path in self.directory.rglob("workspace.json"):
             if path.is_symlink():
@@ -691,7 +704,49 @@ class SessionStore:
             if self.get("status") in {"running", "needs_reconciliation"}
             else "check_workspace_before_resume",
             "automatic_replay": False,
+            "bounded_workspaces": self.bounded_workspaces(),
         }
+
+    def bounded_workspaces(self) -> list[dict[str, Any]]:
+        """仅展示持久阶段及恢复入口，损坏清单明确阻断，不读取文件正文。"""
+        result = []
+        for path in self.directory.glob("*/*/bounded-workspace.json"):
+            try:
+                if path.is_symlink() or path.stat().st_size > 8 * 1024**2:
+                    raise ValueError("unsafe bounded manifest")
+                record = json.loads(path.read_bytes())
+                if record.get("version") != 1:
+                    raise ValueError("unknown bounded manifest version")
+                state = record["state"]
+                if state not in {
+                    "active",
+                    "preparing",
+                    "retained",
+                    "empty",
+                    "applying",
+                    "undoing",
+                    "applied",
+                    "undone",
+                }:
+                    raise ValueError("unknown bounded state")
+                handoff = path.parent / "backend/bounded-container.json"
+                phase = None
+                if handoff.exists():
+                    if handoff.is_symlink() or handoff.stat().st_size > 16384:
+                        raise ValueError("unsafe recovery binding")
+                    phase = json.loads(handoff.read_bytes())["phase"]
+                result.append(
+                    {
+                        "run_id": path.parent.name,
+                        "state": state,
+                        "container_phase": phase,
+                        "recover": f"codepilot recover {self.session_id} {path.parent.name}",
+                    }
+                )
+            except (OSError, ValueError, KeyError, TypeError):
+                # 无法理解的记录不是空产物，删除与协调都必须保守停止。
+                result.append({"run_id": path.parent.name, "state": "unreadable"})
+        return result
 
     def save_snapshot(self) -> None:
         """保存带事件覆盖点与来源哈希的索引快照，消息原文仍由事件持有。"""

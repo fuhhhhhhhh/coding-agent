@@ -1,0 +1,91 @@
+{
+  "provider": "official DeepSeek",
+  "model": "deepseek-flash",
+  "request_cap": 4,
+  "requests": 2,
+  "budget": {
+    "input": 6681,
+    "output": 432,
+    "pending": {},
+    "legacy_requests_without_usage": 0,
+    "attempt_prices": {},
+    "known_cost_usd": "0.0025227",
+    "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+  },
+  "session_status": "ready",
+  "model_claim": "我已按你的要求只调用 `read_file` 读取了这两个文件，没有写入文件、没有执行 Shell 命令。\n\n| 文件 | 实际内容 | 字节数 | 行数 | sha256 |\n|---|---|---|---|---|\n| `a` | `original` | 8 | 1 | `0682c5f2…5be5` |\n| `marker` | `partial` | 7 | 1 | `9834a14a…5d9d` |\n\n补充细节：\n\n- 两个文件都是单行，且**不含结尾换行符**：因为字节数恰好等于可见字符数（8 和 7）。\n- `a` 的内容是完整的 `original`（8 字节），没有截断（`truncated: false`）。\n- `marker` 的内容是完整的 `partial`（7 字节），没有截断（`truncated: false`）。\n\n需要说明的是：`marker` 的值是 `partial`，即“部分”而非“完成”；单从此内容无法推断先前操作是否全部成功。若你希望我核对一致性，请明确下一步要读或比较的目标。",
+  "runtime": "completed",
+  "tools": [
+    {
+      "call_id": "call_00_cLbaO99JQEsbWRdhQa1P8581",
+      "content": "{\"sha256\": \"0682c5f2076f099c34cfdd15a9e063849ed437a49677e6fcc5b4198c76575be5\", \"total_lines\": 1, \"file_bytes\": 8, \"start_line\": 1, \"start_offset\": 0, \"end_offset\": 8, \"content\": \"original\", \"truncated\": false, \"next_cursor\": null}",
+      "is_error": false
+    },
+    {
+      "call_id": "call_01_KntikP6mWpOtZTlruPhI5733",
+      "content": "{\"sha256\": \"9834a14ab9bcaa0f6a8da71073617eac8f004e596a3fa11d807b84631b825d9d\", \"total_lines\": 1, \"file_bytes\": 7, \"start_line\": 1, \"start_offset\": 0, \"end_offset\": 7, \"content\": \"partial\", \"truncated\": false, \"next_cursor\": null}",
+      "is_error": false
+    }
+  ],
+  "backend_closed": true,
+  "run_id": "run-c7e1867290aa44c7adcbb51948be6135",
+  "independent_source_unchanged": true,
+  "independent_content": {
+    "marker": "partial",
+    "a": "original"
+  },
+  "current_run_tool_facts": [
+    {
+      "run_id": "run-c7e1867290aa44c7adcbb51948be6135",
+      "sequence": 5,
+      "call_id": "call_00_cLbaO99JQEsbWRdhQa1P8581",
+      "tool": "read_file",
+      "outcome": "success",
+      "exit_code": null,
+      "workspace_stamp": "c36d0da5f12d503603a169ae0e44a28b357dc9bab2388cf81302b63044111579",
+      "source": "controller_tool_result",
+      "independent_verdict": "not_run"
+    },
+    {
+      "run_id": "run-c7e1867290aa44c7adcbb51948be6135",
+      "sequence": 6,
+      "call_id": "call_01_KntikP6mWpOtZTlruPhI5733",
+      "tool": "read_file",
+      "outcome": "success",
+      "exit_code": null,
+      "workspace_stamp": "c36d0da5f12d503603a169ae0e44a28b357dc9bab2388cf81302b63044111579",
+      "source": "controller_tool_result",
+      "independent_verdict": "not_run"
+    }
+  ],
+  "prior_unknown_tool_preserved": false,
+  "setup": "Actual controller killed after a real Shell file barrier; fresh CLI preview/recovery/reconciliation/delivery; subsequent real model task reads existing files only.",
+  "independent_verdict": "passed",
+  "rootless_crash_tests": {
+    "latest_writer": "passed",
+    "stopped_tmpfs_last_checkpoint": "passed",
+    "initial_create_return_unknown": {
+      "schema_version": 1,
+      "run_id": "run-crash",
+      "preview": false,
+      "phase": "closed",
+      "container_present": true,
+      "container_id": "8624a4169f6ca576e1f7173eca58f36ad901193589c915daf3da7835414afbeb",
+      "container_running": false,
+      "source_modified": false,
+      "tools_replayed": 0,
+      "data_loss_possible": false,
+      "recovered": true,
+      "automatic_reconcile": false,
+      "artifact_state": "empty",
+      "conflicts": [],
+      "files": [],
+      "checkpoint": "last_known",
+      "session_status": "needs_reconciliation",
+      "next_steps": [
+        "codepilot --workspace /dev/shm/codepilot-b3-recover-live-direct/test_real_controller_kill_then0/source --state-directory /dev/shm/codepilot-b3-recover-live-direct/test_real_controller_kill_then0/state sessions reconcile session-crash --accept-workspace",
+        "codepilot --workspace /dev/shm/codepilot-b3-recover-live-direct/test_real_controller_kill_then0/source --state-directory /dev/shm/codepilot-b3-recover-live-direct/test_real_controller_kill_then0/state delivery session-crash run-crash"
+      ]
+    }
+  }
+}

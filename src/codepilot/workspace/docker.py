@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -30,6 +31,9 @@ from codepilot.workspace.models import BackendEvent, BackendLimits, CommandResul
 from codepilot.workspace.output_stream import stream_worker
 
 DockerRunner = Callable[[tuple[str, ...], bytes | None, int], Awaitable[tuple[int, bytes, bytes]]]
+
+
+CONTROL_TIMEOUT_SECONDS = 60.0
 
 
 class DockerExecutionBackend:
@@ -98,6 +102,8 @@ class DockerExecutionBackend:
         self.owner = owner or f"codepilot-uid-{os.getuid()}"
         self.backend_id = f"docker-{uuid.uuid4().hex}"
         self._journal = BackendJournal(audit_directory, self.root, self.backend_id)
+        self._handoff_path = audit_directory / "bounded-container.json" if audit_directory else None
+        self._handoff: dict[str, object] = {}
         self.container_name = f"codepilot-{uuid.uuid4().hex}"
         self.expires_at = int(time.time()) + lifetime_seconds
         self._runner = runner or _run_docker
@@ -150,7 +156,8 @@ class DockerExecutionBackend:
             raise RuntimeError("backend is closed")
         if self._started:
             return
-        await self.cleanup_stale(self._runner, self.owner, self._record_stale)
+        async with asyncio.timeout(CONTROL_TIMEOUT_SECONDS):
+            await self.cleanup_stale(self._runner, self.owner, self._record_stale)
         code, stdout, stderr = await self._docker(
             ("image", "inspect", "--format", "{{.Id}}", self.image)
         )
@@ -161,11 +168,14 @@ class DockerExecutionBackend:
         if self.workspace_mode == "bounded-copy" and container_user != "0:0":
             raise RuntimeError("bounded workspace currently requires Rootless Docker")
         command = self._create_command(image_id, container_user)
+        # 创建调用本身可能已被 daemon 接收，先保存随机名称与标签绑定以覆盖返回前崩溃。
+        self._save_handoff("creating", image_id=image_id)
         code, stdout, stderr = await self._docker(command)
         if code != 0:
             raise RuntimeError(f"docker create failed: {_safe_error(stderr)}")
         self._container_id = stdout.decode().strip()
         try:
+            self._save_handoff("created")
             # 登记失败也属于创建后的失败，必须进入相同清理出口。
             if self.on_container is not None:
                 self.on_container(self._container_id)
@@ -182,31 +192,39 @@ class DockerExecutionBackend:
                 else:
                     raise RuntimeError("bounded container main identity unavailable")
                 self._main_pid = int(output.strip())
+                self._save_handoff("seeding")
                 payload = seed_archive(self.root, self.limits.workspace_bytes or 0)
-                code, _, _ = await self._runner(
-                    (
-                        "exec",
-                        "-i",
-                        self._container_id,
-                        "python",
-                        "-m",
-                        "codepilot.workspace.archive",
-                        "import",
-                        "--limit",
-                        str(self.limits.workspace_bytes),
-                    ),
-                    payload,
-                    65536,
-                )
+                # 导入也属于启动控制面，阻塞不能绕过握手与归档的等待上限。
+                async with asyncio.timeout(CONTROL_TIMEOUT_SECONDS):
+                    code, _, _ = await self._runner(
+                        (
+                            "exec",
+                            "-i",
+                            self._container_id,
+                            "python",
+                            "-m",
+                            "codepilot.workspace.archive",
+                            "import",
+                            "--limit",
+                            str(self.limits.workspace_bytes),
+                        ),
+                        payload,
+                        65536,
+                    )
                 if code != 0:
                     raise RuntimeError("bounded workspace seed failed; source unchanged")
+                # 初始种子也是已知检查点；容器意外停止时明确退化到它而非伪造最新状态。
+                checkpoint = self._save_checkpoint(payload)
                 self._bounded_seeded = True
-            await self._verify_worker()
+                self._save_handoff("active", checkpoint_sha256=checkpoint)
+            async with asyncio.timeout(CONTROL_TIMEOUT_SECONDS):
+                await self._verify_worker()
         except BaseException:
             # 镜像内容与控制器不一致时不能继续执行模型请求。
             code, _, _ = await asyncio.shield(self._docker(("rm", "-f", "-v", self._container_id)))
             if code == 0:
                 self._container_id = ""
+                self._save_handoff("closed")
             else:
                 # 删除失败保留确切身份，不把尚存资源伪报成已关闭。
                 self._record("backend_close_failed", outcome="startup_remove_failed")
@@ -399,7 +417,8 @@ class DockerExecutionBackend:
         if final:
             argv += ("--main-pid", str(self._main_pid))
         try:
-            code, data, _ = await self._runner(argv, None, cap + 1)
+            async with asyncio.timeout(CONTROL_TIMEOUT_SECONDS):
+                code, data, _ = await self._runner(argv, None, cap + 1)
             if code != 0 or len(data) > cap:
                 raise RuntimeError("bounded workspace export failed; container retained")
             # 不信任容器产物的 tar 路径；验证完整归档后才更新控制器镜像。
@@ -408,7 +427,7 @@ class DockerExecutionBackend:
             ) as temp:
                 decoded = Path(temp)
                 unpack(data, decoded, limit)
-                _atomic_write(self.root.parent / "bounded-latest.tar", data)
+                checkpoint = self._save_checkpoint(data)
                 for item in self.root.iterdir():
                     if item.is_dir() and not item.is_symlink():
                         shutil.rmtree(item)
@@ -417,6 +436,10 @@ class DockerExecutionBackend:
                 shutil.copytree(decoded, self.root, dirs_exist_ok=True)
             if final:
                 self._bounded_final = True
+            self._save_handoff(
+                "exported" if final else "active",
+                checkpoint_sha256=checkpoint,
+            )
         except BaseException:
             self._record("backend_close_failed", outcome="bounded_export_incomplete")
             raise
@@ -443,8 +466,59 @@ class DockerExecutionBackend:
             if code != 0:
                 self._record("backend_close_failed", outcome="remove_failed")
                 raise RuntimeError(f"docker remove failed: {_safe_error(stderr)}")
+        elif self._handoff.get("phase") == "creating":
+            # daemon 可能已接受创建，不能因为客户端没拿到 ID 就宣告资源关闭。
+            raise RuntimeError("container creation outcome unknown; inspect recovery binding")
         self._closed = True
+        self._save_handoff("closed")
         self._record("backend_closed", outcome="removed")
+
+    def _save_handoff(self, phase: str, **updates: object) -> None:
+        """仅限容模式持久保存控制器绑定与检查点来源，不记录命令或秘密正文。"""
+        if self.workspace_mode != "bounded-copy":
+            return
+        # 从未创建容器的 close 没有可恢复资源，不能生成缺少镜像绑定的伪清单。
+        if not self._handoff and phase == "closed":
+            return
+        # 首个身份固定后不随目录漂移刷新，恢复时必须匹配真实目录设备与 inode。
+        if not self._handoff:
+            info = self.root.stat()
+            self._handoff = {
+                "version": 1,
+                "backend_id": self.backend_id,
+                "name": self.container_name,
+                "owner": self.owner,
+                "identity": [info.st_dev, info.st_ino],
+                "workspace_bytes": self.limits.workspace_bytes,
+                "memory_bytes": self.limits.memory_bytes,
+            }
+        self._handoff.update(
+            phase=phase,
+            container_id=self._container_id,
+            main_pid=self._main_pid,
+            seeded=self._bounded_seeded,
+            **updates,
+        )
+        if self._handoff_path is not None:
+            self._handoff_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            _atomic_write(self._handoff_path, json.dumps(self._handoff).encode())
+        # 先提交新指针再回收旧正文；指针提交前崩溃仍能找到旧检查点。
+        checkpoint = self._handoff.get("checkpoint_sha256")
+        if checkpoint:
+            for path in (self.root.parent / "bounded-checkpoints").glob("*.tar"):
+                if path.stem != checkpoint:
+                    path.unlink()
+
+    def _save_checkpoint(self, data: bytes) -> str:
+        """以内容哈希保存检查点，最新副本仅供查看，不承担提交指针的职责。"""
+        sha = hashlib.sha256(data).hexdigest()
+        directory = self.root.parent / "bounded-checkpoints"
+        if directory.is_symlink():
+            raise ValueError("unsafe checkpoint directory")
+        directory.mkdir(exist_ok=True, mode=0o700)
+        _atomic_write(directory / f"{sha}.tar", data)
+        _atomic_write(self.root.parent / "bounded-latest.tar", data)
+        return sha
 
     async def __aenter__(self) -> Self:
         """进入异步上下文时启动并返回当前 backend。"""
@@ -540,6 +614,8 @@ class DockerExecutionBackend:
             f"codepilot.expires_at={self.expires_at}",
             "--label",
             f"codepilot.workspace_mode={self.workspace_mode}",
+            "--label",
+            f"codepilot.backend_id={self.backend_id}",
             "--network",
             self.network,
             "--read-only",
@@ -627,6 +703,19 @@ class DockerExecutionBackend:
                     # 写盘失败或传输中断也可能留下容器内进程，不能只杀本地客户端。
                     await settle(self.cancel())
                     raise
+        # 生命周期操作不能无限卡住终端；超时只结束客户端，创建绑定保留为未知。
+        if arguments[0] != "exec":
+            # stats 只是诊断，采样超时不能把已完成工具改成任务失败。
+            if arguments[0] == "stats":
+                try:
+                    async with asyncio.timeout(3):
+                        return await self._runner(arguments, stdin, 65536)
+                except TimeoutError:
+                    return 1, b"", b"resource sample unavailable"
+            async with asyncio.timeout(CONTROL_TIMEOUT_SECONDS):
+                return await self._runner(
+                    arguments, stdin, max(1024 * 1024, self.limits.output_bytes * 8 + 65536)
+                )
         return await self._runner(
             arguments, stdin, max(1024 * 1024, self.limits.output_bytes * 8 + 65536)
         )

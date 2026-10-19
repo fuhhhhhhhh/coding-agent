@@ -278,7 +278,9 @@ class CodePilotApplication:
                 self.config,
                 execution_workspace,
                 backend_directory,
-                on_container=lambda cid: session.resource("container", {"id": cid}),
+                on_container=lambda cid: session.resource(
+                    "container", {"id": cid, "run_id": identity.run_id}
+                ),
             )
             store = ContextArtifactStore(
                 context_directory,

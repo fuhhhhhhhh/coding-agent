@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
                 if name == "delivery"
                 else "明确应用撤销；默认仅预览",
             )
+    recovery = commands.add_parser("recover", help="核验并保存崩溃限容任务的产物，不重放工具")
+    _add_shared_arguments(recovery, suppress_defaults=True)
+    recovery.add_argument("session_id")
+    recovery.add_argument("run_id")
+    recovery.add_argument("--apply", action="store_true", help="明确导出并清理；默认仅预览")
     testing = commands.add_parser("test", help="按现有权限执行测试，零模型请求")
     _add_shared_arguments(testing, suppress_defaults=True)
     testing.add_argument("--timeout", type=float, default=120.0)
@@ -366,7 +371,7 @@ def _read_interactive_task(prompt: str) -> str:
                 # 只在用户明确开始斜杠命令时显示，普通自然语言输入不被打扰。
                 sys.stdout.write(
                     "\n  /help /status /model /sessions /tasks /context /compact "
-                    "/doctor /diff /changes /undo /delivery /permissions /test /exit\n❯ /"
+                    "/doctor /diff /changes /undo /delivery /recover /permissions /test /exit\n❯ /"
                 )
                 menu_shown = True
             sys.stdout.flush()
@@ -388,6 +393,24 @@ def _handle_slash_command(
             "/sessions 会话列表  /tasks 后台任务  /context 上下文  /compact 压缩历史  "
             "/doctor 诊断 /diff 变更 /changes RUN 归属 /undo RUN [--apply] 撤销 "
             "/delivery RUN [--apply] 受限副本交付 /permissions 权限 /test 命令 /exit 退出"
+            " /recover RUN [--apply] 恢复限容产物"
+        )
+        return True
+    if command == "/recover":
+        from codepilot.app.operations import recover
+
+        parts = shlex.split(task)
+        if len(parts) not in {2, 3} or (len(parts) == 3 and parts[2] != "--apply"):
+            raise ValueError("用法：/recover RUN_ID [--apply]")
+        print(
+            json.dumps(
+                asyncio.run(
+                    recover(
+                        config, arguments.workspace, session_id, parts[1], apply=len(parts) == 3
+                    )
+                ),
+                ensure_ascii=False,
+            )
         )
         return True
     if command in {"/changes", "/undo", "/delivery"}:
@@ -565,6 +588,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             explicit_path=arguments.config,
             overrides=_overrides(arguments),
         )
+        if arguments.command == "recover":
+            from codepilot.app.operations import recover
+
+            data = asyncio.run(
+                recover(
+                    config, workspace, arguments.session_id, arguments.run_id, apply=arguments.apply
+                )
+            )
+            print(json.dumps(data, ensure_ascii=False))
+            return 0
         if arguments.command in {"changes", "undo", "delivery"}:
             from codepilot.app.operations import changes
 

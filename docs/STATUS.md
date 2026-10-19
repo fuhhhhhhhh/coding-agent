@@ -1,6 +1,8 @@
 # 开发状态
 
-当前里程碑：B1 可靠执行与持久会话基础已通过受限真实验收；B2 基础与安全交付回补已在明确范围验证，B3 在 Linux/官方 DeepSeek Flash 双协议范围通过受限验收，B4 在 Linux Local/Rootless Docker/官方 DeepSeek Flash Chat 范围通过受限验收，B5 终端操作与正式评测已在明确范围验收；成熟发布仍被 B2 遗留项阻断
+当前开发主题：B3 跨控制器限容任务恢复（已通过明确支持范围验收）。B3 并非未开始，已有长任务/Provider/恢复受限验收；B2 的未完能力仍作为发布阻断单列。
+
+已验收范围：B1 可靠执行与持久会话基础已通过受限真实验收；B2 基础与安全交付回补已在明确范围验证，B3 在 Linux/官方 DeepSeek Flash 双协议范围通过受限验收，B4 在 Linux Local/Rootless Docker/官方 DeepSeek Flash Chat 范围通过受限验收，B5 终端操作与正式评测已在明确范围验收；成熟发布仍被 B2 遗留项阻断
 
 最近通过：B2 真实仓库分页/检索覆盖、生产读版本、多文件部分失败和显式 Rootless 限容副本的交付/撤销；此前文件工具归属撤销、审批排队后复核、Docker 独立 Git 与同后端重放；B5 无模型维护/测试、固定真实仓库重复评测、独立判据与安装；B4 受控扩展、后台任务与只读子代理；B3 长任务、持久恢复与 Provider 可靠性的受限产品链；B1 持久会话、完整输出与保守重开；P1/P2、M01—M10 历史证据保留
 
@@ -12,6 +14,18 @@
 原 M01 命名修改已由 AI 实施并验证，不记作用户独立贡献。
 
 日期：2026-10-19（UTC）
+
+## 最新 B3：限容执行的持久恢复闭合（2026-10-19）
+
+- B3 不是尚未开始：此前已验收长任务预算、上下文压缩、双协议 Provider、备份迁移与崩溃协调。本轮按用户指定推进新限容执行模式的跨控制器恢复；“当前开发主题”和“发布阻断”分开记录。B2 网络/秘密仍未完成，不据此阻止断网恢复开发，也不据更换主题解除 release_ready=false。
+- 新增 `recover SESSION RUN [--apply]` / `/recover RUN [--apply]`：默认只读预览，应用只保存产物并清理核验归属的容器，不重放工具、不自动覆盖源目录、不自动协调或标任务成功。恢复后仍 needs_reconciliation，保留未知调用与费用；显式协调、原 delivery、新任务续问沿既有链。
+- create 前持久保存随机名称/backend_id、镜像/配额/目录身份；creating/created/seeding/active/exported/closed 阶段可跨控制器读取。Rootless 与容器标签/名称/镜像、私有 PID、断网/只读/能力/挂载边界独立核验；旧 run 没有绑定不能猜测恢复。客户端超时不代表 daemon 未接受，创建结果未知时不重发、不谎报 closed。
+- 内容寻址归档先落盘、SHA 指针再提交、最后回收旧版本，latest 文件仅供查看。活盘先停写导出，已停止/消失只用完整旧检查点并报告 data_loss_possible；损坏归档、未知源交付、会话竞争都拒绝。Docker 控制操作/握手/归档等待有上限，stats 采样超时只跳过诊断。未交付副本不能被 sessions delete/prune 静默丢弃。
+- 离线 374 passed / 17 skipped；仓库外 Python 3.11 非 editable wheel 同为 374 passed / 17 skipped。Rootless Docker 全组 17 passed / 152.31s，最后限容导入期限收尾又复验相关 6 项通过 / 67.27s，包含真实控制器被杀、新 CLI 导出清理、源版本交付、重复恢复以及真实停止 tmpfs 后只恢复旧检查点。Ruff、201 文件格式、154 文件 mypy、110 Python 文件 wheel 字节核验通过。
+- 官方 DeepSeek Flash 在真实恢复后的原会话只读续问：上限 4、实际 2 请求，6,681 输入 / 432 输出 Token，Runtime completed；独立确认 a=original、marker=partial、源字节未变、后端关闭、pending 为空。旧 unknown 工具结果仍在规范历史，不把它改成成功。四层证据在 B3-bounded-recovery-live.json。
+- 首轮 Rootless 1 failed / 1 passed / 333.85s：创建延迟导致 writer 屏障前超时。持久 creating 绑定后来找到确切 Created 容器并安全回收；重跑真实崩溃链 1 passed / 10.70s，再独立完成全组。新镜像构建在元数据/上下文阶段长时间等待，取消仅本轮自有客户端，没有重启公共 Docker；最终验收既有 worker/archive 镜像与新控制器组合，不冒充新镜像全源码核验。模型、工具和 Runtime 的结论不代替独立文件/容器判据。
+- 当前边界：Linux/Rootless、显式恢复与协调；tmpfs 掉电/daemon 崩溃后检查点之外仍可能丢失；不重放源 applying/undoing，不保证外部 exactly-once。Windows/macOS、新镜像完整重建、真实未知 HTTP 接受状态崩溃、B2 受控网络/秘密本轮未验收。管理容器残留 0，testcodingagent 仍干净。
+- 阅读顺序、轨迹和三题答案见 learning/B3 最新节；契约/实现边界见 design/B3；日志、失败、真实续问与安装证据见 B3-bounded-recovery-*。学习掌握待确认，不留动手题。
 
 ## 最新 B2：真实仓库工具与限容副本（2026-10-19）
 

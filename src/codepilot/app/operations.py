@@ -383,3 +383,62 @@ def changes(
                 stamp=workspace_stamp(root) if result["applied"] else session.get("stamp"),
             )
         return result
+
+
+async def recover(
+    config: ProductConfig, root: Path, session_id: str, run_id: str, *, apply: bool = False
+) -> dict[str, Any]:
+    """会话锁内恢复精确 run 的限容产物，不调用模型、不协调未知工具、不交付源文件。"""
+    from codepilot.sessions.store import safe_id
+    from codepilot.workspace.bounded import BoundedWorkspace
+    from codepilot.workspace.recovery import load_handoff, recover_workspace
+
+    safe_id(run_id)
+    with SessionStore(_state_root(config), session_id, create=False) as session:
+        info = root.stat()
+        identity = session.get("workspace", [])
+        if identity[:3] != [str(root), info.st_dev, info.st_ino]:
+            raise ValueError("recovery source workspace identity mismatch")
+        paths = list(session.directory.glob(f"*/{run_id}/bounded-workspace.json"))
+        if len(paths) != 1:
+            raise ValueError("bounded recovery run unavailable or ambiguous")
+        owned = BoundedWorkspace.open(paths[0], root)
+        handoff = load_handoff(owned.directory / "backend/bounded-container.json", owned.workspace)
+        old_id = handoff["container_id"]
+        previous = session.get("status")
+        # 恢复开始先标协调；中途退出不能把部分资源处理当作正常可续问。
+        if apply and not (handoff["phase"] == "closed" and owned.record["state"] != "active"):
+            session.commit("recovery_started", {"run_id": run_id}, status="needs_reconciliation")
+        result = await recover_workspace(owned, apply=apply)
+        if result["recovered"]:
+            resources = [
+                item
+                for item in session.get("resources", [])
+                if not (
+                    item.get("kind") == "container"
+                    and item.get("uid") == os.getuid()
+                    and item.get("id") in {old_id, result["container_id"]}
+                )
+            ]
+            session.commit(
+                "bounded_recovered",
+                {"run_id": run_id, "data_loss_possible": result["data_loss_possible"]},
+                resources=resources,
+                status=previous
+                if previous == "ready" and result.get("already_closed")
+                else "needs_reconciliation",
+            )
+        result["session_status"] = session.get("status")
+        prefix = (
+            f"codepilot --workspace {shlex.quote(str(root))} "
+            f"--state-directory {shlex.quote(str(_state_root(config)))}"
+        )
+        result["next_steps"] = (
+            [
+                f"{prefix} sessions reconcile {session_id} --accept-workspace",
+                f"{prefix} delivery {session_id} {run_id}",
+            ]
+            if session.get("status") != "ready"
+            else []
+        )
+        return result

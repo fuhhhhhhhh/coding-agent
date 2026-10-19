@@ -1,0 +1,63 @@
+F.                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_real_controller_kill_then_cli_recovery_and_guarded_delivery _______
+
+tmp_path = PosixPath('/dev/shm/codepilot-b3-recover-live-direct/test_real_controller_kill_then0')
+
+    def test_real_controller_kill_then_cli_recovery_and_guarded_delivery(tmp_path: Path) -> None:
+        """Shell 实际写入后杀控制器，独立预览不暂停，恢复保存并删除后再显式协调交付。"""
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "a").write_text("original")
+        script = """import asyncio,sys
+    from pathlib import Path
+    from codepilot.app import CodePilotApplication
+    from codepilot.config import ProductConfig,BackendConfig
+    from codepilot.contracts import ToolCall
+    from codepilot.contracts.run import RunLimits
+    from codepilot.permissions import ScriptedApproval
+    from codepilot.workspace import BackendLimits
+    c=ProductConfig(
+     state_directory=Path(sys.argv[2]),permission='controlled-edit',
+     runtime=RunLimits(timeout_seconds=120.0),
+     backend=BackendConfig(kind='docker',docker_image=sys.argv[3],
+     workspace_mode='bounded-copy',limits=BackendLimits(workspace_bytes=8388608)))
+    asyncio.run(CodePilotApplication(
+     c,Path(sys.argv[1]),approval=ScriptedApproval([True])).run(
+     'crash test',session_id='session-crash',task_id='task-crash',run_id='run-crash',
+     direct_tool=ToolCall(call_id='write',name='shell',arguments={
+     'command':'printf partial > marker; sleep 90','timeout_seconds':100.0})))
+    """
+        binding = tmp_path / "state/session-crash/task-crash/run-crash/backend/bounded-container.json"
+        container = ""
+        with (tmp_path / "controller.log").open("w") as log:
+            child = subprocess.Popen(
+                [sys.executable, "-c", script, str(source), str(tmp_path / "state"), IMAGE],
+                stdout=log,
+                stderr=log,
+            )
+            try:
+                deadline = time.monotonic() + 45
+                # 以真实容器内文件屏障证明发生了副作用，而非依赖模型或固定等待。
+                while time.monotonic() < deadline:
+                    assert child.poll() is None, (tmp_path / "controller.log").read_text()
+                    if binding.exists():
+                        record = json.loads(binding.read_text())
+                        container = record["container_id"]
+                        if container and record["phase"] == "active":
+                            p = subprocess.run(
+                                ["docker", "exec", container, "test", "-f", "/workspace/marker"],
+                                capture_output=True,
+                                timeout=5,
+                            )
+                            if p.returncode == 0:
+                                break
+                    time.sleep(0.1)
+                else:
+>                   raise AssertionError("owned writer did not reach file barrier")
+E                   AssertionError: owned writer did not reach file barrier
+
+tests/test_b3_bounded_recovery_live.py:92: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_b3_bounded_recovery_live.py::test_real_controller_kill_then_cli_recovery_and_guarded_delivery
+1 failed, 1 passed in 333.85s (0:05:33)

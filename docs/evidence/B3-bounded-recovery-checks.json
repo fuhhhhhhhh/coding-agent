@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-19T13:20:23.742763+00:00",
+  "base_commit": "968377d2a05f5abdb9de8a4af91876e1e1735189",
+  "offline": {
+    "passed": 374,
+    "skipped": 17,
+    "seconds": 19.5
+  },
+  "wheel_python311": {
+    "passed": 374,
+    "skipped": 17,
+    "seconds": 23.66
+  },
+  "docker_rootless": {
+    "passed": 17,
+    "skipped": 0,
+    "seconds": 152.31
+  },
+  "wheel": {
+    "status": "passed",
+    "python_files": 110,
+    "wheel_sha256": "d2d4882fa115872017eafc2638e993204acbe31a8b76a123d13251b4e001a559"
+  },
+  "static": {
+    "ruff": "passed all directories",
+    "format_files": 201,
+    "mypy_files": 154,
+    "documentation_tests": 2
+  },
+  "real_provider": {
+    "model": "deepseek-flash",
+    "request_cap": 4,
+    "requests": 2,
+    "input_tokens": 6681,
+    "output_tokens": 432,
+    "pending": {},
+    "runtime": "completed",
+    "independent_verdict": "passed",
+    "protocol": "chat-completions"
+  },
+  "image": {
+    "reference": "codepilot-sandbox:0.1.0",
+    "id": "sha256:d834e1675f8104ae5c45819c29f9295f462ffa3339b31888b20a14952d5f0e8e",
+    "scope": "Existing compatible worker/archive protocol; new recovery code is controller-side. Fresh full image build interrupted; not claimed as final source-byte image verification."
+  },
+  "failures_preserved": [
+    "Initial full existing regression: 361 passed/15 skipped before new test cases.",
+    "Initial new stopped/missing unit fixture had an indentation error (1 failed/9 passed); fixture corrected, behavior assertion preserved.",
+    "New image build stalled at metadata/context transfer (46.4s/127.3s/60.0s stages). Cancelled only own build client; no daemon restart or public Docker changes.",
+    "First Docker run: 1 failed/1 passed in 333.85s; writer barrier timed out before side effects because create was delayed. Its durable creating binding later identified one exact Created container; new CLI recovered/removed it without source writes or tool replay.",
+    "Retry actual killed-controller test: 1 passed in 10.70s. Full Rootless suite then passed independently; initial failure not counted as success.",
+    "Atomic checkpoint review added content-addressed archive/pointer commit order; test proves interrupted latest-file replacement leaves prior checkpoint usable."
+  ],
+  "not_run": [
+    "Windows/macOS",
+    "new full image build after controller changes",
+    "power-loss durability",
+    "live new HTTP request with unknown accepted status after controller crash",
+    "B2 controlled networking/scoped secret injection",
+    "new recovery resume over Responses; this turn real continuation uses configured protocol only"
+  ],
+  "supported_scope": "Linux Local/Rootless Docker; bounded orphan recovery; no source transfer replay; no automatic reconciliation",
+  "release_ready": false,
+  "resources": {
+    "managed_containers": 0,
+    "testcodingagent_clean": true
+  },
+  "commands": {
+    "offline": ".venv/bin/pytest -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning",
+    "docker": "CODEPILOT_DOCKER_LIVE=1 .venv/bin/pytest -q tests/test_b3_bounded_recovery_live.py tests/test_bounded_docker_live.py tests/test_b2_docker_live.py tests/test_b4_docker_live.py tests/test_b5_docker_live.py tests/test_workspace_docker_live.py",
+    "wheel": "env -u PYTHONPATH PYTHON311 -m pytest /home/fuxiangyu/project/coding-agent/tests; cwd=/tmp"
+  },
+  "final_bounded_recheck": {
+    "passed": 6,
+    "seconds": 67.27,
+    "scope": "final bounded import timeout and both crash/stop scenarios plus four existing bounded workflow tests"
+  },
+  "credential_scan": {
+    "files_scanned": 328,
+    "matches": 0,
+    "method": "exact in-memory resolver match; no key logged or persisted"
+  }
+}
