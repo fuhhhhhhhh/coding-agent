@@ -112,6 +112,8 @@ class ScheduledExecutor:
             return ExecutionPlan(call_id=call.call_id, mode="background", resources=("workspace",))
         if spec is None or spec.effect == "process":
             return ExecutionPlan(call_id=call.call_id, mode="exclusive", resources=("workspace",))
+        if call.name == "edit_file" and call.arguments.get("additional_edits"):
+            return ExecutionPlan(call_id=call.call_id, mode="exclusive", resources=("workspace",))
         path = _safe_path(call.arguments.get("path"))
         if path is not None:
             return ExecutionPlan(

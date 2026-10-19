@@ -48,16 +48,25 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("doctor", "diff", "permissions"):
         operation = commands.add_parser(name, help="无模型的诊断、变更审查或权限查看")
         _add_shared_arguments(operation, suppress_defaults=True)
-    for name in ("changes", "undo"):
+    for name in ("changes", "undo", "delivery"):
         change = commands.add_parser(
-            name, help="审查或有条件撤销指定 run 的文件工具修改，零模型请求"
+            name,
+            help="审查或有条件交付限容副本产物，零模型请求"
+            if name == "delivery"
+            else "审查或有条件撤销指定 run 的修改，零模型请求",
         )
         _add_shared_arguments(change, suppress_defaults=True)
         change.add_argument("session_id")
         change.add_argument("run_id")
-        if name == "undo":
-            # 审查入口始终只读，只有显式 undo --apply 能产生文件副作用。
-            change.add_argument("--apply", action="store_true", help="明确应用撤销；默认仅预览")
+        if name in {"undo", "delivery"}:
+            # 默认只预览；交付或撤销都必须由用户显式应用。
+            change.add_argument(
+                "--apply",
+                action="store_true",
+                help="明确应用交付；默认仅预览"
+                if name == "delivery"
+                else "明确应用撤销；默认仅预览",
+            )
     testing = commands.add_parser("test", help="按现有权限执行测试，零模型请求")
     _add_shared_arguments(testing, suppress_defaults=True)
     testing.add_argument("--timeout", type=float, default=120.0)
@@ -145,6 +154,12 @@ def _add_shared_arguments(
     parser.add_argument("--backend", choices=("local", "docker"), default=missing)
     parser.add_argument("--docker-image", default=missing)
     parser.add_argument(
+        "--bounded-workspace-bytes",
+        type=int,
+        default=missing,
+        help="显式 Rootless Docker 限容副本，正常结束后按源版本交付；默认仍直写",
+    )
+    parser.add_argument(
         "--permission",
         choices=("read-only", "ask-edits", "controlled-edit"),
         default=missing,
@@ -187,6 +202,11 @@ def _overrides(arguments: argparse.Namespace) -> dict[str, object]:
         }.items()
         if value is not None
     }
+    if getattr(arguments, "bounded_workspace_bytes", None) is not None:
+        backend.update(
+            workspace_mode="bounded-copy",
+            limits={"workspace_bytes": arguments.bounded_workspace_bytes},
+        )
     if provider:
         result["provider"] = provider
     if backend:
@@ -236,6 +256,10 @@ async def _run(arguments: argparse.Namespace, config: ProductConfig) -> int:
     )
     renderer.finished(result)
     delivery_failed = result.delivery is not None and result.delivery.state == "failed_retained"
+    delivery_failed = delivery_failed or (
+        result.bounded_delivery is not None
+        and result.bounded_delivery["state"] not in {"applied", "empty"}
+    )
     return 0 if result.report.reason == "completed" and not delivery_failed else 1
 
 
@@ -342,7 +366,7 @@ def _read_interactive_task(prompt: str) -> str:
                 # 只在用户明确开始斜杠命令时显示，普通自然语言输入不被打扰。
                 sys.stdout.write(
                     "\n  /help /status /model /sessions /tasks /context /compact "
-                    "/doctor /diff /changes /undo /permissions /test /exit\n❯ /"
+                    "/doctor /diff /changes /undo /delivery /permissions /test /exit\n❯ /"
                 )
                 menu_shown = True
             sys.stdout.flush()
@@ -363,19 +387,26 @@ def _handle_slash_command(
             "/help 帮助  /status 当前运行状态  /model 当前模型  "
             "/sessions 会话列表  /tasks 后台任务  /context 上下文  /compact 压缩历史  "
             "/doctor 诊断 /diff 变更 /changes RUN 归属 /undo RUN [--apply] 撤销 "
-            "/permissions 权限 /test 命令 /exit 退出"
+            "/delivery RUN [--apply] 受限副本交付 /permissions 权限 /test 命令 /exit 退出"
         )
         return True
-    if command in {"/changes", "/undo"}:
+    if command in {"/changes", "/undo", "/delivery"}:
         from codepilot.app.operations import changes
 
         try:
             parts = shlex.split(task)
             if len(parts) not in {2, 3} or (
-                len(parts) == 3 and (command != "/undo" or parts[2] != "--apply")
+                len(parts) == 3 and (command not in {"/undo", "/delivery"} or parts[2] != "--apply")
             ):
                 raise ValueError("用法：/changes RUN_ID 或 /undo RUN_ID [--apply]")
-            data = changes(config, arguments.workspace, session_id, parts[1], apply=len(parts) == 3)
+            data = changes(
+                config,
+                arguments.workspace,
+                session_id,
+                parts[1],
+                apply=len(parts) == 3,
+                **({"deliver": True} if command == "/delivery" else {}),
+            )
             print(json.dumps(data, ensure_ascii=False))
         except (ValueError, OSError) as error:
             # 审查错误只结束本条外壳命令，不把恢复操作交给模型猜测。
@@ -534,7 +565,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             explicit_path=arguments.config,
             overrides=_overrides(arguments),
         )
-        if arguments.command in {"changes", "undo"}:
+        if arguments.command in {"changes", "undo", "delivery"}:
             from codepilot.app.operations import changes
 
             data = changes(
@@ -542,7 +573,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 workspace,
                 arguments.session_id,
                 arguments.run_id,
-                apply=arguments.command == "undo" and arguments.apply,
+                apply=arguments.command in {"undo", "delivery"} and arguments.apply,
+                deliver=arguments.command == "delivery",
             )
             print(json.dumps(data, ensure_ascii=False))
             return 1 if data["conflicts"] else 0
@@ -654,7 +686,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command in {"resume", "compact"}:
             # 不存在会话或身份变化必须在提示符和模型请求前明确失败。
             with SessionStore(_state_root(config), arguments.session_id, create=False) as session:
-                session.check(workspace, f"{config.backend.kind}:{config.git_workspace.enabled}")
+                session.check(workspace, config.execution_mode)
             if arguments.command == "compact":
                 arguments.task = "/compact"
                 arguments.compact_only = True

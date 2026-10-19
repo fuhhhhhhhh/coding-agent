@@ -55,8 +55,18 @@ def save(path: Path, record: dict[str, Any]) -> None:
 class ChangeJournal:
     """在调度锁内包围明确文件工具，意图先落盘，确认后才提供撤销资格。"""
 
-    def __init__(self, registry: CatalogExecutor, root: Path, directory: Path, run_id: str) -> None:
+    def __init__(
+        self,
+        registry: CatalogExecutor,
+        root: Path,
+        directory: Path,
+        run_id: str,
+        *,
+        require_read: bool = False,
+    ) -> None:
         """绑定统一执行链、真实目录和私有 run 日志；不创建第二套工具。"""
+        self.require_read = require_read
+        self.read_versions: dict[str, str] = {}
         self.registry = registry
         self.root = root
         self.path = directory / "changes.json"
@@ -76,64 +86,131 @@ class ChangeJournal:
         return self.registry.specs
 
     async def execute(self, call: ToolCall) -> ToolResult:
-        """仅记录文件写调用，任何不能证实完成的调用保持未知且禁止撤销。"""
-        # 其他工具仍走原链；工作区变化本身不能证明是本次文件工具所有。
+        """读取建立版本；单文件和批次写前记意图，部分成功按独立版本和清单认领。"""
+        arguments: dict[str, Any]
+        if call.name == "read_file" and self.require_read:
+            arguments = {"mode": "page", **call.arguments, "include_sha256": True}
+            result = await self.registry.execute(call.model_copy(update={"arguments": arguments}))
+            # 只有真实读取成功的控制器输出能建立版本，不从模型自述提取哈希。
+            if not result.is_error and isinstance(arguments.get("path"), str):
+                try:
+                    sha = (
+                        json.loads(result.content)["sha256"]
+                        if result.content.startswith("{")
+                        else result.content.splitlines()[0].removeprefix("sha256=")
+                    )
+                    if (
+                        isinstance(sha, str)
+                        and len(sha) == 64
+                        and all(c in "0123456789abcdef" for c in sha)
+                    ):
+                        self.read_versions[arguments["path"]] = sha
+                except (ValueError, KeyError, TypeError):
+                    pass
+            return result
         if call.name not in {"write_file", "edit_file"}:
             return await self.registry.execute(call)
-        relative = call.arguments.get("path")
-        # 缺少参数继续交给原 Schema 校验，不创建无路径的修改意图。
-        if not isinstance(relative, str):
-            return await self.registry.execute(call)
+        arguments = dict(call.arguments)
+        operations = [arguments]
+        extra = arguments.get("additional_edits", []) if call.name == "edit_file" else []
+        if not isinstance(extra, (list, tuple)) or len(extra) > 15:
+            return ToolResult(call_id=call.call_id, content="invalid_batch", is_error=True)
+        # 批次输入要复制，不能改变审批保存的原始参数对象。
+        if extra:
+            operations.extend(dict(item) for item in extra if isinstance(item, dict))
+            if len(operations) != len(extra) + 1:
+                return ToolResult(call_id=call.call_id, content="invalid_batch", is_error=True)
+            arguments["additional_edits"] = operations[1:]
+        entries: list[dict[str, Any]] = []
+        predictions: list[str | None] = []
+        after_reserved = 0
         try:
-            before = snapshot(self.root, relative)
-            # 预先计算唯一目标内容，不能把执行后用户恰好写入的内容认成任务成果。
-            desired = call.arguments.get("content")
-            if call.name == "edit_file" and before is not None:
-                text = base64.b64decode(before["data"]).decode("utf-8")
-                old = call.arguments.get("old_text")
-                new = call.arguments.get("new_text")
-                if isinstance(old, str) and old and isinstance(new, str) and text.count(old) == 1:
-                    desired = text.replace(old, new, 1)
-            predicted = (
-                hashlib.sha256(desired.encode()).hexdigest() if isinstance(desired, str) else None
-            )
-            # 覆盖已有文件强制使用当前版本，模型显式给出的旧版本仍由工具拒绝。
-            arguments = dict(call.arguments)
-            if before is not None:
-                arguments.setdefault("expected_sha256", before["sha256"])
-            elif call.name == "write_file":
-                # 新建版本同样必须受条件约束，Docker 传输等待不能变成覆盖窗口。
-                arguments["expected_absent"] = True
-            entry: dict[str, Any] = {
-                "call_id": call.call_id,
-                "path": relative,
-                "before": before,
-                "after": None,
-                "state": "intent",
-            }
-            self.record["entries"].append(entry)
-            # 写入前为后版本编码预留空间，单 run 日志保持在 16MiB 以内。
-            encoded = json.dumps(self.record).encode()
-            if len(encoded) + 2 * MAX_FILE_BYTES > 16 * 1024**2:
-                self.record["entries"].pop()
-                raise ValueError("change journal quota exceeded")
+            for operation in operations:
+                relative = operation.get("path")
+                if not isinstance(relative, str):
+                    raise ToolFailure("invalid_path: missing file target")
+                before = snapshot(self.root, relative)
+                desired = operation.get("content")
+                if call.name == "edit_file" and before is not None:
+                    text = base64.b64decode(before["data"]).decode("utf-8")
+                    old, new = operation.get("old_text"), operation.get("new_text")
+                    if (
+                        isinstance(old, str)
+                        and old
+                        and isinstance(new, str)
+                        and text.count(old) == 1
+                    ):
+                        desired = text.replace(old, new, 1)
+                if before is not None:
+                    expected = operation.get("expected_sha256") or self.read_versions.get(relative)
+                    # 生产链不再在写前自动挑选新版本，防止覆盖读取后的用户修改。
+                    if self.require_read and expected is None:
+                        raise ToolFailure(f"read_required: {relative}")
+                    if expected is not None and (
+                        not isinstance(expected, str) or expected.lower() != before["sha256"]
+                    ):
+                        raise ToolFailure(f"conflict: read version changed: {relative}")
+                    operation["expected_sha256"] = expected or before["sha256"]
+                elif call.name == "write_file":
+                    operation["expected_absent"] = True
+                # 已知目标可精确预留 base64 正文及元数据，避免十六个小文件被最坏单文件额度误拒。
+                after_reserved += (
+                    max(
+                        ((len(desired.encode()) + 2) // 3) * 4,
+                        len(before["data"]) if before is not None else 0,
+                    )
+                    + 1024
+                    if isinstance(desired, str)
+                    else 2 * MAX_FILE_BYTES
+                )
+                entries.append(
+                    {
+                        "call_id": call.call_id,
+                        "path": relative,
+                        "before": before,
+                        "after": None,
+                        "state": "intent",
+                    }
+                )
+                predictions.append(
+                    hashlib.sha256(desired.encode()).hexdigest()
+                    if isinstance(desired, str)
+                    else None
+                )
+            # 一次写入全部 intent，任何预检失败都没有目标文件副作用。
+            old_count = len(self.record["entries"])
+            self.record["entries"].extend(entries)
+            if len(json.dumps(self.record).encode()) + after_reserved > 16 * 1024**2:
+                del self.record["entries"][old_count:]
+                raise ValueError("journal quota exceeded")
             save(self.path, self.record)
-        except (OSError, ValueError, ToolFailure):
-            # 日志不可用时停止本次修改，不能先写文件再承诺可恢复。
+        except ToolFailure as error:
+            return ToolResult(call_id=call.call_id, content=str(error), is_error=True)
+        except (OSError, ValueError):
             return ToolResult(
                 call_id=call.call_id, content="change_journal_unavailable", is_error=True
             )
         result = await self.registry.execute(call.model_copy(update={"arguments": arguments}))
-        # 即使工具错误也核对版本；写入后报错不能误标成没有副作用。
-        entry["after"] = snapshot(self.root, relative)
-        entry["state"] = "failed" if result.is_error else "confirmed"
-        # 工具成功不足以确认归属，还要与事先预计的字节及普通权限一致。
-        if not result.is_error and (
-            entry["after"] is None
-            or entry["after"]["sha256"] != predicted
-            or entry["after"]["mode"] != (before["mode"] if before else 0o600)
-        ):
-            entry["state"] = "unknown"
+        applied: list[str] = []
+        if extra:
+            try:
+                report = json.loads(result.content)
+                if report.get("kind") == "edit_batch" and isinstance(report.get("applied"), list):
+                    applied = report["applied"]
+            except (ValueError, AttributeError):
+                pass
+        for entry, predicted in zip(entries, predictions, strict=True):
+            entry["after"] = snapshot(self.root, entry["path"])
+            entry["state"] = "failed" if result.is_error else "confirmed"
+            confirmed = not result.is_error or entry["path"] in applied
+            # 批次整体失败不否定明确完成的文件，但还必须核验真实目标版本。
+            if confirmed:
+                image = entry["after"]
+                mode = entry["before"]["mode"] if entry["before"] else 0o600
+                valid = image is not None and image["sha256"] == predicted and image["mode"] == mode
+                entry["state"] = "confirmed" if valid else "unknown"
+                if valid:
+                    self.read_versions[entry["path"]] = image["sha256"]
         save(self.path, self.record)
         return result
 

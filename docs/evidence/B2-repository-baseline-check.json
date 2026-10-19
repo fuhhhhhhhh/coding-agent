@@ -1,0 +1,15 @@
+{
+  "original": {
+    "exit_code": 0,
+    "stdout": "**********************************************************************\nFile \"/workspace/boltons/iterutils.py\", line 455, in boltons.iterutils.pairwise_iter\nFailed example:\n    list(pairwise_iter(range(3), end=None))\nExpected:\n    [(0, 1), (1, 2), (2, None)]    \nGot:\n    [(0, 1), (1, 2), (2, None)]\n**********************************************************************\n1 items had failures:\n   1 of   3 in boltons.iterutils.pairwise_iter\n***Test Failed*** 1 failures.\nDOCTEST_COUNTS TestResults(failed=0, attempted=80) TestResults(failed=1, attempted=117)\nACTUAL_BYTES_FILL [b'ab', b'cd', b'ex']\n",
+    "stderr": ""
+  },
+  "candidate": {
+    "exit_code": 0,
+    "stdout": "**********************************************************************\nFile \"/workspace/boltons/iterutils.py\", line 451, in boltons.iterutils.pairwise_iter\nFailed example:\n    list(pairwise_iter(range(3), end=None))\nExpected:\n    [(0, 1), (1, 2), (2, None)]    \nGot:\n    [(0, 1), (1, 2), (2, None)]\n**********************************************************************\n1 items had failures:\n   1 of   3 in boltons.iterutils.pairwise_iter\n***Test Failed*** 1 failures.\nDOCTEST_COUNTS TestResults(failed=0, attempted=80) TestResults(failed=1, attempted=117)\nACTUAL_BYTES_FILL [b'ab', b'cd', b'ex']\n",
+    "stderr": ""
+  },
+  "raw_output_equal": false,
+  "comparison_note": "Ignore only doctest source line numbers shifted by candidate edits; compare every other output byte and exit code.",
+  "same_result": true
+}

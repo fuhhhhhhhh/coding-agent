@@ -45,6 +45,7 @@ class BackendEvent(Contract):
         "resource_sampled",
         "artifact_exported",
         "backend_closed",
+        "backend_close_failed",
         "stale_container_removed",
     ]
     backend_id: str

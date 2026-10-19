@@ -8,6 +8,8 @@
 import asyncio
 import json
 import os
+import shutil
+import tempfile
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -19,7 +21,10 @@ from codepilot.contracts import ToolCall, ToolResult
 from codepilot.sessions.outputs import CURRENT_OUTPUT, FileCapture
 from codepilot.tools import create_basic_registry
 from codepilot.tools.base import ToolSpec
+from codepilot.tools.file_common import _atomic_write
 from codepilot.tools.process import settle
+from codepilot.workspace.archive import unpack
+from codepilot.workspace.bounded import seed_archive
 from codepilot.workspace.common import BackendJournal, export_file, read_limited
 from codepilot.workspace.models import BackendEvent, BackendLimits, CommandResult
 from codepilot.workspace.output_stream import stream_worker
@@ -43,10 +48,12 @@ class DockerExecutionBackend:
         *,
         limits: BackendLimits | None = None,
         network: str = "none",
+        workspace_mode: str = "bind",
         owner: str | None = None,
         lifetime_seconds: int = 3600,
         runner: DockerRunner | None = None,
         audit_directory: Path | None = None,
+        on_container: Callable[[str], None] | None = None,
     ) -> None:
         """校验并保存任务配置，但暂不访问 Docker daemon。
 
@@ -65,11 +72,27 @@ class DockerExecutionBackend:
             raise ValueError("network access requires a future explicit policy")
         if lifetime_seconds < 60:
             raise ValueError("container lifetime must be at least 60 seconds")
+        self.on_container = on_container
         self.image = image
         self.limits = limits or BackendLimits()
         # bind/宿主目录没有可强制的文件系统容量边界，请求硬配额必须失败关闭。
-        if self.limits.workspace_bytes is not None:
+        if workspace_mode not in {"bind", "bounded-copy"}:
+            raise ValueError("unsupported workspace mode")
+        if self.limits.workspace_bytes is not None and workspace_mode == "bind":
             raise ValueError("hard workspace disk quota is unavailable for this backend")
+        if workspace_mode == "bounded-copy" and (
+            self.limits.workspace_bytes is None
+            or not 1024**2 <= self.limits.workspace_bytes <= 64 * 1024**2
+            or self.limits.workspace_bytes % 4096
+            or self.limits.workspace_bytes > self.limits.memory_bytes // 4
+        ):
+            raise ValueError(
+                "bounded workspace requires page-aligned 1..64MiB and at most one quarter of memory"
+            )
+        self.workspace_mode = workspace_mode
+        self._bounded_seeded = False
+        self._bounded_final = False
+        self._main_pid = 0
         self.network = network
         # 默认 owner 跨控制器进程保持稳定，崩溃后的新进程才能找到本用户遗留容器。
         self.owner = owner or f"codepilot-uid-{os.getuid()}"
@@ -135,23 +158,58 @@ class DockerExecutionBackend:
             raise RuntimeError(f"docker image unavailable: {_safe_error(stderr)}")
         image_id = stdout.decode().strip()
         container_user = await self._container_user()
+        if self.workspace_mode == "bounded-copy" and container_user != "0:0":
+            raise RuntimeError("bounded workspace currently requires Rootless Docker")
         command = self._create_command(image_id, container_user)
         code, stdout, stderr = await self._docker(command)
         if code != 0:
             raise RuntimeError(f"docker create failed: {_safe_error(stderr)}")
         self._container_id = stdout.decode().strip()
-        code, _, stderr = await self._docker(("start", self._container_id))
-        if code != 0:
-            # 创建后启动失败仍必须删除，不能留下无人管理的容器。
-            await self._docker(("rm", "-f", self._container_id))
-            self._container_id = ""
-            raise RuntimeError(f"docker start failed: {_safe_error(stderr)}")
         try:
+            # 登记失败也属于创建后的失败，必须进入相同清理出口。
+            if self.on_container is not None:
+                self.on_container(self._container_id)
+            code, _, stderr = await self._docker(("start", self._container_id))
+            if code != 0:
+                raise RuntimeError(f"docker start failed: {_safe_error(stderr)}")
+            if self.workspace_mode == "bounded-copy":
+                # start 返回不代表主进程已写日志；只轮询无副作用的身份读取。
+                for _ in range(20):
+                    code, output, _ = await self._docker(("logs", self._container_id))
+                    if code == 0 and output.strip().isdigit():
+                        break
+                    await asyncio.sleep(0.05)
+                else:
+                    raise RuntimeError("bounded container main identity unavailable")
+                self._main_pid = int(output.strip())
+                payload = seed_archive(self.root, self.limits.workspace_bytes or 0)
+                code, _, _ = await self._runner(
+                    (
+                        "exec",
+                        "-i",
+                        self._container_id,
+                        "python",
+                        "-m",
+                        "codepilot.workspace.archive",
+                        "import",
+                        "--limit",
+                        str(self.limits.workspace_bytes),
+                    ),
+                    payload,
+                    65536,
+                )
+                if code != 0:
+                    raise RuntimeError("bounded workspace seed failed; source unchanged")
+                self._bounded_seeded = True
             await self._verify_worker()
         except BaseException:
             # 镜像内容与控制器不一致时不能继续执行模型请求。
-            await asyncio.shield(self._docker(("rm", "-f", "-v", self._container_id)))
-            self._container_id = ""
+            code, _, _ = await asyncio.shield(self._docker(("rm", "-f", "-v", self._container_id)))
+            if code == 0:
+                self._container_id = ""
+            else:
+                # 删除失败保留确切身份，不把尚存资源伪报成已关闭。
+                self._record("backend_close_failed", outcome="startup_remove_failed")
             raise
         self._started = True
         self._record("backend_started", outcome="ready")
@@ -190,6 +248,12 @@ class DockerExecutionBackend:
             outcome="error" if result.is_error else "success",
             duration_seconds=time.monotonic() - started,
         )
+        if self.workspace_mode == "bounded-copy" and call.name in {
+            "write_file",
+            "edit_file",
+            "shell",
+        }:
+            await self._checkpoint_bounded()
         await self.sample_resources()
         return result
 
@@ -256,6 +320,8 @@ class DockerExecutionBackend:
             ),
             duration_seconds=time.monotonic() - started,
         )
+        if self.workspace_mode == "bounded-copy" and not self._cancelled:
+            await self._checkpoint_bounded()
         return result
 
     async def cancel(self) -> None:
@@ -270,6 +336,12 @@ class DockerExecutionBackend:
             return
         self._cancelled = True
         if self._container_id:
+            if (
+                self.workspace_mode == "bounded-copy"
+                and self._bounded_seeded
+                and not self._bounded_final
+            ):
+                await self._checkpoint_bounded(final=True)
             code, _, stderr = await self._docker(("kill", self._container_id))
             if code != 0:
                 self._record("backend_cancelled", outcome="kill_failed")
@@ -310,6 +382,45 @@ class DockerExecutionBackend:
             return
         self._record("resource_sampled", outcome="sampled", cpu_percent=cpu, memory_bytes=memory)
 
+    async def _checkpoint_bounded(self, *, final: bool = False) -> None:
+        """从容器内导出 tmpfs，校验后刷新私有镜像；最终检查点先停其他写进程。"""
+        limit = self.limits.workspace_bytes or 0
+        cap = limit * 2 + 32 * 1024**2
+        argv: tuple[str, ...] = (
+            "exec",
+            self._container_id,
+            "python",
+            "-m",
+            "codepilot.workspace.archive",
+            "export",
+            "--limit",
+            str(limit),
+        )
+        if final:
+            argv += ("--main-pid", str(self._main_pid))
+        try:
+            code, data, _ = await self._runner(argv, None, cap + 1)
+            if code != 0 or len(data) > cap:
+                raise RuntimeError("bounded workspace export failed; container retained")
+            # 不信任容器产物的 tar 路径；验证完整归档后才更新控制器镜像。
+            with tempfile.TemporaryDirectory(
+                prefix="bounded-checkpoint-", dir=self.root.parent
+            ) as temp:
+                decoded = Path(temp)
+                unpack(data, decoded, limit)
+                _atomic_write(self.root.parent / "bounded-latest.tar", data)
+                for item in self.root.iterdir():
+                    if item.is_dir() and not item.is_symlink():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+                shutil.copytree(decoded, self.root, dirs_exist_ok=True)
+            if final:
+                self._bounded_final = True
+        except BaseException:
+            self._record("backend_close_failed", outcome="bounded_export_incomplete")
+            raise
+
     async def close(self) -> None:
         """删除当前 backend 拥有的容器和匿名卷，并使关闭操作幂等。
 
@@ -321,9 +432,16 @@ class DockerExecutionBackend:
         if self._closed:
             return
         if self._container_id:
+            # tmpfs 随停止消失；导出失败必须保留容器，而不是清理掉唯一的最新产物。
+            if (
+                self.workspace_mode == "bounded-copy"
+                and self._bounded_seeded
+                and not self._bounded_final
+            ):
+                await self._checkpoint_bounded(final=True)
             code, _, stderr = await self._docker(("rm", "-f", "-v", self._container_id))
             if code != 0:
-                self._record("backend_closed", outcome="remove_failed")
+                self._record("backend_close_failed", outcome="remove_failed")
                 raise RuntimeError(f"docker remove failed: {_safe_error(stderr)}")
         self._closed = True
         self._record("backend_closed", outcome="removed")
@@ -368,7 +486,7 @@ class DockerExecutionBackend:
                 "--filter",
                 f"label=codepilot.owner={owner}",
                 "--format",
-                '{{.ID}} {{.Label "codepilot.expires_at"}}',
+                '{{.ID}} {{.Label "codepilot.expires_at"}} {{.Label "codepilot.workspace_mode"}}',
             ),
             None,
             262_144,
@@ -378,9 +496,12 @@ class DockerExecutionBackend:
         removed: list[str] = []
         now = int(time.time())
         for line in stdout.decode(errors="replace").splitlines():
-            parts = line.split(maxsplit=1)
+            parts = line.split()
+            # 限容副本可能仍持有唯一的未导出正文，过期不能授权静默丢弃任务成果。
+            if len(parts) == 3 and parts[2] != "bind":
+                continue
             # 标签缺失或损坏时不误删；仅清理由本协议创建且明确过期的容器。
-            if len(parts) != 2 or not parts[1].isdigit() or int(parts[1]) > now:
+            if len(parts) not in {2, 3} or not parts[1].isdigit() or int(parts[1]) > now:
                 continue
             container_id = parts[0]
             result, _, _ = await runner(("rm", "-f", "-v", container_id), None, 262_144)
@@ -399,6 +520,14 @@ class DockerExecutionBackend:
         `container_user` 由 `_container_user` 决定；镜像使用已解析的 ID，避免同一
         标签在任务执行期间漂移到另一份镜像。
         """
+        mount = ("--mount", f"type=bind,src={self.root},dst=/workspace")
+        entry = "import time; time.sleep(2147483647)"
+        if self.workspace_mode == "bounded-copy":
+            mount = (
+                "--tmpfs",
+                f"/workspace:rw,nosuid,nodev,size={self.limits.workspace_bytes},mode=0700,nr_inodes=20000",
+            )
+            entry = "import os,time; print(os.getpid(),flush=True); time.sleep(2147483647)"
         return (
             "create",
             "--name",
@@ -409,6 +538,8 @@ class DockerExecutionBackend:
             f"codepilot.owner={self.owner}",
             "--label",
             f"codepilot.expires_at={self.expires_at}",
+            "--label",
+            f"codepilot.workspace_mode={self.workspace_mode}",
             "--network",
             self.network,
             "--read-only",
@@ -428,9 +559,7 @@ class DockerExecutionBackend:
             container_user,
             "--workdir",
             "/workspace",
-            "--mount",
-            # bind 挂载默认可写；Docker 29 的 --mount 语法不接受独立的 rw 字段。
-            f"type=bind,src={self.root},dst=/workspace",
+            *mount,
             "--tmpfs",
             "/tmp:rw,noexec,nosuid,nodev,size=67108864",
             "--init",
@@ -439,7 +568,7 @@ class DockerExecutionBackend:
             image_id,
             "python",
             "-c",
-            "import time; time.sleep(2147483647)",
+            entry,
         )
 
     async def _container_user(self) -> str:

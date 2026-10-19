@@ -331,6 +331,14 @@ def test_continuous_session_uses_failed_test_then_repairs_and_rechecks(
                     role="assistant",
                     tool_calls=(
                         ToolCall(
+                            call_id="read-answer", name="read_file", arguments={"path": "answer.py"}
+                        ),
+                    ),
+                ),
+                Message(
+                    role="assistant",
+                    tool_calls=(
+                        ToolCall(
                             call_id="fix",
                             name="edit_file",
                             arguments={

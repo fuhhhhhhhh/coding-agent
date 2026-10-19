@@ -2,7 +2,7 @@ ARG PYTHON_IMAGE=python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948
 FROM ${PYTHON_IMAGE}
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends git \
+    && apt-get install --yes --no-install-recommends git ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/codepilot

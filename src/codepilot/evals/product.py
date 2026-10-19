@@ -567,9 +567,10 @@ def summarize(suite: Suite, plan: str, results: list[dict[str, Any]]) -> dict[st
         "release_ready": False,
         "release_blockers": [
             "B2 network/secrets boundary incomplete",
-            "no hard workspace disk quota",
+            "hard quota requires bounded-copy; "
+            "worktree/extensions and orphan tmpfs auto-export unsupported",
             "Docker isolated Git supports repository roots only",
-            "undo excludes unowned Shell/extension changes and legacy runs",
+            "bind undo excludes unowned Shell/extension changes; legacy runs lack snapshots",
         ],
         "results": results,
     }

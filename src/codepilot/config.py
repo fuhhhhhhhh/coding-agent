@@ -68,6 +68,7 @@ class BackendConfig(Contract):
 
     kind: Literal["local", "docker"] = "local"
     docker_image: str | None = None
+    workspace_mode: Literal["bind", "bounded-copy"] = "bind"
     limits: BackendLimits = BackendLimits()
 
     @model_validator(mode="after")
@@ -77,6 +78,8 @@ class BackendConfig(Contract):
             raise ValueError("docker backend requires docker_image")
         if self.kind == "local" and self.docker_image is not None:
             raise ValueError("local backend does not accept docker_image")
+        if self.workspace_mode == "bounded-copy" and self.kind != "docker":
+            raise ValueError("bounded workspace requires Docker")
         return self
 
 
@@ -109,6 +112,7 @@ class SessionConfig(Contract):
     max_requests: Annotated[int, Field(ge=1)] = 1000
     max_input_tokens: Annotated[int, Field(ge=1)] = 100_000_000
     max_output_tokens: Annotated[int, Field(ge=1)] = 10_000_000
+    workspace_artifact_bytes: Annotated[int, Field(ge=1024**2)] = 1024**3
     retention_days: Annotated[int, Field(ge=1, le=3650)] = 30
 
 
@@ -125,6 +129,28 @@ class ProductConfig(Contract):
     context: ContextLimits = ContextLimits()
     scheduler_concurrency: Annotated[int, Field(ge=1, le=32)] = 4
     state_directory: Path | None = None
+
+    @property
+    def execution_mode(self) -> str:
+        """默认会话身份保持兼容，仅显式复制模式增加新的执行身份。"""
+        base = f"{self.backend.kind}:{self.git_workspace.enabled}"
+        return base if self.backend.workspace_mode == "bind" else base + ":bounded-copy"
+
+    @model_validator(mode="after")
+    def validate_workspace_mode(self) -> Self:
+        """限容副本当前不组合另一个 Git worktree 或共享后台执行环境。"""
+        if self.backend.workspace_mode == "bounded-copy":
+            quota = self.backend.limits.workspace_bytes
+            if quota is None or not 1024**2 <= quota <= 64 * 1024**2 or quota % 4096:
+                raise ValueError("bounded workspace requires page-aligned 1..64MiB workspace_bytes")
+            # 导入归档和 Python worker 也占同一内存限额，不能把整段内存都承诺给 tmpfs。
+            if quota > self.backend.limits.memory_bytes // 4:
+                raise ValueError("bounded workspace quota must not exceed one quarter of memory")
+            if self.git_workspace.enabled or self.extensions.enabled:
+                raise ValueError(
+                    "bounded workspace cannot combine worktree or executable extensions"
+                )
+        return self
 
     @field_validator("state_directory", mode="before")
     @classmethod
@@ -207,7 +233,7 @@ def _validate_project_security(layer: Mapping[str, Any], current: Mapping[str, A
             raise ValueError(f"工作区配置不能修改 Provider 安全字段：{names}")
     backend = layer.get("backend")
     if isinstance(backend, Mapping):
-        forbidden = {"kind", "docker_image"}.intersection(backend)
+        forbidden = {"kind", "docker_image", "workspace_mode"}.intersection(backend)
         if forbidden:
             names = ", ".join(sorted(str(item) for item in forbidden))
             raise ValueError(f"工作区配置不能修改执行后端字段：{names}")

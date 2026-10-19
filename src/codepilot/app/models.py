@@ -39,5 +39,6 @@ class ProductRunResult(Contract):
     permission_audits: tuple[PermissionAudit, ...]
     backend_events: tuple[BackendEvent, ...]
     delivery: GitDelivery | None = None
+    bounded_delivery: dict[str, Any] | None = None
     execution_source: Literal["agent", "user_command"] = "agent"
     session_budget: dict[str, Any] = {}

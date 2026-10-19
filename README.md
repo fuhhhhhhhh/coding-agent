@@ -234,7 +234,7 @@ codepilot eval-compare /tmp/first/report.json /tmp/second/report.json
 首次使用真实模型需要已有有效用户配置和凭据；本项目不把密钥放进评测清单或 CI。
 
 目前 B5 的任务验收与成熟发布分别判定：`task_gate_passed` 不能替代 `release_ready`。
-网络/秘密、硬磁盘配额、worktree+Docker Git 和安全撤销仍是成熟发布阻断，不会由“样本通过”自动消失。
+网络/秘密和 B5 最终复验仍是成熟发布阻断。Docker 独立 Git、安全文件撤销和显式限容副本已有受限验收，不会由样本通过自动扩大支持范围。
 详细机制、支持范围及推荐阅读入口见 [B5 设计](docs/design/B5.md)、[B5 阅读说明](docs/learning/B5.md)。
 
 文件工具修改可以在任务结束后审查和有条件撤销，两个命令均不请求模型：
@@ -247,6 +247,20 @@ codepilot undo SESSION_ID RUN_ID --apply    # 检查全部版本后恢复原有�
 
 记录从本版本的新任务开始保存，只认领已确认的 `write_file`/`edit_file`；用户事后改动、未知调用、日志损坏会阻止撤销。Shell/扩展写入不在一键撤销范围，跨文件恢复不提供事务原子保证。原始正文保存在私有会话目录并随会话保留策略清理。默认依然直接修改当前目录。
 
-Docker 的显式 `--worktree` 在仓库根目录使用固定起点的完整独立 Git 副本，容器内 Git 可正常运行；源 Git 元数据与凭据不挂载，交付含任务中已经 commit 的文件变化。Docker 继续断网；当前工作区挂载没有硬磁盘配额，请求 `backend.limits.workspace_bytes` 会明确失败，不静默降级。
+Docker 的显式 `--worktree` 在仓库根目录使用固定起点的完整独立 Git 副本，容器内 Git 可正常运行；源 Git 元数据与凭据不挂载，交付含任务中已经 commit 的文件变化。Docker 继续断网；默认 bind 挂载没有硬磁盘配额；只有显式 bounded-copy 支持 Rootless tmpfs 硬限容，不静默改变执行模式。
 
 交互会话中可使用 `/changes RUN_ID` 和 `/undo RUN_ID [--apply]`，输入 `/` 或 `/help` 可发现入口。隔离任务的独立验证也运行在所选后端，Docker 验证不会回退宿主。
+
+### 显式限容副本与真实仓库工具
+
+默认仍直写当前目录。需要限制任务盘容量时：
+
+```bash
+codepilot --backend docker --docker-image codepilot-sandbox:0.1.0 --bounded-workspace-bytes 8388608
+```
+
+当前仅 Linux Rootless Docker，1—64MiB、4096 字节对齐且不超过容器内存四分之一。不与 `--worktree` 或可执行扩展组合。副本从实际脏文件创建，排除源 `.git`、`.env*` 和缓存；容器仍断网。正常结束才按源文件版本交付，失败/取消保留产物；Runtime completed 不代表测试通过。源文件冲突不会自动覆盖，可用 `codepilot delivery SESSION RUN` 预览、加 `--apply` 显式交付，`codepilot undo SESSION RUN --apply` 有条件撤销。交互中对应 `/delivery RUN`、`/changes RUN`、`/undo RUN --apply`。
+
+生产 `read_file` 默认分页，返回 SHA-256、总行数和 next_cursor；续页必须携带原版本。修改已有文件先用 read_file 读取或提供明确 expected_sha256，过期版本拒绝写入。`edit_file.additional_edits` 最多追加 15 个文件，整批预检查后逐文件执行，失败明确列出 applied/failed/unattempted，不承诺跨文件原子事务。检索遵守忽略规则，隐藏/忽略文件显式选择，报告扫描范围和截断。
+
+限容 tmpfs 会随容器停止消失；控制器在修改后保存检查点、最终退出前导出，导出失败保留容器。OOM/主机故障仍可能损失检查点后的内容，不承诺掉电耐久性。控制器私有产物的会话逻辑额度和保留期另行配置，不等于宿主物理磁盘硬配额。详见 [B2 设计](docs/design/B2.md) 和 [阅读顺序](docs/learning/B2.md)。

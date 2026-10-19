@@ -91,7 +91,22 @@ def provider(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
                     arguments={"path": "public_test.py", "content": "pass\n"},
                 )
             )
-        script = [Message(role="assistant", tool_calls=tuple(calls))] if calls else []
+        reads = tuple(
+            ToolCall(
+                call_id="read-" + item.call_id,
+                name="read_file",
+                arguments={"path": item.arguments["path"]},
+            )
+            for item in calls
+        )
+        script = (
+            [
+                Message(role="assistant", tool_calls=reads),
+                Message(role="assistant", tool_calls=tuple(calls)),
+            ]
+            if calls
+            else []
+        )
         script.append(Message(role="assistant", content="模型声称已完成"))
         return service._ProviderHandle(FakeProvider(tuple(script)))
 
@@ -446,7 +461,7 @@ def test_independent_success_does_not_require_model_final_claim(
     config, suite = fixture(tmp_path)
     provider(monkeypatch, "repair")
     config = config.model_copy(
-        update={"runtime": config.runtime.model_copy(update={"max_steps": 1})}
+        update={"runtime": config.runtime.model_copy(update={"max_steps": 2})}
     )
     result = asyncio.run(ProductHarness(config, tmp_path / "steps", approve_tools=True).run(suite))
     assert result["counts"]["success"] == 3

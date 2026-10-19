@@ -207,6 +207,12 @@ class EventRenderer:
                 f"输入 {budget['input_tokens']} / 输出 {budget['output_tokens']} Token · "
                 f"未结算 {budget['pending_attempts']} · 费用 {budget['cost_status']}"
             )
+        if result.bounded_delivery is not None:
+            bounded = result.bounded_delivery
+            self._line(f"[受限副本交付] {bounded['state']} · {len(bounded['files'])} 个文件")
+            if bounded["conflicts"]:
+                self._line("[交付冲突] 源文件已变化，产物保留；没有覆盖这些用户修改。")
+            self._line(f"[保留副本] {bounded['artifact_root']}")
         if result.delivery is not None:
             delivery = result.delivery
             self._line(f"[Git 起点] {delivery.base_commit}")

@@ -187,7 +187,7 @@ def test_provider_initialization_failure_still_closes_backend_and_artifacts(
     captured: list[LocalExecutionBackend] = []
 
     def backend_factory(
-        config: ProductConfig, root: Path, audit_directory: Path
+        config: ProductConfig, root: Path, audit_directory: Path, *, on_container: object = None
     ) -> LocalExecutionBackend:
         """记录尚未启动的真实 Local 后端，供失败后核对关闭状态。"""
         backend = LocalExecutionBackend(root, audit_directory=audit_directory)
@@ -225,7 +225,7 @@ def test_backend_start_failure_uses_the_same_cleanup_exit(
             raise RuntimeError("backend handshake failed")
 
     def backend_factory(
-        config: ProductConfig, root: Path, audit_directory: Path
+        config: ProductConfig, root: Path, audit_directory: Path, *, on_container: object = None
     ) -> LocalExecutionBackend:
         """创建并保留故障后端，供退出后检查关闭事件。"""
         backend = FailingBackend(root, audit_directory=audit_directory)
@@ -272,7 +272,7 @@ def test_cancellation_reaches_backend_and_records_one_terminal_event(
         backends: list[LocalExecutionBackend] = []
 
         def backend_factory(
-            config: ProductConfig, root: Path, audit_directory: Path
+            config: ProductConfig, root: Path, audit_directory: Path, *, on_container: object = None
         ) -> LocalExecutionBackend:
             """保留产品创建的 Local 后端以核对取消和关闭事件。"""
             backend = LocalExecutionBackend(root, audit_directory=audit_directory)

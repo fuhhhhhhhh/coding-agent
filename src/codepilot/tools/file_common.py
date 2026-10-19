@@ -64,7 +64,7 @@ def _check_expected_hash(path: Path, expected_sha256: str | None) -> None:
     if not path.exists():
         raise ToolFailure("conflict: expected an existing file")
     actual = _sha256(path)
-    if actual != expected_sha256:
+    if actual != expected_sha256.lower():
         raise ToolFailure(f"conflict: expected_sha256={expected_sha256} actual_sha256={actual}")
 
 

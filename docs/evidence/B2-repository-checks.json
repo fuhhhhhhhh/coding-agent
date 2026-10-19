@@ -1,0 +1,151 @@
+{
+  "date": "2026-10-19T12:43:02.305109+00:00",
+  "base_commit": "34bb09a3aa1a90a2f33217a5fdfca0ca7887a0fc",
+  "offline_python314": {
+    "passed": 360,
+    "skipped": 15,
+    "seconds": 18.81
+  },
+  "noneditable_wheel_python311": {
+    "passed": 360,
+    "skipped": 15,
+    "seconds": 23.46
+  },
+  "rootless_docker": {
+    "passed": 15,
+    "skipped": 0,
+    "seconds": 111.45
+  },
+  "wheel": {
+    "status": "passed",
+    "python_files": 109,
+    "wheel_sha256": "6aa674d4f7614adcfbdca08cb027b2fd57311d302436976faa1bfeffd5d5cb95"
+  },
+  "image": {
+    "image_id": "sha256:abd02ae86cf24391ec0fda410b4074f52003e86f8e19d6ca5b2d742ff5d0f573",
+    "python_files": 109,
+    "source_bytes_match": true
+  },
+  "doctor": {
+    "schema_version": 1,
+    "ready": true,
+    "python": "3.11.16",
+    "platform": "linux",
+    "package_version": "0.1.0",
+    "database_version": 2,
+    "backend": "docker",
+    "model": "deepseek-flash",
+    "checks": {
+      "git": {
+        "available": true
+      },
+      "rg": {
+        "available": true
+      },
+      "docker": {
+        "available": true
+      },
+      "workspace": {
+        "readable": true,
+        "writable": true
+      },
+      "execution_boundary": {
+        "network": "none",
+        "hard_workspace_quota": true,
+        "workspace_mode": "bounded-copy",
+        "requested_workspace_bytes": 8388608,
+        "secret_injection": false,
+        "worktree_git": "unsupported-with-bounded-copy"
+      },
+      "storage": {
+        "path": "/home/fuxiangyu/.local/state/codepilot",
+        "writable_parent": true,
+        "free_bytes": 1685402898432
+      },
+      "daemon": {
+        "available": true,
+        "version": "29.1.3",
+        "storage_driver": "overlayfs",
+        "rootless": true
+      },
+      "image": {
+        "available": true,
+        "id": "sha256:66c5d46cc634d47777c03a651d96b2b2407663ea0597dcf652c4b929f9788e15"
+      }
+    },
+    "limits": [
+      "Docker network=none",
+      "bounded-copy tmpfs is volatile, Rootless-only, and excludes source .git/.env files",
+      "Docker isolated Git requires repository root and an independent clone",
+      "bounded-copy delivers and undoes verified source versions, including Shell edits",
+      "scoped networking and secret injection unavailable"
+    ]
+  },
+  "static": {
+    "ruff": "all directories passed",
+    "format_files": 198,
+    "mypy_files": 151,
+    "documentation_tests": 2
+  },
+  "real": {
+    "evidence": "B2-repository-live.json",
+    "provider": "official DeepSeek",
+    "model": "deepseek-flash",
+    "request_cap": 64,
+    "requests": 31,
+    "input_tokens": 384662,
+    "output_tokens": 8928,
+    "trials": 2,
+    "runtime_completed": 2,
+    "independent_passed": 2,
+    "tools": 38,
+    "tool_success": 31,
+    "tool_errors": 7,
+    "protected_files_unchanged": true
+  },
+  "earlier_runs": {
+    "focused_rootless": "4 passed / 131.00s",
+    "intermediate_rootless": "15 passed / 258.75s",
+    "pre_diagnostic_rootless": "15 passed / 80.24s"
+  },
+  "failures_preserved": [
+    "Initial legacy fake providers wrote existing files without reading; production read-version guard rejected them. Tests now perform actual reads, no bypass added.",
+    "A full run was interrupted after two fixture failures because fake backend factories rejected on_container before reaching cancellation barriers; fixture signatures corrected, not counted as product cancellation success.",
+    "Initial cursor shrink test exposed validation order; stale SHA now reports conflict before EOF cursor mismatch.",
+    "Real docker cp omitted tmpfs file even with pause; implementation uses in-container bounded archive export.",
+    "Static contract review found per-file worst-case reservation rejected sixteen tiny edits; reserve max(original,target) encoded bytes plus metadata, validate sixteen real-worker edits and undo.",
+    "Final export fault retains exact container; restored transport exported then removed it. Stale/prune paths refuse bounded tmpfs disposal.",
+    "Real trials had seven tool errors, including invalid cursors and extra assertions/queries. All included in live evidence.",
+    "Literal upstream/candidate doctest-output equality failed because source line numbers shifted. Normalizing only those line numbers proves all other stdout/stderr and exit codes equal; raw_output_equal=false retained."
+  ],
+  "not_run": [
+    "Windows/macOS TTY",
+    "authorized network and scoped secret injection",
+    "orphan tmpfs automatic export recovery",
+    "power-loss/daemon-crash durability",
+    "full upstream test suites and repeated B5 release matrix",
+    "real-model A/B measurement of clarified cursor descriptions"
+  ],
+  "remaining": [
+    "B2 controlled network/scoped short-lived secrets and recovery boundaries",
+    "B5 final release revalidation"
+  ],
+  "release_ready": false,
+  "commands": {
+    "offline": ".venv/bin/pytest -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning",
+    "docker": "CODEPILOT_DOCKER_LIVE=1 .venv/bin/pytest -q tests/test_bounded_docker_live.py tests/test_b2_docker_live.py tests/test_b4_docker_live.py tests/test_b5_docker_live.py tests/test_workspace_docker_live.py",
+    "wheel": "env -u PYTHONPATH /dev/shm/codepilot-b5-wheel-env/bin/python -m pytest -q /home/fuxiangyu/project/coding-agent/tests",
+    "build": "uv build --wheel; python scripts/check_wheel.py WHEEL",
+    "real": "ProductHarness(Suite repetitions=1, two fixed upstream tasks, request_cap=64), official DeepSeek Flash, bounded-copy 32MiB"
+  },
+  "final_resources": {
+    "managed_containers": 0,
+    "testcodingagent_clean": true,
+    "wheel_package_path": "/dev/shm/codepilot-b5-wheel-env/lib/python3.11/site-packages/codepilot"
+  },
+  "credential_scan": {
+    "files_scanned": 317,
+    "matches": 0,
+    "method": "existing credential resolver; exact in-memory match only, no key printed or persisted"
+  }
+}

@@ -7,6 +7,7 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -56,6 +57,7 @@ from codepilot.tasks.manager import TaskManager
 from codepilot.tools import create_basic_registry
 from codepilot.tools.base import ToolSpec
 from codepilot.workspace import DockerExecutionBackend, ExecutionBackend, LocalExecutionBackend
+from codepilot.workspace.bounded import BoundedWorkspace
 from codepilot.workspace.changes import ChangeJournal
 from codepilot.workspace.git import GitDelivery, GitTaskWorkspace
 
@@ -145,9 +147,7 @@ class CodePilotApplication:
                     self.profile["input_usd_per_million"],
                     self.profile["output_usd_per_million"],
                 ]
-            session.check(
-                self.workspace, f"{self.config.backend.kind}:{self.config.git_workspace.enabled}"
-            )
+            session.check(self.workspace, self.config.execution_mode)
             session.commit(
                 "configuration",
                 {},
@@ -229,6 +229,7 @@ class CodePilotApplication:
         backend_directory = run_directory / "backend"
         context_directory = session.directory / "artifacts"
 
+        bounded_workspace: BoundedWorkspace | None = None
         task_workspace: GitTaskWorkspace | None = None
         execution_workspace = self.workspace
         if self.config.git_workspace.enabled:
@@ -247,6 +248,25 @@ class CodePilotApplication:
             # 固定 commit 和独立 worktree 必须在后端或 Provider 创建前准备完成。
             execution_workspace = task_workspace.prepare()
 
+        if self.config.backend.workspace_mode == "bounded-copy":
+            # 会话锁下按最坏峰值预留私有副本/归档，不能绕过会话存储额度。
+            reservation = 7 * (self.config.backend.limits.workspace_bytes or 0) + 64 * 1024**2
+            reserved = session.get("bounded_storage_reserved", 0)
+            if reserved + reservation > self.config.sessions.workspace_artifact_bytes:
+                raise ValueError("bounded workspace artifact budget exhausted")
+            session.commit(
+                "bounded_storage_reserved",
+                {"run_id": identity.run_id, "bytes": reservation},
+                bounded_storage_reserved=reserved + reservation,
+            )
+            bounded_workspace = BoundedWorkspace(
+                self.workspace,
+                run_directory,
+                identity.run_id,
+                self.config.backend.limits.workspace_bytes or 0,
+            )
+            execution_workspace = bounded_workspace.prepare()
+
         backend: ExecutionBackend | None = None
         report = None
         permission = None
@@ -254,7 +274,12 @@ class CodePilotApplication:
         delivery: GitDelivery | None = None
         try:
             # 从后端构造开始纳入失败交付，避免初始化异常留下无人管理的 task worktree。
-            backend = _create_backend(self.config, execution_workspace, backend_directory)
+            backend = _create_backend(
+                self.config,
+                execution_workspace,
+                backend_directory,
+                on_container=lambda cid: session.resource("container", {"id": cid}),
+            )
             store = ContextArtifactStore(
                 context_directory,
                 persistent=True,
@@ -274,7 +299,13 @@ class CodePilotApplication:
                         self.config, execution_workspace, backend_directory / name
                     ),
                 )
-                journal = ChangeJournal(router, execution_workspace, run_directory, identity.run_id)
+                journal = ChangeJournal(
+                    router,
+                    execution_workspace,
+                    run_directory,
+                    identity.run_id,
+                    require_read=direct_tool is None,
+                )
                 context = ContextManager(
                     journal,
                     store,
@@ -431,6 +462,12 @@ class CodePilotApplication:
                     await asyncio.shield(backend.cancel())
                     raise
         except BaseException:
+            if bounded_workspace is not None:
+                # 失败或取消只保留快照，不能把未完成任务的代码复制回源目录。
+                try:
+                    bounded_workspace.finish(apply=False)
+                except Exception:
+                    pass
             if task_workspace is not None:
                 # 故障任务也导出已经产生的改动；清理不得覆盖原始异常或丢弃文件。
                 try:
@@ -440,6 +477,14 @@ class CodePilotApplication:
             raise
 
         journal.finish()
+        bounded_delivery = None
+        if bounded_workspace is not None:
+            eligible = report is not None and report.reason == "completed"
+            if direct_tool is not None and report is not None:
+                eligible = eligible and not any(
+                    m.tool_result and m.tool_result.is_error for m in report.messages
+                )
+            bounded_delivery = bounded_workspace.finish(apply=eligible)
         if task_workspace is not None:
             git_config = self.config.git_workspace
 
@@ -489,6 +534,7 @@ class CodePilotApplication:
             permission_audits=tuple(permission.audits),
             backend_events=backend.events,
             delivery=delivery,
+            bounded_delivery=bounded_delivery,
         )
 
 
@@ -502,7 +548,11 @@ def _state_root(config: ProductConfig) -> Path:
 
 
 def _create_backend(
-    config: ProductConfig, workspace: Path, audit_directory: Path
+    config: ProductConfig,
+    workspace: Path,
+    audit_directory: Path,
+    *,
+    on_container: Callable[[str], None] | None = None,
 ) -> ExecutionBackend:
     """根据严格配置构造唯一工作区后端，构造本身不启动容器。"""
     backend = config.backend
@@ -521,6 +571,8 @@ def _create_backend(
         workspace,
         backend.docker_image,
         limits=backend.limits,
+        workspace_mode=backend.workspace_mode,
+        on_container=on_container,
         audit_directory=audit_directory,
     )
 
@@ -597,6 +649,10 @@ def _initial_messages(workspace: Path, task: str) -> tuple[Message, ...]:
             content=(
                 "你是在一个固定工作区运行的 Coding Agent。先检查证据，再使用已提供的工具完成任务；"
                 "工具错误必须根据结果处理，不能声称未验证的修改或测试已经成功。"
+                "修改已有文件前先 read_file 或提供读取的 expected_sha256；"
+                "分页按 next_cursor 继续，版本冲突必须重读。"
+                "多文件可用 edit_file.additional_edits；"
+                "遇部分失败先审查 applied/failed/unattempted，不盲目重放整批。"
                 "需要 Git 操作时使用 shell 中的原生 git 命令；不要清除或覆盖用户已有的未提交修改。"
             ),
         )

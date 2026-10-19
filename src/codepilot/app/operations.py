@@ -66,9 +66,12 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
     checks["execution_boundary"] = {
         "network": "none" if config.backend.kind == "docker" else "host-unrestricted",
         "hard_workspace_quota": False,
+        "workspace_mode": config.backend.workspace_mode,
         "requested_workspace_bytes": config.backend.limits.workspace_bytes,
         "secret_injection": False,
-        "worktree_git": "independent-clone"
+        "worktree_git": "unsupported-with-bounded-copy"
+        if config.backend.workspace_mode == "bounded-copy"
+        else "independent-clone"
         if config.backend.kind == "docker"
         else "native-worktree",
     }
@@ -107,14 +110,25 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
         and checks["rg"]["available"]
         and checks["workspace"]["readable"]
         and checks["storage"]["writable_parent"]
-        and config.backend.limits.workspace_bytes is None
+        and (
+            config.backend.limits.workspace_bytes is None
+            or config.backend.workspace_mode == "bounded-copy"
+        )
     )
     if config.backend.kind == "docker":
         required = (
             required
             and checks.get("daemon", {}).get("available", False)
             and checks.get("image", {}).get("available", False)
+            and (
+                config.backend.workspace_mode != "bounded-copy"
+                or checks.get("daemon", {}).get("rootless", False)
+            )
         )
+    checks["execution_boundary"]["hard_workspace_quota"] = bool(
+        config.backend.workspace_mode == "bounded-copy"
+        and checks.get("daemon", {}).get("rootless", False)
+    )
     return {
         "schema_version": 1,
         "ready": bool(required),
@@ -127,9 +141,13 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
         "checks": checks,
         "limits": [
             "Docker network=none",
-            "bind mount has no hard disk quota",
+            "bounded-copy tmpfs is volatile, Rootless-only, and excludes source .git/.env files"
+            if config.backend.workspace_mode == "bounded-copy"
+            else "bind mount has no hard disk quota",
             "Docker isolated Git requires repository root and an independent clone",
-            "undo owns confirmed file-tool writes only; arbitrary Shell changes are excluded",
+            "bounded-copy delivers and undoes verified source versions, including Shell edits"
+            if config.backend.workspace_mode == "bounded-copy"
+            else "undo owns confirmed file-tool writes only; arbitrary Shell changes are excluded",
             "scoped networking and secret injection unavailable",
         ],
     }
@@ -275,6 +293,10 @@ async def prune(config: ProductConfig, session_id: str, *, apply: bool = False) 
                     continue
                 data = json.loads(check["stdout"])[0]
                 labels = data.get("Config", {}).get("Labels", {}) or {}
+                # tmpfs 容器可能仍持有最新产物；资源回收不能伪称没有删除工作文件。
+                if labels.get("codepilot.workspace_mode") == "bounded-copy":
+                    entry["reason"] = "bounded_workspace_requires_export"
+                    continue
                 entry["eligible"] = (
                     labels.get("codepilot.managed") == "true"
                     and labels.get("codepilot.owner") == f"codepilot-uid-{os.getuid()}"
@@ -295,7 +317,13 @@ async def prune(config: ProductConfig, session_id: str, *, apply: bool = False) 
 
 
 def changes(
-    config: ProductConfig, root: Path, session_id: str, run_id: str, *, apply: bool = False
+    config: ProductConfig,
+    root: Path,
+    session_id: str,
+    run_id: str,
+    *,
+    apply: bool = False,
+    deliver: bool = False,
 ) -> dict[str, Any]:
     """在现有会话排他锁内审查/撤销文件工具成果，拒绝未知运行与工作区身份漂移。"""
     from codepilot.sessions.store import safe_id, workspace_stamp
@@ -310,7 +338,37 @@ def changes(
         # 运行中或未知副作用必须先协调；维护命令不能绕过正常恢复边界。
         if session.get("status") != "ready":
             raise ValueError("session needs reconciliation before reviewing undo")
-        paths = list(session.directory.glob(f"task-*/{run_id}/changes.json"))
+        from codepilot.workspace.bounded import BoundedWorkspace
+
+        copies = list(session.directory.glob(f"*/{run_id}/bounded-workspace.json"))
+        if len(copies) > 1:
+            raise ValueError("ambiguous bounded run")
+        if copies:
+            owned = BoundedWorkspace.open(copies[0], root)
+            preview = owned.review()
+            if not apply or preview["conflicts"] or owned.record["state"] == "undone":
+                return preview
+            required = "retained" if deliver else "applied"
+            if owned.record["state"] != required:
+                raise ValueError(
+                    "bounded workspace state requires reconciliation or another action"
+                )
+            session.commit(
+                "bounded_transfer_started",
+                {"run_id": run_id, "undo": not deliver},
+                status="needs_reconciliation",
+            )
+            result = owned.transfer(undo=not deliver)
+            session.commit(
+                "bounded_transfer_settled",
+                {"run_id": run_id, "state": result["state"]},
+                status="ready",
+                stamp=workspace_stamp(root),
+            )
+            return result
+        if deliver:
+            raise ValueError("delivery requires a bounded workspace run")
+        paths = list(session.directory.glob(f"*/{run_id}/changes.json"))
         if len(paths) != 1:
             raise ValueError("run change journal is missing or ambiguous")
         if apply:
