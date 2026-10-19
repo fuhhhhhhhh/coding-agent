@@ -71,7 +71,12 @@ class PermissionedExecutor:
                 self._audit(request, decision, "cancelled", "approval_provider_missing")
                 return self._error(call, "permission_cancelled: approval provider unavailable")
             emit("approval_requested", call_id=call.call_id)
-            approved = await self.approval.approve(request)
+            try:
+                approved = await self.approval.approve(request)
+            except BaseException:
+                # 取消/输入错误也要结束界面的审批状态，不能让下一轮结果一直被缓冲。
+                emit("approval_resolved", call_id=call.call_id, outcome="cancelled")
+                raise
             emit(
                 "approval_resolved",
                 call_id=call.call_id,

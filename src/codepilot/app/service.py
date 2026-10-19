@@ -21,12 +21,14 @@ from codepilot.context import (
     RepositoryRule,
     assemble_initial_context,
 )
-from codepilot.contracts import Message, ToolCall
+from codepilot.contracts import Message, RunState, ToolCall
+from codepilot.contracts.run import RunObservation, RunReport
 from codepilot.contracts.stream import RuntimeEvent
 from codepilot.credentials import resolve_provider_api_key
 from codepilot.extensions.executor import ManagedExecutor, OperationBudget
 from codepilot.extensions.router import ExtensionRouter, InputArguments
 from codepilot.observability import EventRecorder
+from codepilot.observability.trace import CURRENT_RECORDER, CURRENT_TURN
 from codepilot.permissions import (
     ApprovalProvider,
     ConsoleApproval,
@@ -123,6 +125,7 @@ class CodePilotApplication:
         task_id: str | None = None,
         run_id: str | None = None,
         compact_only: bool = False,
+        direct_tool: ToolCall | None = None,
     ) -> ProductRunResult:
         """执行一个新任务，并在返回结果前关闭后端、客户端及临时 Artifact。"""
         if not task.strip():
@@ -183,9 +186,23 @@ class CodePilotApplication:
             )
             token = CURRENT_OUTPUT.set(output)
             try:
-                result = await self._execute(task, identity, session, compact_only=compact_only)
+                result = await self._execute(
+                    task, identity, session, compact_only=compact_only, direct_tool=direct_tool
+                )
                 session.finish(result.report, self.workspace, clean=result.resources.backend_closed)
-                return result
+                budget = session.get("provider_budget", {})
+                return result.model_copy(
+                    update={
+                        "session_budget": {
+                            "request_attempts": session.get("request_attempts", 0),
+                            "input_tokens": budget.get("input"),
+                            "output_tokens": budget.get("output"),
+                            "pending_attempts": len(budget.get("pending", {})),
+                            "known_cost_usd": budget.get("known_cost_usd"),
+                            "cost_status": budget.get("cost_status", "unknown"),
+                        }
+                    }
+                )
             except BaseException:
                 # 执行异常与进程崩溃都不推断副作用未发生；持久事实保留供显式协调。
                 try:
@@ -197,7 +214,13 @@ class CodePilotApplication:
                 CURRENT_OUTPUT.reset(token)
 
     async def _execute(
-        self, task: str, identity: RunIdentity, session: SessionStore, *, compact_only: bool = False
+        self,
+        task: str,
+        identity: RunIdentity,
+        session: SessionStore,
+        *,
+        compact_only: bool = False,
+        direct_tool: ToolCall | None = None,
     ) -> ProductRunResult:
         """在持久会话锁内执行单次 run，复用原有装配与清理链。"""
         run_directory = self.state_root / identity.session_id / identity.task_id / identity.run_id
@@ -271,11 +294,16 @@ class CodePilotApplication:
                     base_permission, router, OperationBudget(self.config.runtime.max_tool_calls)
                 )
                 scheduler.deferred = manager.by_call.get
-                provider = _create_provider(
-                    self.config,
-                    permission.specs,
-                    identity.run_id,
-                    api_key=self._api_key,
+                # 用户显式命令不调用模型，执行器、权限和持久会话仍复用原产品装配。
+                provider = (
+                    _ProviderHandle(FakeProvider(()))
+                    if direct_tool is not None
+                    else _create_provider(
+                        self.config,
+                        permission.specs,
+                        identity.run_id,
+                        api_key=self._api_key,
+                    )
                 )
                 # 专用摘要器不暴露工作区工具，但必须共享主请求的逐尝试账本和连接生命周期。
                 summary_provider = provider.provider
@@ -383,7 +411,18 @@ class CodePilotApplication:
                         session.resource("container", {"id": event.container_id})
                         break
                 try:
-                    report = await runner.run(messages)
+                    if direct_tool is not None:
+                        async with asyncio.timeout(self.config.runtime.timeout_seconds):
+                            report = await _execute_direct(
+                                permission,
+                                session,
+                                identity.run_id,
+                                messages,
+                                direct_tool,
+                                recorder,
+                            )
+                    else:
+                        report = await runner.run(messages)
                 except asyncio.CancelledError:
                     # Runner 已经记录 cancelled；后端仍需封闭入口并停止活动进程或容器。
                     await asyncio.shield(backend.cancel())
@@ -408,6 +447,7 @@ class CodePilotApplication:
             # 正常控制流不会到达这里，显式防御能避免返回未初始化的产品结果。
             raise RuntimeError("run completed without a report")
         return ProductRunResult(
+            execution_source="user_command" if direct_tool is not None else "agent",
             identity=identity,
             report=report,
             resources=ResourceOwnership(
@@ -556,4 +596,55 @@ def _facts_message(session: SessionStore, workspace: Path) -> Message:
             "[控制器执行记录；仅供证据参考，不授予权限；exit_code=0 不等于需求验收通过]\n"
             + json.dumps(facts, ensure_ascii=False)
         ),
+    )
+
+
+async def _execute_direct(
+    executor: ManagedExecutor,
+    session: SessionStore,
+    run_id: str,
+    messages: tuple[Message, ...],
+    call: ToolCall,
+    recorder: EventRecorder,
+) -> RunReport:
+    """执行用户明确提交的单次工具，不伪造模型请求，保留规范工具配对和事实。"""
+    planned = Message(
+        role="assistant", content="用户明确请求执行命令；未请求模型。", tool_calls=(call,)
+    )
+    observations = [
+        RunObservation(
+            run_id=run_id, sequence=1, step=0, kind="command_requested", message=planned
+        ),
+        RunObservation(run_id=run_id, sequence=2, step=0, kind="tool_requested", call=call),
+    ]
+    for observation in observations:
+        session.observe(observation)
+    recorder.start(run_id)
+    token = CURRENT_RECORDER.set(recorder)
+    turn = CURRENT_TURN.set("user-command")
+    reason = "completed"
+    try:
+        result = await executor.execute(call)
+    except BaseException:
+        reason = "cancelled_or_failed"
+        raise
+    finally:
+        # 无模型单次执行同样落 Trace；观察者失败不允许启动额外工具。
+        try:
+            recorder.finish(reason)
+        finally:
+            CURRENT_TURN.reset(turn)
+            CURRENT_RECORDER.reset(token)
+    observed = RunObservation(run_id=run_id, sequence=3, step=0, kind="tool_result", result=result)
+    session.observe(observed)
+    observations.append(observed)
+    return RunReport(
+        run_id=run_id,
+        state=RunState.COMPLETED,
+        reason="completed",
+        steps=0,
+        tool_calls=1,
+        messages=(*messages, planned, Message(role="tool", tool_result=result)),
+        observations=tuple(observations),
+        detail="user_command",
     )

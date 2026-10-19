@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "suite": {
+    "schema_version": 1,
+    "name": "real-repositories-v2",
+    "repetitions": 3,
+    "request_cap": 144,
+    "required_successes": 6,
+    "tasks": [
+      {
+        "task_id": "tomli-crlf-decimal",
+        "repository": "/dev/shm/codepilot-b5-tomli",
+        "commit": "43a86ade8b795c6ef9b4ec53372a607cd1ed426f",
+        "description": "修复 TOML 解析回归：Windows CRLF 多行输入不应解析失败，parse_float=decimal.Decimal 应保留 Decimal 类型和精度。先运行 python3 public_regression.py 复现，定位并修复，最后运行公开回归。不要用标准库 tomllib 替换本项目，不修改测试或其他功能。",
+        "seeds": [
+          {
+            "path": "src/tomli/_parser.py",
+            "before": "src = __s.replace(\"\\r\\n\", \"\\n\")",
+            "after": "src = __s"
+          },
+          {
+            "path": "src/tomli/_re.py",
+            "before": "return parse_float(match.group())",
+            "after": "return float(match.group())"
+          }
+        ],
+        "dirty_files": {
+          "user-note.md": "用户已存在的未提交笔记：保持原样。\n",
+          "public_regression.py": "\"\"\"公开回归：CRLF 和自定义浮点转换必须同时成立。\"\"\"\nimport sys\nfrom pathlib import Path\nfrom decimal import Decimal\nsys.path.insert(0,str(Path.cwd()/\"src\"))\nimport tomli\nassert tomli.loads(\"a=1\\r\\nb=2\\r\\n\") == {\"a\":1,\"b\":2}\nassert isinstance(tomli.loads(\"x=0.1\",parse_float=Decimal)[\"x\"],Decimal)\nprint(\"public TOML checks passed\")\n"
+        },
+        "allowed_paths": [
+          "src/tomli/_parser.py",
+          "src/tomli/_re.py"
+        ],
+        "expect_changes": true,
+        "validation_material": "/home/fuxiangyu/project/coding-agent/examples/evals/tomli-hidden",
+        "verification_command": [
+          "python3",
+          ".codepilot-validation/verify.py"
+        ],
+        "verification_timeout": 60.0,
+        "max_requests": 24
+      },
+      {
+        "task_id": "boltons-slug-chunks",
+        "repository": "/dev/shm/codepilot-b5-boltons",
+        "commit": "4e5faa3d7e4008d89e0d8bf1ea87b6d9a061a16d",
+        "description": "修复两个实际使用中的回归：slugify(lower=False) 应保持大小写，chunked(...,fill=None) 应正确填充末块而非报未知参数。先运行 python3 public_regression.py 复现，阅读相关真实模块后修复并重新测试；保留原接口和其他选项。",
+        "seeds": [
+          {
+            "path": "boltons/strutils.py",
+            "before": "if lower:\n        ret = ret.lower()",
+            "after": "if True:\n        ret = ret.lower()"
+          },
+          {
+            "path": "boltons/iterutils.py",
+            "before": "fill_val = kw.pop('fill')",
+            "after": "fill_val = kw.get('fill')"
+          }
+        ],
+        "dirty_files": {
+          "user-note.md": "用户已存在的未提交笔记：保持原样。\n",
+          "public_regression.py": "\"\"\"公开回归：保持文本大小写与填充尾块。\"\"\"\nfrom boltons.strutils import slugify\nfrom boltons.iterutils import chunked\nassert slugify(\"Hello World\",lower=False)==\"Hello_World\"\nassert chunked(range(3),2,fill=None)==[[0,1],[2,None]]\nprint(\"public boltons checks passed\")\n"
+        },
+        "allowed_paths": [
+          "boltons/strutils.py",
+          "boltons/iterutils.py"
+        ],
+        "expect_changes": true,
+        "validation_material": "/home/fuxiangyu/project/coding-agent/examples/evals/boltons-hidden",
+        "verification_command": [
+          "python3",
+          ".codepilot-validation/verify.py"
+        ],
+        "verification_timeout": 60.0,
+        "max_requests": 24
+      }
+    ]
+  },
+  "config": {
+    "extensions": {
+      "enabled": false,
+      "skills": true,
+      "hooks": [],
+      "mcp": [],
+      "max_tasks": 2,
+      "task_timeout_seconds": 120.0,
+      "child_requests": 3,
+      "child_tool_calls": 8,
+      "child_output_tokens": 8192
+    },
+    "sessions": {
+      "command_output_bytes": 134217728,
+      "task_output_bytes": 268435456,
+      "session_output_bytes": 1073741824,
+      "context_artifact_bytes": 33554432,
+      "history_bytes": 16777216,
+      "database_bytes": 67108864,
+      "max_requests": 24,
+      "max_input_tokens": 100000000,
+      "max_output_tokens": 10000000,
+      "retention_days": 30
+    },
+    "provider": {
+      "kind": "openai-compatible",
+      "protocol": "chat-completions",
+      "model": "deepseek-flash",
+      "base_url": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key_file": "<configured>",
+      "max_tokens": 8192,
+      "max_requests": 24,
+      "timeout_seconds": 180.0,
+      "retry": {
+        "max_attempts": 3,
+        "base_delay_seconds": 1.0,
+        "max_delay_seconds": 30.0
+      },
+      "total_input_tokens": null,
+      "total_output_tokens": null
+    },
+    "backend": {
+      "kind": "docker",
+      "docker_image": "codepilot-sandbox:0.1.0",
+      "limits": {
+        "cpus": 1.0,
+        "memory_bytes": 268435456,
+        "pids": 128,
+        "command_timeout_seconds": 30.0,
+        "output_bytes": 262144,
+        "artifact_bytes": 16777216
+      }
+    },
+    "git_workspace": {
+      "enabled": false,
+      "base_commit": "HEAD",
+      "require_clean_source": false,
+      "verification_command": [],
+      "verification_timeout_seconds": 120.0,
+      "max_patch_bytes": 16777216
+    },
+    "permission": "controlled-edit",
+    "runtime": {
+      "max_steps": 24,
+      "max_tool_calls": 64,
+      "timeout_seconds": 300.0,
+      "max_consecutive_failures": 3
+    },
+    "context": {
+      "max_prompt_tokens": 1000000,
+      "response_reserve_tokens": 65536,
+      "compact_trigger_tokens": 850000,
+      "compact_target_tokens": 700000,
+      "recent_rounds": 4,
+      "large_output_bytes": 65536,
+      "artifact_preview_chars": 2000,
+      "artifact_read_chars": 8000
+    },
+    "scheduler_concurrency": 4,
+    "state_directory": null
+  },
+  "material_hashes": {
+    "tomli-crlf-decimal": "5f4b21f9ea6b57b36bb742b949f569644eaea82767361233f4d5653f00ffb56e",
+    "boltons-slug-chunks": "3fd4ce36a5df3d5bcc1c71ad8499cd1cbf846eda7b6568f564b1fb26bb2a0acf"
+  },
+  "environment": {
+    "schema_version": 1,
+    "ready": true,
+    "python": "3.14.7",
+    "platform": "linux",
+    "package_version": "0.1.0",
+    "database_version": 2,
+    "backend": "docker",
+    "model": "deepseek-flash",
+    "checks": {
+      "git": {
+        "available": true
+      },
+      "rg": {
+        "available": true
+      },
+      "docker": {
+        "available": true
+      },
+      "workspace": {
+        "readable": true,
+        "writable": true
+      },
+      "storage": {
+        "path": "/home/fuxiangyu/.local/state/codepilot",
+        "writable_parent": true,
+        "free_bytes": 1701905657856
+      },
+      "daemon": {
+        "available": true,
+        "version": "29.1.3",
+        "storage_driver": "overlayfs",
+        "rootless": true
+      },
+      "image": {
+        "available": true,
+        "id": "sha256:aa644a7ecc551cb6c35674751c5cebca23096d586d01b21c5fd526505a528103"
+      }
+    },
+    "limits": [
+      "Docker network=none",
+      "bind mount has no hard disk quota",
+      "worktree+Docker Git unsupported",
+      "automatic safe undo unavailable"
+    ],
+    "owned_image_tag": "codepilot-eval-1016-eff46032975e492aa776a45aa5d36c14:pinned"
+  },
+  "approve_tools": true,
+  "allow_download": false,
+  "source_tree_hash": "40120d6c0a02f9e7db9d285ff34b28ae553c7a5c6b22ba8000ddbaaa2eb09d82",
+  "fingerprint": "ee2d58636e439fbc4562ddbe579fdd0f1624b2f32c2ed79be6d8b32c8d6f105c"
+}

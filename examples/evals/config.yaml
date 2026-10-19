@@ -1,0 +1,16 @@
+# 可信显式评测配置；Provider 和凭据沿用用户配置，不写密钥。
+provider:
+  max_requests: 24
+  max_tokens: 8192
+runtime:
+  max_steps: 24
+  max_tool_calls: 64
+  timeout_seconds: 300.0
+sessions:
+  max_requests: 24
+backend:
+  kind: docker
+  docker_image: codepilot-sandbox:0.1.0
+permission: controlled-edit
+extensions:
+  enabled: false

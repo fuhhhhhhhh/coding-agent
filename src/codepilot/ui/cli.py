@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import re
+import shlex
 import shutil
 import sys
 import time
@@ -40,6 +41,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="codepilot", description="CodePilot 终端 Coding Agent")
     _add_shared_arguments(parser)
     commands = parser.add_subparsers(dest="command")
+    comparison = commands.add_parser("eval-compare", help="比较同条件完整评测，漂移则拒绝")
+    _add_shared_arguments(comparison, suppress_defaults=True)
+    comparison.add_argument("first", type=Path)
+    comparison.add_argument("second", type=Path)
+    for name in ("doctor", "diff", "permissions"):
+        operation = commands.add_parser(name, help="无模型的诊断、变更审查或权限查看")
+        _add_shared_arguments(operation, suppress_defaults=True)
+    testing = commands.add_parser("test", help="按现有权限执行测试，零模型请求")
+    _add_shared_arguments(testing, suppress_defaults=True)
+    testing.add_argument("--timeout", type=float, default=120.0)
+    testing.add_argument("argv", nargs=argparse.REMAINDER)
+    cleanup = commands.add_parser("resources", help="预览/清理会话精确归属资源，不删除代码")
+    _add_shared_arguments(cleanup, suppress_defaults=True)
+    cleanup.add_argument("action", choices=("prune",))
+    cleanup.add_argument("session_id")
+    cleanup.add_argument("--apply", action="store_true")
+    evaluation = commands.add_parser("eval", help="运行固定版本与隐藏验收的产品评测")
+    _add_shared_arguments(evaluation, suppress_defaults=True)
+    evaluation.add_argument("manifest", type=Path)
+    evaluation.add_argument("--output", required=True, type=Path)
+    evaluation.add_argument(
+        "--allow-download", action="store_true", help="允许控制器下载清单中的 HTTPS 仓库"
+    )
+    evaluation.add_argument(
+        "--approve-tools", action="store_true", help="明确授权可信清单内有限工具调用"
+    )
     run = commands.add_parser("run", help="在一个工作区启动新任务")
     run.add_argument("task", help="需要 Agent 完成的任务")
     _add_shared_arguments(run, suppress_defaults=True)
@@ -229,7 +256,12 @@ def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
         if task in {"/exit", "/quit"}:
             return 0
         compact_only = task == "/compact"
-        if not compact_only and _handle_slash_command(task, arguments, config, session_id):
+        try:
+            if not compact_only and _handle_slash_command(task, arguments, config, session_id):
+                continue
+        except KeyboardInterrupt:
+            # 斜杠测试与模型任务一样可取消；清理后把输入权交回提示符。
+            print("\n命令已取消；可继续输入任务。")
             continue
         if _looks_like_cli_command(task):
             # 交互提示符内的 CLI 命令不能交给模型猜测，否则会触发无关工具探索或长流等待。
@@ -299,7 +331,8 @@ def _read_interactive_task(prompt: str) -> str:
             if "".join(buffer) == "/" and not menu_shown:
                 # 只在用户明确开始斜杠命令时显示，普通自然语言输入不被打扰。
                 sys.stdout.write(
-                    "\n  /help  /status  /model  /sessions  /tasks  /context  /compact  /exit\n❯ /"
+                    "\n  /help /status /model /sessions /tasks /context /compact "
+                    "/doctor /diff /permissions /test /exit\n❯ /"
                 )
                 menu_shown = True
             sys.stdout.flush()
@@ -318,8 +351,23 @@ def _handle_slash_command(
     if command == "/help":
         print(
             "/help 帮助  /status 当前运行状态  /model 当前模型  "
-            "/sessions 会话列表  /tasks 后台任务  /context 上下文  /compact 压缩历史  /exit 退出"
+            "/sessions 会话列表  /tasks 后台任务  /context 上下文  /compact 压缩历史  "
+            "/doctor 诊断 /diff 变更 /permissions 权限 /test 命令 /exit 退出"
         )
+        return True
+    if command in {"/doctor", "/diff", "/permissions", "/test"}:
+        from codepilot.app import operations
+
+        if command == "/permissions":
+            data = operations.permissions(config)
+        elif command == "/doctor":
+            data = asyncio.run(operations.doctor(config, arguments.workspace))
+        elif command == "/diff":
+            data = asyncio.run(operations.diff(arguments.workspace))
+        else:
+            argv = shlex.split(task.partition(" ")[2])
+            data = asyncio.run(operations.test_command(config, arguments.workspace, argv, 120.0))
+        print(json.dumps(data, ensure_ascii=False))
         return True
     if command == "/context":
         action = task.split(maxsplit=1)[1].strip() if " " in task else "show"
@@ -365,7 +413,10 @@ def _handle_slash_command(
 def _looks_like_cli_command(task: str) -> bool:
     """识别用户误输入到交互提示符中的 CodePilot 子命令。"""
     return bool(
-        re.match(r"^codepilot(?:\s+(?:run|resume|sessions|compact|context|tasks)\b|\s*$)", task)
+        re.match(
+            r"^codepilot(?:\s+(?:run|resume|sessions|compact|context|tasks|doctor|diff|permissions|test|resources|eval|eval-compare)\b|\s*$)",
+            task,
+        )
     )
 
 
@@ -457,14 +508,84 @@ def main(argv: Sequence[str] | None = None) -> int:
             explicit_path=arguments.config,
             overrides=_overrides(arguments),
         )
+        if arguments.command == "eval-compare":
+            from codepilot.evals.product import compare_reports
+
+            print(
+                json.dumps(compare_reports(arguments.first, arguments.second), ensure_ascii=False)
+            )
+            return 0
+        if arguments.command in {"doctor", "diff", "permissions", "test", "resources", "eval"}:
+            from codepilot.app import operations
+
+            if arguments.command == "doctor":
+                data = asyncio.run(operations.doctor(config, workspace))
+                print(json.dumps(data, ensure_ascii=False))
+                return 0 if data["ready"] else 1
+            if arguments.command == "diff":
+                data = asyncio.run(operations.diff(workspace))
+            elif arguments.command == "permissions":
+                data = operations.permissions(config)
+            elif arguments.command == "resources":
+                data = asyncio.run(
+                    operations.prune(config, arguments.session_id, apply=arguments.apply)
+                )
+            elif arguments.command == "test":
+                print(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "kind": "command_started",
+                            "backend": config.backend.kind,
+                        }
+                    ),
+                    flush=True,
+                )
+                data = asyncio.run(
+                    operations.test_command(config, workspace, arguments.argv, arguments.timeout)
+                )
+                print(json.dumps(data, ensure_ascii=False))
+                return 0 if data["command_succeeded"] and data["backend_closed"] else 1
+            else:
+                from codepilot.evals.product import ProductHarness, Suite
+
+                raw = json.loads(arguments.manifest.read_bytes())
+                for task in raw["tasks"]:
+                    for key in ("repository", "validation_material"):
+                        if not task[key].startswith("https://"):
+                            task[key] = str((arguments.manifest.parent / task[key]).resolve())
+                suite = Suite.model_validate(raw)
+
+                def progress(event: dict[str, object]) -> None:
+                    """持续输出有版本的试验进度，正文和凭据不进入批量摘要。"""
+                    print(json.dumps(event, ensure_ascii=False), flush=True)
+
+                data = asyncio.run(
+                    ProductHarness(
+                        config,
+                        arguments.output,
+                        approve_tools=arguments.approve_tools,
+                        allow_download=arguments.allow_download,
+                        on_progress=progress,
+                    ).run(suite)
+                )
+                print(
+                    json.dumps(
+                        {key: value for key, value in data.items() if key != "results"},
+                        ensure_ascii=False,
+                    )
+                )
+                return 0 if data["task_gate_passed"] else 1
+            print(json.dumps(data, ensure_ascii=False))
+            return 0
         # 有 run 子命令时执行一次并返回状态；无子命令才进入持续提示符。
         if arguments.command == "tasks":
-            data = ""
+            control_input = ""
             if arguments.action == "input":
                 # 用户输入不进入模型或 shell 参数；控制信箱 0600，消费后立即删除。
                 import getpass
 
-                data = (
+                control_input = (
                     getpass.getpass("终端输入（不回显）：") + "\n"
                     if sys.stdin.isatty()
                     else sys.stdin.read(4097)
@@ -476,7 +597,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         arguments.session_id,
                         arguments.action,
                         arguments.task_id,
-                        data,
+                        control_input,
                     ),
                     ensure_ascii=False,
                 )

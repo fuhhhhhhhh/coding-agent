@@ -381,7 +381,10 @@ class SessionStore:
         if self._messages is None:
             self.history()
         assert self._messages is not None
-        if observation.kind == "model_replied" and observation.message is not None:
+        if (
+            observation.kind in {"model_replied", "command_requested"}
+            and observation.message is not None
+        ):
             self._messages.append(observation.message)
         elif observation.kind == "tool_result" and observation.result is not None:
             self._messages.append(Message(role="tool", tool_result=observation.result))

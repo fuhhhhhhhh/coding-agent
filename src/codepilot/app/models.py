@@ -1,6 +1,7 @@
 """定义产品入口使用的运行身份、资源归属和最终结果。"""
 
 from pathlib import Path
+from typing import Any, Literal
 
 from codepilot.contracts.models import Contract, Identifier
 from codepilot.contracts.run import RunReport
@@ -38,3 +39,5 @@ class ProductRunResult(Contract):
     permission_audits: tuple[PermissionAudit, ...]
     backend_events: tuple[BackendEvent, ...]
     delivery: GitDelivery | None = None
+    execution_source: Literal["agent", "user_command"] = "agent"
+    session_budget: dict[str, Any] = {}

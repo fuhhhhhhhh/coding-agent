@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "name": "real-repositories",
+  "repetitions": 3,
+  "request_cap": 144,
+  "required_successes": 6,
+  "tasks": [
+    {
+      "task_id": "tomli-crlf-decimal",
+      "repository": "https://github.com/hukkin/tomli.git",
+      "commit": "43a86ade8b795c6ef9b4ec53372a607cd1ed426f",
+      "description": "修复 TOML 解析回归：Windows CRLF 多行输入不应解析失败，parse_float=decimal.Decimal 应保留 Decimal 类型和精度。先运行 python3 public_regression.py 复现，定位并修复，最后运行公开回归。不要用标准库 tomllib 替换本项目，不修改测试或其他功能。",
+      "seeds": [
+        {
+          "path": "src/tomli/_parser.py",
+          "before": "src = __s.replace(\"\\r\\n\", \"\\n\")",
+          "after": "src = __s"
+        },
+        {
+          "path": "src/tomli/_re.py",
+          "before": "return parse_float(match.group())",
+          "after": "return float(match.group())"
+        }
+      ],
+      "dirty_files": {
+        "user-note.md": "用户已存在的未提交笔记：保持原样。\n",
+        "public_regression.py": "\"\"\"公开回归：CRLF 和自定义浮点转换必须同时成立。\"\"\"\nimport sys\nfrom pathlib import Path\nfrom decimal import Decimal\nsys.path.insert(0,str(Path.cwd()/\"src\"))\nimport tomli\nassert tomli.loads(\"a=1\\r\\nb=2\\r\\n\") == {\"a\":1,\"b\":2}\nassert isinstance(tomli.loads(\"x=0.1\",parse_float=Decimal)[\"x\"],Decimal)\nprint(\"public TOML checks passed\")\n"
+      },
+      "allowed_paths": [
+        "src/tomli/_parser.py",
+        "src/tomli/_re.py"
+      ],
+      "validation_material": "tomli-hidden",
+      "verification_command": [
+        "python3",
+        ".codepilot-validation/verify.py"
+      ],
+      "max_requests": 24
+    },
+    {
+      "task_id": "boltons-slug-chunks",
+      "repository": "https://github.com/mahmoud/boltons.git",
+      "commit": "4e5faa3d7e4008d89e0d8bf1ea87b6d9a061a16d",
+      "description": "修复两个实际使用中的回归：slugify(lower=False) 应保持大小写，chunked(...,fill=None) 应正确填充末块而非报未知参数。先运行 python3 public_regression.py 复现，阅读相关真实模块后修复并重新测试；保留原接口和其他选项。",
+      "seeds": [
+        {
+          "path": "boltons/strutils.py",
+          "before": "if lower:\n        ret = ret.lower()",
+          "after": "if True:\n        ret = ret.lower()"
+        },
+        {
+          "path": "boltons/iterutils.py",
+          "before": "fill_val = kw.pop('fill')",
+          "after": "fill_val = kw.get('fill')"
+        }
+      ],
+      "dirty_files": {
+        "user-note.md": "用户已存在的未提交笔记：保持原样。\n",
+        "public_regression.py": "\"\"\"公开回归：保持文本大小写与填充尾块。\"\"\"\nfrom boltons.strutils import slugify\nfrom boltons.iterutils import chunked\nassert slugify(\"Hello World\",lower=False)==\"Hello_World\"\nassert chunked(range(3),2,fill=None)==[[0,1],[2,None]]\nprint(\"public boltons checks passed\")\n"
+      },
+      "allowed_paths": [
+        "boltons/strutils.py",
+        "boltons/iterutils.py"
+      ],
+      "validation_material": "boltons-hidden",
+      "verification_command": [
+        "python3",
+        ".codepilot-validation/verify.py"
+      ],
+      "max_requests": 24
+    }
+  ]
+}

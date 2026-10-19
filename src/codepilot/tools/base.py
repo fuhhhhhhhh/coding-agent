@@ -67,3 +67,7 @@ class Tool(ABC, Generic[ArgumentsT]):
     async def run(self, arguments: ArgumentsT) -> str | ToolOutput:
         """执行已经通过对应 Pydantic 模型校验的参数并返回文本结果。"""
         raise NotImplementedError
+
+    def timeout(self, arguments: ArgumentsT) -> float:
+        """返回已校验参数对应的时限，默认保持工具固定上限。"""
+        return self.default_timeout

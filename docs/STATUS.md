@@ -1,8 +1,8 @@
 # 开发状态
 
-当前里程碑：B1 可靠执行与持久会话基础已通过受限真实验收；B2 基础增量已验证，B3 在 Linux/官方 DeepSeek Flash 双协议范围通过受限验收，B4 在 Linux Local/Rootless Docker/官方 DeepSeek Flash Chat 范围通过受限验收，下一大阶段 B5
+当前里程碑：B1 可靠执行与持久会话基础已通过受限真实验收；B2 基础增量已验证，B3 在 Linux/官方 DeepSeek Flash 双协议范围通过受限验收，B4 在 Linux Local/Rootless Docker/官方 DeepSeek Flash Chat 范围通过受限验收，B5 终端操作与正式评测已在明确范围验收；成熟发布仍被 B2 遗留项阻断
 
-最近通过：B4 受控扩展、后台任务与只读子代理；B3 长任务、持久恢复与 Provider 可靠性的受限产品链；B1 持久会话、完整输出与保守重开；P1/P2、M01—M10 历史证据保留
+最近通过：B5 无模型维护/测试、固定真实仓库重复评测、独立判据与安装；B4 受控扩展、后台任务与只读子代理；B3 长任务、持久恢复与 Provider 可靠性的受限产品链；B1 持久会话、完整输出与保守重开；P1/P2、M01—M10 历史证据保留
 
 实现状态：统一入口默认直写当前目录，已组合持久多轮、跨进程 resume、输出读搜与配额、SQLite 事实/索引、资源核验和保守协调；B2 已增加安全 Action 与工作区基线；B3 已接入持久尝试预算、安全有界重试、跨进程滚动检查点、主动压缩，以及 Chat Completions / Responses 双协议真实修复；已补齐备份迁移/恢复、快照来源核验、三处真实崩溃矩阵、版本化执行事实和上下文撤回；B4 新增按需技能与作用域规则、受控 Hook、逐调用本地 stdio MCP、后台/PTY 与共享预算只读子 Runner
 
@@ -12,6 +12,19 @@
 原 M01 命名修改已由 AI 实施并验证，不记作用户独立贡献。
 
 日期：2026-10-19（UTC）
+
+## 本轮 B5：终端交付与真实评测（2026-10-19）
+
+- 新入口 doctor/diff/permissions/test/resources prune/eval/eval-compare，交互 /doctor、/diff、/permissions、/test。维护不请求模型；test 复用原审批/调度/输出/会话/Trace，新增 command_requested，steps=0、真实请求为 0，命令成功不冒充独立验收。
+- TTY 审批改可取消 fd 监听，非 TTY 默认拒绝；审批期间有界缓冲人类进度，JSONL 实时。启动卡片按显示宽度对齐，结果带版本与累计预算。Shell 显式时限有界；原子编辑保留普通权限与脚本执行位。
+- 正式 ProductHarness 使用 CodePilotApplication，实际原生 Git checkout 完整 commit；精确注入回归和未提交笔记；先独立验证初始失败，候选结束后在新环境注入隐藏材料验收。保护文件、空修复、Git 起点/暂存区/执行配置、模式与字节都检查；模型/Runtime/独立结果分别记录。
+- 清单/环境/预算/隐藏材料/源码哈希冻结；独立 trial 和有限共享请求额度，任务所有最大额度不超 suite 上限。started/结果/报告原子保存，中断不重放，磁盘满保留旧报告。eval-compare 对版本/任务/模型/预算/环境漂移拒绝比较。
+- 首轮冻结 6 次、96 请求上限，实际 83：5 个候选独立通过，最后一个验证器因本轮更新镜像标签导致旧索引丢失而不可评测；原分类又把 step_limit 的独立成功记为 unresolved。完整首轮报告保留，不覆盖、不混算。修正独立成功统计，增加唯一镜像引用租约与结束清理。
+- 第二轮运行前重新冻结 6 次、每次最多 24 请求/24 步、总 144。官方 DeepSeek Flash Chat + Rootless Docker：六次独立通过，六次 Runtime completed，实际 62 请求；551,870 输入 / 16,240 输出 Token。Tomli 三次 CRLF/Decimal 跨模块修复，boltons 三次 slugify/分块回归；均为固定真实上游中注入的回归，不声称修复上游现存 bug。两轮合计 145 次，分组预算与失败全部保留；最终安装版/最新镜像另做 4 请求上限冒烟，实际 2 请求通过，本轮实际共 147。
+- 所有成功候选保护文件未变，资源为空、budget pending 为空，评测自有镜像别名释放。task_gate_passed=true，release_ready=false；B2 网络/秘密、硬磁盘配额、worktree+Docker Git、安全任务撤销仍明确阻断成熟发布。
+- 当前离线 324 passed / 9 skipped；Rootless Docker 9 passed。Ruff 全目录/格式/mypy/wheel 通过。Python 3.11 干净 wheel 在仓库外 324 passed / 9 skipped，将未回收 transport 警告升为失败后通过；新增无密钥 CI，远程运行状态不以本机通过代替。
+- 发现并补充真实 PTY 取消、非 TTY、存储失败、渲染失败、脚本执行位、镜像生命周期回归；安装测试发现旧 100ms 进程启动假设会误报，改成后代启动屏障后触发超时。另用输出背压稳定复现 3.11 暂停 PIPE 遗留，明确关闭已停止进程的 transport 后，两个版本均无该警告。
+- 推荐阅读顺序及三题答案见 docs/learning/B5.md，掌握情况待确认。下一大阶段应回补 B2 执行与安全交付阻断，再用 B5 门槛复验；不另起 B6 或把未完成边界写成成熟发布。
 
 ## 本轮 B4 验收（2026-10-19）
 
@@ -265,5 +278,5 @@
 
 当前边界：基础持久会话已由 B1 实现；完整网络/秘密 Action、长任务治理及整体产品发布门槛仍待 B2—B5。
 
-下一阶段：B5 真实任务评测与发布；B4 已按本页最新范围受限验收。B2 的网络/秘密、worktree + Docker Git、存储硬边界与安全撤销缺口继续保留。
+下一阶段：回补 B2 的执行与安全交付阻断，再复验 B5 成熟发布门槛；不重做已有通过链。B2 的网络/秘密、worktree + Docker Git、存储硬边界与安全撤销缺口继续保留。
 

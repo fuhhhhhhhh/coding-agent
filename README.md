@@ -6,7 +6,7 @@ DeepSeek 双协议真实读写、Shell 测试、跨进程续问与上下文压�
 未复用 CoreCoder 代码；它只是用户已学习的背景项目。
 
 B1 已完成持久会话、跨进程续问、原始输出与保守协调验收。当前仓库属于“产品主链、真实后端和任务级 Git 交付已验证”，尚未达到成熟终端产品。当前首要缺口是
-更完整的受控执行与工作区保护；B3 已补齐共享预算、安全重试、滚动检查点、备份迁移、版本化控制器事实及保守恢复；B4 已接入受控扩展、后台任务和只读子代理并通过受限验收；B2 剩余执行边界和 B5 发布门槛仍待完成。后续成熟度门槛与实施顺序见
+更完整的受控执行与工作区保护；B3 已补齐共享预算、安全重试、滚动检查点、备份迁移、版本化控制器事实及保守恢复；B4 已接入受控扩展、后台任务和只读子代理并通过受限验收；B5 已接终端维护、正式真实任务评测与安装链；B2 遗留执行边界仍阻断成熟发布。后续成熟度门槛与实施顺序见
 [产品化路线](docs/PRODUCTIZATION_PLAN.md)。
 
 需要 Python 3.11+ 和 uv。在本目录执行：
@@ -201,3 +201,38 @@ codepilot tasks input SESSION JOB  # TTY 输入不回显并附换行；stdin 保
 这些管理命令不请求模型。后台任务只归当前 run 所有，前台退出会取消并等待清理；重启不自动复活。
 MCP 为逐调用独立进程，只读子代理共用父预算且不能写入、执行 Shell 或继续委派。
 完整契约、验证范围和推荐阅读顺序见 [B4 设计](docs/design/B4.md) 与 [B4 阅读说明](docs/learning/B4.md)。
+
+B5 增加日常维护和独立评测入口，均有清晰的模型调用边界：
+
+```bash
+codepilot doctor                         # 仅读诊断，不请求模型或改服务器配置
+codepilot permissions                    # 查看实际权限
+codepilot diff                           # 当前目录整体 Git 变化；不是单个 Agent 的贡献归属
+codepilot test --timeout 120 -- python3 -m unittest  # 原执行链审批，零模型请求
+codepilot resources prune SESSION        # 默认只预览
+codepilot resources prune SESSION --apply  # 精确清理登记资源，不删代码，之后仍需协调未知调用
+```
+
+交互可用 `/doctor`、`/diff`、`/permissions`、`/test 命令`。脚本无 TTY 时待审批操作直接拒绝，
+不能把管道里的任务文本当批准答案。审批期间工具进度会暂存，取消不会留下抢占输入的线程。
+`test` 的成功只表示该命令退出 0，不冒充独立任务验收。当前 Local 是可信宿主执行，Docker 默认断网。
+
+真实仓库任务清单见 [real-repositories.json](examples/evals/real-repositories.json)。它固定来源 commit，
+在一次性副本中注入已知回归与用户笔记，覆盖两种 Python 布局、跨模块修复、公开失败日志和隐藏验证。
+这些是注入回归，不是宣称发现或修复了上游当前 bug。评测材料是可信执行配置，请只运行审查过的清单。
+仓库获取是控制器显式下载，`--approve-tools` 明确授予本次可信试验有限批量审批：
+
+```bash
+codepilot eval examples/evals/real-repositories.json \
+  --config examples/evals/config.yaml --output /tmp/codepilot-evaluation \
+  --allow-download --approve-tools
+codepilot eval-compare /tmp/first/report.json /tmp/second/report.json
+```
+
+输出目录不得复用：中断留下 started 记录，不能自动重放未知副作用。配置/任务/镜像等漂移时拒绝混合比较。
+默认保留候选、基线、会话、隐藏验收和全部失败。每次主/摘要/子请求共用同一账本，报告列出实际调用和未知用量。
+首次使用真实模型需要已有有效用户配置和凭据；本项目不把密钥放进评测清单或 CI。
+
+目前 B5 的任务验收与成熟发布分别判定：`task_gate_passed` 不能替代 `release_ready`。
+网络/秘密、硬磁盘配额、worktree+Docker Git 和安全撤销仍是成熟发布阻断，不会由“样本通过”自动消失。
+详细机制、支持范围及推荐阅读入口见 [B5 设计](docs/design/B5.md)、[B5 阅读说明](docs/learning/B5.md)。

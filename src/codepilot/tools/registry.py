@@ -51,11 +51,11 @@ class ToolRegistry:
         call_token = CURRENT_CALL.set(call.call_id)
         try:
             emit("tool_started", call_id=call.call_id)
-            async with asyncio.timeout(tool.default_timeout):
+            async with asyncio.timeout(tool.timeout(arguments)):
                 output = await self._run(tool, arguments)
         except TimeoutError:
             # timeout 上下文会先取消工具协程，再把超时转换为可反馈结果。
-            return self._error(call, f"tool_timeout: {tool.default_timeout:g}s")
+            return self._error(call, f"tool_timeout: {tool.timeout(arguments):g}s")
         except ToolFailure as error:
             return self._error(call, f"tool_error: {error}")
         finally:

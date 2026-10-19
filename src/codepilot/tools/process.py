@@ -46,6 +46,12 @@ async def stop_process(process: asyncio.subprocess.Process) -> None:
     except ProcessLookupError:
         pass
     await process.wait()
+    # Process 没有公开 close；暂停的 PIPE 在 3.11 可能一直留到 loop 关闭后析构。
+    # 只在进程组已停止后回收 CPython transport，不把“退出”误当成所有管道已关闭。
+    transport = getattr(process, "_transport", None)
+    if transport is not None:
+        transport.close()
+        await asyncio.sleep(0)
 
 
 async def spawn(

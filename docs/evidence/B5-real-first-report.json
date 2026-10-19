@@ -1,0 +1,1730 @@
+{
+  "schema_version": 1,
+  "suite": "real-repositories",
+  "plan_fingerprint": "1d3c59f0921e564fc3f042daf8735fdab3b2405a50148a7a2d2192dab007e74f",
+  "completed_trials": 6,
+  "expected_trials": 6,
+  "counts": {
+    "success": 4,
+    "unresolved": 1,
+    "timeout": 0,
+    "unevaluable": 1,
+    "infrastructure_error": 0
+  },
+  "success_rate": 0.6666666666666666,
+  "request_attempts": 83,
+  "task_gate_passed": false,
+  "release_ready": false,
+  "release_blockers": [
+    "B2 network/secrets boundary incomplete",
+    "no hard workspace disk quota",
+    "worktree+Docker Git unsupported",
+    "safe task-owned undo incomplete"
+  ],
+  "results": [
+    {
+      "task_id": "tomli-crlf-decimal",
+      "commit": "43a86ade8b795c6ef9b4ec53372a607cd1ed426f",
+      "classification": "success",
+      "model_claim": "已修复并验证完成。\n\n## 复现\n运行 `python3 public_regression.py` 初始失败：\n```\nTOMLDecodeError: Expected newline or end of document after a statement (at line 1, column 4)\n```\n原因是工作区中 `src/tomli/_parser.py`、`src/tomli/_re.py` 各有一处未提交改动，正是回归源：\n\n1. `loads()` 中把 `src = __s.replace(\"\\r\\n\", \"\\n\")` 改成了 `src = __s`，导致 CRLF 中的 `\\r` 被当作非法行尾字符，多行输入解析失败。\n2. `match_to_number()` 中把 `parse_float(match.group())` 改成了 `float(match.group())`，完全绕过了用户传入的 `parse_float`，`Decimal` 类型与精度丢失。\n\n## 修复（仅限允许的两个文件）\n- `src/tomli/_parser.py`：恢复按 TOML 规范将 `\\r\\n` 归一化为 `\\n`（包括多行字符串内部）。\n- `src/tomli/_re.py`：恢复调用 `parse_float`，同时仍由 `make_safe_parse_float` 保证不返回 dict/list。\n\n未替换为标准库 `tomllib`，未修改测试或其他功能；`user-note.md` 等用户文件保持原样。\n\n## 验证\n- `python3 public_regression.py` → `public TOML checks passed`。\n- 额外检查通过：CRLF 文档、CRLF 多行基本/字面字符串、注释、数组换行；`parse_float=Decimal` 时保持 `Decimal` 类型及 `0.1000000000000000000000000001`、`1e400` 的精确值，默认仍为 `float`。\n- 环境无 pytest，改用标准库测试运行：`PYTHONPATH=src python3 -m unittest discover -s tests -t .` → 18 项通过（1 项因非 3.15 跳过）。\n- `git diff` 为空，说明两文件已恢复到 HEAD 的正确实现，其他文件无改动。",
+      "tool_facts": [
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 5,
+          "call_id": "call_00_JdTeNaJKwt1zgz2bQXwV1714",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 6,
+          "call_id": "call_01_tIPFOeCe2klezCRC7tD52354",
+          "tool": "glob",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 12,
+          "call_id": "call_00_ET_Vrqpwh0ICYS1PmanoH5J2258",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 13,
+          "call_id": "call_01_ET_rwBV09GHVdhumHtljwEz3679",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 14,
+          "call_id": "call_02_ET_hn3JY38p2lnhCdPlpoDb4547",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 19,
+          "call_id": "call_00_YCEviZBIKbB1fAsUZ4Nm9866",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 20,
+          "call_id": "call_01_IczOFcP2R750YgxBTMt86349",
+          "tool": "shell",
+          "outcome": "error",
+          "exit_code": 1,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 25,
+          "call_id": "call_00_QFhA1hkh6NUVJkftlLwc7113",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 26,
+          "call_id": "call_01_MwXGI8i148RLf8ciruWD0724",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 31,
+          "call_id": "call_00_LxxA03H9y97Mkuftdpaq4062",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 32,
+          "call_id": "call_01_0lSpmQ118XvzSPAZ9RfY1049",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 37,
+          "call_id": "call_00_YdT0zr3jJG4XWOrRY6QS8739",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 38,
+          "call_id": "call_01_loc8NSqf51gAoS5s2N3U0050",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 43,
+          "call_id": "call_00_dRo6E1ndXnPCxga4aQXb7033",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 44,
+          "call_id": "call_01_00Lt4yQeZYNocDhzaMT69886",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 48,
+          "call_id": "call_00_wbyvRmYuhr4UiM5NED4y2161",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 52,
+          "call_id": "call_00_ET_WeyGVVep4qR20Sm2yeH96173",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 56,
+          "call_id": "call_00_ET_zrnSnqjOI4YIGpx6j4Qv2026",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-17e918112db449c49debc493daff11cd",
+          "sequence": 60,
+          "call_id": "call_00_UYCTshxlFcYpECbmer7U9146",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        }
+      ],
+      "runtime_outcome": "completed",
+      "runtime_error_type": "",
+      "independent_verdict": "passed",
+      "verification": {
+        "status": "passed",
+        "exit_code": 0,
+        "detail": "hidden TOML CRLF/Decimal/binary/date/invalid-input checks passed\n",
+        "source": "controller_hidden_verifier"
+      },
+      "integrity": true,
+      "forbidden_changes": [],
+      "changed_files": [
+        "src/tomli/_parser.py",
+        "src/tomli/_re.py"
+      ],
+      "after_changes": {
+        "src/tomli/_parser.py": {
+          "sha256": "3e782f1bc85639ecef630ae686df3d849f2bedd2e9c987d8f5109a5a154df131",
+          "mode": 384,
+          "bytes": 26727
+        },
+        "src/tomli/_re.py": {
+          "sha256": "a12359fe294523a72112e434d58452a14c9d050affa2417f9927474e4166bfdd",
+          "mode": 384,
+          "bytes": 3396
+        }
+      },
+      "request_attempts": 12,
+      "budget": {
+        "input": 143343,
+        "output": 3128,
+        "pending": {},
+        "legacy_requests_without_usage": 0,
+        "attempt_prices": {},
+        "known_cost_usd": "0.0467565",
+        "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+      },
+      "elapsed_seconds": 72.64971434278414,
+      "first_text_seconds": 24.430046283174306,
+      "controller_process_highwater_bytes": 104960000,
+      "controller_memory_scope": "process cumulative high-water; includes earlier trials, not per-trial peak",
+      "container_peak_sampled_memory_bytes": 5681184,
+      "artifact_bytes": 1439360,
+      "backend_closed": true,
+      "remaining_resources": [],
+      "steps": 12,
+      "tool_calls": 19,
+      "trial": "tomli-crlf-decimal-1",
+      "baseline_manifest_sha256": "4faf2a5fd44a68c7325ebb95d5d6e47c47569dd549260063cd35c94f957d1c02"
+    },
+    {
+      "task_id": "tomli-crlf-decimal",
+      "commit": "43a86ade8b795c6ef9b4ec53372a607cd1ed426f",
+      "classification": "success",
+      "model_claim": "已修复，回归通过。\n\n## 复现\n`python3 public_regression.py` 最初失败：\n```\nTOMLDecodeError: Expected newline or end of document after a statement (at line 1, column 4)\n```\n`git diff HEAD` 显示工作区对两个允许修改的文件各有一处回归改动。\n\n## 定位与修复\n1. **CRLF 多行输入** — `src/tomli/_parser.py::loads`\n   规范化 `\"\\r\\n\" → \"\\n\"` 的逻辑被改成了 `src = __s`，导致 `\\r` 残留。`\\r` 属于 `ASCII_CTRL`，既让语句结尾检查失败，也会在字符串/注释中被判为非法字符。\n   修复：恢复 `src = __s.replace(\"\\r\\n\", \"\\n\")`。\n\n2. **`parse_float` 被忽略** — `src/tomli/_re.py::match_to_number`\n   普通浮点分支硬编码了 `float(...)`，没有使用传入的 `parse_float`，因此 `parse_float=Decimal` 得到的是 `float`（并丢失精度）。\n   修复：恢复 `return parse_float(match.group())`。\n\n未替换为标准库 `tomllib`，未改动测试或其他文件。\n\n## 验证\n- `python3 public_regression.py` → `public TOML checks passed`（exit 0）\n- 追加手工检查：CRLF 下的多行基本字符串、注释、跨行数组；`Decimal` 类型与长小数精度（`1.234567890123456789012345`、`1e400`）；默认仍返回 `float` → 全部通过\n- `PYTHONPATH=src python3 -m unittest tests.test_misc tests.test_error` → 16 项通过，1 项跳过（pytest 未安装，故未运行 `tests/test_data.py`）\n\n最终 `git status` 仅剩原有的未跟踪文件 `public_regression.py`、`user-note.md`，两个源文件已回到正确实现。",
+      "tool_facts": [
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 5,
+          "call_id": "call_00_gMpP7jVn4dMeAq2Roh9k9153",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 6,
+          "call_id": "call_01_zpbBSA91oTFIbpqY3fvt8604",
+          "tool": "glob",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 11,
+          "call_id": "call_00_Z8aha2OiPZkM9LU8JYmL0861",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 12,
+          "call_id": "call_01_OkMHcKEKfbK60VeXvEJf7365",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 16,
+          "call_id": "call_00_jfK43y5YBZ3yFLcwXDqE6242",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 21,
+          "call_id": "call_00_oKBWZqAbGvjuTBQSEf6X5499",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 22,
+          "call_id": "call_01_heg2IbF7mnah2Pdnclms5270",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 26,
+          "call_id": "call_00_RTIyeVWWeVGnbVZymJ8q8231",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 31,
+          "call_id": "call_00_1c8iJzIl7RSbkKrYZMIa8786",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 32,
+          "call_id": "call_01_sM699zTqJ4Ys2KpLz9UN8086",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 36,
+          "call_id": "call_00_ET_744AY2xAfwpJiGJigrdB6954",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 40,
+          "call_id": "call_00_F0FaWBlIlRwXOhieFl0j3593",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 44,
+          "call_id": "call_00_fW23JJfAtijrvnr3d6Du8581",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 48,
+          "call_id": "call_00_ET_PWjUimSE2GVigXZsKefA4748",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-47f269a65140449b9bc8450fea733a90",
+          "sequence": 52,
+          "call_id": "call_00_RSKCaPN2JcGmvBR4OCrD3797",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        }
+      ],
+      "runtime_outcome": "completed",
+      "runtime_error_type": "",
+      "independent_verdict": "passed",
+      "verification": {
+        "status": "passed",
+        "exit_code": 0,
+        "detail": "hidden TOML CRLF/Decimal/binary/date/invalid-input checks passed\n",
+        "source": "controller_hidden_verifier"
+      },
+      "integrity": true,
+      "forbidden_changes": [],
+      "changed_files": [
+        "src/tomli/_parser.py",
+        "src/tomli/_re.py"
+      ],
+      "after_changes": {
+        "src/tomli/_parser.py": {
+          "sha256": "3e782f1bc85639ecef630ae686df3d849f2bedd2e9c987d8f5109a5a154df131",
+          "mode": 384,
+          "bytes": 26727
+        },
+        "src/tomli/_re.py": {
+          "sha256": "a12359fe294523a72112e434d58452a14c9d050affa2417f9927474e4166bfdd",
+          "mode": 384,
+          "bytes": 3396
+        }
+      },
+      "request_attempts": 12,
+      "budget": {
+        "input": 150191,
+        "output": 2183,
+        "pending": {},
+        "legacy_requests_without_usage": 0,
+        "attempt_prices": {},
+        "known_cost_usd": "0.0476769",
+        "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+      },
+      "elapsed_seconds": 89.24135057115927,
+      "first_text_seconds": 44.94555527390912,
+      "controller_process_highwater_bytes": 107581440,
+      "controller_memory_scope": "process cumulative high-water; includes earlier trials, not per-trial peak",
+      "container_peak_sampled_memory_bytes": 5140119,
+      "artifact_bytes": 1195607,
+      "backend_closed": true,
+      "remaining_resources": [],
+      "steps": 12,
+      "tool_calls": 15,
+      "trial": "tomli-crlf-decimal-2",
+      "baseline_manifest_sha256": "4faf2a5fd44a68c7325ebb95d5d6e47c47569dd549260063cd35c94f957d1c02"
+    },
+    {
+      "task_id": "tomli-crlf-decimal",
+      "commit": "43a86ade8b795c6ef9b4ec53372a607cd1ed426f",
+      "classification": "success",
+      "model_claim": "修复完成。\n\n## 复现\n`python3 public_regression.py` 最初失败：\n```\ntomli._parser.TOMLDecodeError: Expected newline or end of document after a statement (at line 1, column 4)\n```\n\n## 定位\n`git diff` 显示工作区里恰好有两处被改坏的逻辑，分别对应两个症状：\n\n1. **`src/tomli/_parser.py` — `loads()`**：注释声明按 TOML 规范把 `\"\\r\\n\"` 归一化为 `\"\\n\"`，但代码被改成了 `src = __s`，导致行尾残留 `\\r`，解析完语句后遇到 `\\r` 而非 `\\n`，报 “Expected newline”。\n2. **`src/tomli/_re.py` — `match_to_number()`**：浮点分支被改成了硬编码 `float(...)`，忽略了传进来的 `parse_float`，所以 `parse_float=Decimal` 无效，精度也丢失。\n\n## 修复（仅这两个允许修改的文件）\n- `_parser.py`：恢复 `src = __s.replace(\"\\r\\n\", \"\\n\")`（`try` 块保留，`None`/`bytes` 仍走 `TypeError` 分支）。\n- `_re.py`：恢复 `return parse_float(match.group())`。\n\n未使用标准库 `tomllib` 替换本项目，未改动测试、`user-note.md` 或其他文件。\n\n## 验证\n- `python3 public_regression.py` → `public TOML checks passed`（exit 0）。\n- 额外核对：\n  - CRLF 输入（含多行字符串）与标准库 `tomllib` 结果一致：`{'a': 1, 'b': 2, 't': {'s': 'x\\ny'}}`\n  - `parse_float=Decimal` 保留类型与全部精度：`Decimal('3.14159265358979323846264338327950288')`\n  - 数组/内联表中浮点同样得到 `Decimal('1.5')`、`Decimal('2.25')`\n- 项目自带测试（`PYTHONPATH=src python3 -m unittest discover -t . -s tests`）：`Ran 18 tests ... OK (skipped=1)`。\n\n`git status` 现显示 `src/` 无改动（内容已与提交版本一致），仅保留原有的未跟踪文件 `public_regression.py`、`user-note.md`。",
+      "tool_facts": [
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 5,
+          "call_id": "call_00_fWKrEQ8Luhaz6fFTmSQG9164",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 6,
+          "call_id": "call_01_duuhM2MwpMiSrij8LJJM1312",
+          "tool": "glob",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 11,
+          "call_id": "call_00_ET_xlfjySjGYstRkfxhJvGF8475",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 12,
+          "call_id": "call_01_ET_AWxZn1w2dXKELz9aqO0D6061",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 17,
+          "call_id": "call_00_ET_ruIxa5tKy59ou6pEpweb6794",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 18,
+          "call_id": "call_01_ET_vOJUQjmz0MYgRm93oN2X4230",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 23,
+          "call_id": "call_00_HsL9Ab8x5QyNPtO8eHwT0686",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 24,
+          "call_id": "call_01_R1dvruZ8K6dbmhrgkqiL7480",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3bac4717e6ed1cf6f52db5fa5be90e3da1505d2788f34ba189b7cb38ecff014f",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 29,
+          "call_id": "call_00_129aQdaP5pJaBEjD64bt7326",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 30,
+          "call_id": "call_01_OaSplP1P0TIEqAnDUF4S8470",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 34,
+          "call_id": "call_00_ET_0HkaxVvdSJjaaQ2N2CZe1606",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 38,
+          "call_id": "call_00_KXwk1ynMWMHEK1Rh5t7V4240",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 42,
+          "call_id": "call_00_ET_HXLoyi8CJrbO9l6HfNVt5003",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 46,
+          "call_id": "call_00_ET_gzxnqIRzBEFzeLvGbCix4849",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 50,
+          "call_id": "call_00_ET_K7I8MeIHRRCrsOJz4yl76961",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 54,
+          "call_id": "call_00_VeWVt4lwZhTdZYDbSRnr0963",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-07b2fcf15c11417887b098c65ca2c264",
+          "sequence": 58,
+          "call_id": "call_00_ET_ZT5xfLZsFd44CrVh2ODq1441",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "99da0840d836023e3313f9507298426fa3e7a8e575c42e57566bd105c466befb",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        }
+      ],
+      "runtime_outcome": "completed",
+      "runtime_error_type": "",
+      "independent_verdict": "passed",
+      "verification": {
+        "status": "passed",
+        "exit_code": 0,
+        "detail": "hidden TOML CRLF/Decimal/binary/date/invalid-input checks passed\n",
+        "source": "controller_hidden_verifier"
+      },
+      "integrity": true,
+      "forbidden_changes": [],
+      "changed_files": [
+        "src/tomli/_parser.py",
+        "src/tomli/_re.py"
+      ],
+      "after_changes": {
+        "src/tomli/_parser.py": {
+          "sha256": "3e782f1bc85639ecef630ae686df3d849f2bedd2e9c987d8f5109a5a154df131",
+          "mode": 384,
+          "bytes": 26727
+        },
+        "src/tomli/_re.py": {
+          "sha256": "a12359fe294523a72112e434d58452a14c9d050affa2417f9927474e4166bfdd",
+          "mode": 384,
+          "bytes": 3396
+        }
+      },
+      "request_attempts": 13,
+      "budget": {
+        "input": 153492,
+        "output": 2028,
+        "pending": {},
+        "legacy_requests_without_usage": 0,
+        "attempt_prices": {},
+        "known_cost_usd": "0.0484812",
+        "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+      },
+      "elapsed_seconds": 64.70267851883546,
+      "first_text_seconds": 18.399228089954704,
+      "controller_process_highwater_bytes": 110202880,
+      "controller_memory_scope": "process cumulative high-water; includes earlier trials, not per-trial peak",
+      "container_peak_sampled_memory_bytes": 5058330,
+      "artifact_bytes": 1260437,
+      "backend_closed": true,
+      "remaining_resources": [],
+      "steps": 13,
+      "tool_calls": 17,
+      "trial": "tomli-crlf-decimal-3",
+      "baseline_manifest_sha256": "4faf2a5fd44a68c7325ebb95d5d6e47c47569dd549260063cd35c94f957d1c02"
+    },
+    {
+      "task_id": "boltons-slug-chunks",
+      "commit": "4e5faa3d7e4008d89e0d8bf1ea87b6d9a061a16d",
+      "classification": "success",
+      "model_claim": "已修复两个回归，且只改动了允许的两个文件。\n\n- **`boltons/strutils.py`**：`slugify` 中的 `if True: ret = ret.lower()` 恢复为 `if lower:`，因此 `lower=False` 保持大小写，默认行为仍为小写。\n- **`boltons/iterutils.py`**：`chunked_iter` 中 `kw.get('fill')` 恢复为 `kw.pop('fill')`。`pop` 能区分“未传 fill”和“显式传入 `fill=None`/`False` 等值”，也保证后续未知关键字仍触发 `ValueError`；`chunked(..., fill=None)` 现在正确填充末块。\n\n验证结果：\n- `python3 public_regression.py` → `public boltons checks passed`\n- 额外检查通过：`slugify` 的 `delim`、`ascii`、空串及大小写选项；`chunked`/`chunked_iter` 的无填充、`fill=None`、`fill=False`、`count`、字符串/字节、空输入，以及未知关键字报错。\n- 模块 doctest 仅剩 `pairwise_iter` 文档示例中预期的行尾空格差异，与本次修改无关（测试环境未安装 pytest，无法运行整套 pytest 测试）。\n- Git 工作区中仅 `public_regression.py`、`user-note.md` 保持未跟踪，未改动其他文件或用户笔记。",
+      "tool_facts": [
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 5,
+          "call_id": "call_00_GrzkRdo1IJ8Cu3nesBZF6445",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 6,
+          "call_id": "call_01_M7UO1MGPfJkSlRNCxzMy3558",
+          "tool": "glob",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 11,
+          "call_id": "call_00_ET_nLsJsP9MIWkiVcPI0nXe3015",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 12,
+          "call_id": "call_01_ET_r41ZrZ4CeTmMj2X0tXyd2154",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 18,
+          "call_id": "call_00_ET_UBDvqxqLYJ6Kbt2eWG1m6792",
+          "tool": "shell",
+          "outcome": "error",
+          "exit_code": 1,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 19,
+          "call_id": "call_01_ET_dLSBERo3S5Uz8qlrgAOH7713",
+          "tool": "search",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 20,
+          "call_id": "call_02_ET_Re0e2JWNeTtk4soybppJ3762",
+          "tool": "search",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 25,
+          "call_id": "call_00_SPmIqBtGeC9Wu3L8Jn724042",
+          "tool": "search",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 26,
+          "call_id": "call_01_hfcQ1DxfncgWrxmOks9u6884",
+          "tool": "search",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 31,
+          "call_id": "call_00_ET_HaIdRa7Qo8yWxrYXLCvo1719",
+          "tool": "read_file",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 32,
+          "call_id": "call_01_ET_1kQTJtnwYs7q7z34NpZD4393",
+          "tool": "read_file",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 37,
+          "call_id": "call_00_0cOak6w3HHhQNjz35SRm0343",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 38,
+          "call_id": "call_01_WcW6iC4F5RCoJHw35zP78825",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 42,
+          "call_id": "call_00_AV8R3xpZg3nUoi0CoQiI6949",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 46,
+          "call_id": "call_00_lk55QRGD0V9WZlbxEzsr6249",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 51,
+          "call_id": "call_00_xbQcEEQmvzBDMUNpryvl4537",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 52,
+          "call_id": "call_01_koG5BwT6SCo8kTRGkZ9a3803",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 57,
+          "call_id": "call_00_ET_hHNUwWnr0eN2JtQts3oR5296",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 58,
+          "call_id": "call_01_ET_7ktlPVXxXgQs4BhV9ka15401",
+          "tool": "shell",
+          "outcome": "error",
+          "exit_code": 1,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 62,
+          "call_id": "call_00_n9EuK6PWjMm0iNhd6Nqz6884",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 66,
+          "call_id": "call_00_UK9UbSs3oKsKeqMet62q0035",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 70,
+          "call_id": "call_00_6djjntMMk7Jw5pRfIPLs4668",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-6bd58c47e9fd4b7c9586103056fb711b",
+          "sequence": 74,
+          "call_id": "call_00_OMCZrmsNqJn2DLjvRpPA9233",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        }
+      ],
+      "runtime_outcome": "completed",
+      "runtime_error_type": "",
+      "independent_verdict": "passed",
+      "verification": {
+        "status": "passed",
+        "exit_code": 0,
+        "detail": "hidden slugify options/generator/fill/count/error checks passed\n",
+        "source": "controller_hidden_verifier"
+      },
+      "integrity": true,
+      "forbidden_changes": [],
+      "changed_files": [
+        "boltons/iterutils.py",
+        "boltons/strutils.py"
+      ],
+      "after_changes": {
+        "boltons/iterutils.py": {
+          "sha256": "7fb67f49dc1d895051549b523c2e21161e3c1f4e21590fa7fd09039386d08510",
+          "mode": 384,
+          "bytes": 59341
+        },
+        "boltons/strutils.py": {
+          "sha256": "c5ecb7efd3b2e86f92545c18d8d72193f45a1bd1d0edaf3da65868aa0e8bcdda",
+          "mode": 384,
+          "bytes": 47294
+        }
+      },
+      "request_attempts": 15,
+      "budget": {
+        "input": 101996,
+        "output": 2585,
+        "pending": {},
+        "legacy_requests_without_usage": 0,
+        "attempt_prices": {},
+        "known_cost_usd": "0.0337008",
+        "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+      },
+      "elapsed_seconds": 65.15204048994929,
+      "first_text_seconds": 54.185665959026664,
+      "controller_process_highwater_bytes": 113348608,
+      "controller_memory_scope": "process cumulative high-water; includes earlier trials, not per-trial peak",
+      "container_peak_sampled_memory_bytes": 5943328,
+      "artifact_bytes": 1326359,
+      "backend_closed": true,
+      "remaining_resources": [],
+      "steps": 15,
+      "tool_calls": 23,
+      "trial": "boltons-slug-chunks-1",
+      "baseline_manifest_sha256": "867bdef037c60b3215d7be3753afd25c692b63ffaf8242cf53300b98a24498df"
+    },
+    {
+      "task_id": "boltons-slug-chunks",
+      "commit": "4e5faa3d7e4008d89e0d8bf1ea87b6d9a061a16d",
+      "classification": "unresolved",
+      "model_claim": "44 项全部通过，其中包括两个参数化用例。最后验证：检查差异范围、其他模块是否用到 `chunked` 和 `slugify`，以及最终 diff。",
+      "tool_facts": [
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 5,
+          "call_id": "call_00_ET_MeMVEWS26s6wbn1Cz80V2368",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 6,
+          "call_id": "call_01_ET_NwIlta9lbF3Cd9mbCJWd2303",
+          "tool": "glob",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 13,
+          "call_id": "call_00_XwPgXY30tG8xgEz52i9Z7456",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 14,
+          "call_id": "call_01_WMINfmGdG5kA4hmxd7KC7683",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 15,
+          "call_id": "call_02_mhcCcAPyWfm6BTj10JvD8959",
+          "tool": "search",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 16,
+          "call_id": "call_03_hZCoqJdicYP8Voa1vOEc9723",
+          "tool": "search",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 21,
+          "call_id": "call_00_DquPm2MMUGzuKyZP9XY95016",
+          "tool": "search",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 22,
+          "call_id": "call_01_2JqP76kaWcc8viEiZ7Xy7129",
+          "tool": "search",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 27,
+          "call_id": "call_00_ET_MYEL4lQwirgjp77Elt3f1396",
+          "tool": "read_file",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 28,
+          "call_id": "call_01_ET_rwfzy6X8I9T10d2jgYij6214",
+          "tool": "read_file",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 32,
+          "call_id": "call_00_nselUFUJwPa1hANdfoI77858",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 37,
+          "call_id": "call_00_esdMZG4JGHnRDr3mSPMo1167",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 38,
+          "call_id": "call_01_EWV8IqhLjt50chrci24C2818",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 43,
+          "call_id": "call_00_DfCb8dUuZKjjWEdij0tT5870",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 44,
+          "call_id": "call_01_5BfoTQNISpCtx0VacKXP8070",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 49,
+          "call_id": "call_00_ET_dgOnr6sd5LhFiAqwz6Kf2814",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 50,
+          "call_id": "call_01_ET_N8DQsLCvdus5UPVqxSE80624",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 55,
+          "call_id": "call_00_2Ej0b6fGpD6G94ombllr1704",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 56,
+          "call_id": "call_01_e0krSI8yqtRAJUcmNPAq7039",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 60,
+          "call_id": "call_00_OaHcNugfEjEcLeRiXEuL4496",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 65,
+          "call_id": "call_00_SKYGUUh2P2jwfP1FWOk11949",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 66,
+          "call_id": "call_01_x4rfLgxdYP75jnC8XZYN6147",
+          "tool": "shell",
+          "outcome": "error",
+          "exit_code": 1,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 70,
+          "call_id": "call_00_9ZbV8IxvgYeB1pXw42tP6287",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 75,
+          "call_id": "call_00_fYqeVP5LqRSLc7qNnivw0386",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 76,
+          "call_id": "call_01_7aDdr6aUjGPYYmQIhsxQ8741",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 80,
+          "call_id": "call_00_ET_jOZSXWpl0ZbMIGigLbQG2877",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 84,
+          "call_id": "call_00_u1ct6x6zvaNstdiOQocG5564",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 89,
+          "call_id": "call_00_Dulw6oLUCMIlrwqGoKxI4238",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-f16e8afd8ee045ce8539b8ed2797ec4b",
+          "sequence": 90,
+          "call_id": "call_01_b0YuAPeHhRX8T2K1WAxW3332",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        }
+      ],
+      "runtime_outcome": "step_limit",
+      "runtime_error_type": "",
+      "independent_verdict": "passed",
+      "verification": {
+        "status": "passed",
+        "exit_code": 0,
+        "detail": "hidden slugify options/generator/fill/count/error checks passed\n",
+        "source": "controller_hidden_verifier"
+      },
+      "integrity": true,
+      "forbidden_changes": [],
+      "changed_files": [
+        "boltons/iterutils.py",
+        "boltons/strutils.py"
+      ],
+      "after_changes": {
+        "boltons/iterutils.py": {
+          "sha256": "7fb67f49dc1d895051549b523c2e21161e3c1f4e21590fa7fd09039386d08510",
+          "mode": 384,
+          "bytes": 59341
+        },
+        "boltons/strutils.py": {
+          "sha256": "c5ecb7efd3b2e86f92545c18d8d72193f45a1bd1d0edaf3da65868aa0e8bcdda",
+          "mode": 384,
+          "bytes": 47294
+        }
+      },
+      "request_attempts": 16,
+      "budget": {
+        "input": 143671,
+        "output": 6239,
+        "pending": {},
+        "legacy_requests_without_usage": 0,
+        "attempt_prices": {},
+        "known_cost_usd": "0.0505881",
+        "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+      },
+      "elapsed_seconds": 97.37010087212548,
+      "first_text_seconds": 0.9503174629062414,
+      "controller_process_highwater_bytes": 118067200,
+      "controller_memory_scope": "process cumulative high-water; includes earlier trials, not per-trial peak",
+      "container_peak_sampled_memory_bytes": 14134804,
+      "artifact_bytes": 2316030,
+      "backend_closed": true,
+      "remaining_resources": [],
+      "steps": 16,
+      "tool_calls": 29,
+      "trial": "boltons-slug-chunks-2",
+      "baseline_manifest_sha256": "867bdef037c60b3215d7be3753afd25c692b63ffaf8242cf53300b98a24498df"
+    },
+    {
+      "task_id": "boltons-slug-chunks",
+      "commit": "4e5faa3d7e4008d89e0d8bf1ea87b6d9a061a16d",
+      "classification": "unevaluable",
+      "model_claim": "已修复两个回归，工作区现在与上游 HEAD 内容一致，仅新增的 `public_regression.py` / `user-note.md` 保持未跟踪状态，未改动其他文件。\n\n## 复现与根因\n\n`python3 public_regression.py` 首行即失败：\n```\nAssertionError  (slugify(\"Hello World\", lower=False) != \"Hello_World\")\n```\n\n`git diff` 显示两处单行人为改动：\n\n1. **`boltons/strutils.py` `slugify()`**：`if lower:` 被改成 `if True:`，导致 `lower=False` 被忽略、始终小写。\n2. **`boltons/iterutils.py` `chunked_iter()`**：`fill_val = kw.pop('fill')` 被改成 `kw.get('fill')`。由于 `dict.get` 不会抛 `KeyError`，`except KeyError` 分支永不触发，`do_fill` 恒为 `True`；而未提供 `fill` 时 `fill_val` 为 `None`，同时 `if kw: raise ValueError('got unexpected keyword arguments...')` 又对合法传入的 `fill` 报错，即“未知参数”的来源。\n\n## 修复\n\n- `strutils.py`：`if True:` → `if lower:`\n- `iterutils.py`：`kw.get('fill')` → `kw.pop('fill')`（`pop` 保证消费掉 `fill`，使后续 `if kw` 校验只对真正未知的参数报错）\n\n两处均为恢复原语义，签名与文档未变。\n\n## 验证\n\n- `python3 public_regression.py` → `public boltons checks passed`\n- 扩展断言（覆盖保留选项）：`slugify` 默认小写、`delim`、`ascii=True`、空串/纯标点；`chunked` 的 `count`、`fill=None`、`fill=0`、`fill=False`、`count+fill` 组合、`str` 输入填充、非法关键字仍抛 `ValueError`、`size=0` 仍抛 `ValueError` → 全部通过。\n\n补充说明：`python3 -m doctest boltons/iterutils.py` 有 1 处失败，是 `pairwise_iter` 文档示例期望值末尾的尾随空格（`cat -A` 确认该空格在 HEAD 中同样存在），属既有问题、与本次回归无关；环境中无 pytest，故未运行 `tests/` 下的测试文件。",
+      "tool_facts": [
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 5,
+          "call_id": "call_00_ET_QKknWLYHTEsc0SW2aQ3a9535",
+          "tool": "shell",
+          "outcome": "error",
+          "exit_code": 1,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 6,
+          "call_id": "call_01_ET_JJq3ETR5hBLtOzxGB8Hw8415",
+          "tool": "load_rules",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 11,
+          "call_id": "call_00_ET_Xjtrq8Z39V1mvniKWTvr9833",
+          "tool": "read_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 12,
+          "call_id": "call_01_ET_lhp8DmKQo2XEg0gpFyTK1182",
+          "tool": "search",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 17,
+          "call_id": "call_00_htYh9E9VGU6BI5382M6q4390",
+          "tool": "search",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 18,
+          "call_id": "call_01_EiqT9Hetd2apyGM0vEG95430",
+          "tool": "search",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 23,
+          "call_id": "call_00_ET_up6JnuvnjKiUGMTwPtEd6956",
+          "tool": "read_file",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 24,
+          "call_id": "call_01_ET_48rffBPYZ8lEsJg6uO1s3756",
+          "tool": "read_file",
+          "outcome": "error",
+          "exit_code": null,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 29,
+          "call_id": "call_00_XDC8Z48uLXjSxn9pJdFq8998",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 30,
+          "call_id": "call_01_xXj8xJPmdbIfJFZ4UuOI4914",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 34,
+          "call_id": "call_00_lpwqbfPgMB6w8qUK1F6C4202",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "3b3f8d3d1b3e7d6fbce41dcb0883e50c6bdc336c37dbc4f23171d467b6075750",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 39,
+          "call_id": "call_00_XCXPURfRHjAmkq0lu6612123",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 40,
+          "call_id": "call_01_cJZbMl4gXwtDxv2FUf4T7498",
+          "tool": "edit_file",
+          "outcome": "success",
+          "exit_code": null,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 44,
+          "call_id": "call_00_ET_9avRSDHrFSg8HuFEUQjx0756",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 48,
+          "call_id": "call_00_ET_pKJjIeCWRZ69dnfmO57O4148",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 53,
+          "call_id": "call_00_L3QKEGJ3ngqjxHR5K3YP3185",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 54,
+          "call_id": "call_01_I5ZmGEQF2lCFNvGLd2vj7996",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 58,
+          "call_id": "call_00_lHvctUeAtUNlZAWY6WMl8168",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 62,
+          "call_id": "call_00_fuqC48IFWaFYpxWe3jxB5272",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 66,
+          "call_id": "call_00_ET_87I3AVLt2LDBKAdWy0U85039",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        },
+        {
+          "run_id": "run-22619a7782364f07a3aa9bad096e2ceb",
+          "sequence": 70,
+          "call_id": "call_00_ncBbI6CzjtETrYag3uw81250",
+          "tool": "shell",
+          "outcome": "success",
+          "exit_code": 0,
+          "workspace_stamp": "37fadad73aac283112bedd0bb32bf68b50b34d3dd9986a0d73935a06ebf43051",
+          "source": "controller_tool_result",
+          "independent_verdict": "not_run"
+        }
+      ],
+      "runtime_outcome": "completed",
+      "runtime_error_type": "",
+      "independent_verdict": "not_run",
+      "verification": {
+        "status": "error",
+        "error_type": "RuntimeError"
+      },
+      "integrity": true,
+      "forbidden_changes": [],
+      "changed_files": [
+        "boltons/iterutils.py",
+        "boltons/strutils.py"
+      ],
+      "after_changes": {
+        "boltons/iterutils.py": {
+          "sha256": "7fb67f49dc1d895051549b523c2e21161e3c1f4e21590fa7fd09039386d08510",
+          "mode": 384,
+          "bytes": 59341
+        },
+        "boltons/strutils.py": {
+          "sha256": "c5ecb7efd3b2e86f92545c18d8d72193f45a1bd1d0edaf3da65868aa0e8bcdda",
+          "mode": 384,
+          "bytes": 47294
+        }
+      },
+      "request_attempts": 15,
+      "budget": {
+        "input": 93031,
+        "output": 3045,
+        "pending": {},
+        "legacy_requests_without_usage": 0,
+        "attempt_prices": {},
+        "known_cost_usd": "0.0315633",
+        "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+      },
+      "elapsed_seconds": 63.13231439515948,
+      "first_text_seconds": 1.0373214366845787,
+      "controller_process_highwater_bytes": 119640064,
+      "controller_memory_scope": "process cumulative high-water; includes earlier trials, not per-trial peak",
+      "container_peak_sampled_memory_bytes": 5210374,
+      "artifact_bytes": 1411033,
+      "backend_closed": true,
+      "remaining_resources": [],
+      "steps": 15,
+      "tool_calls": 21,
+      "trial": "boltons-slug-chunks-3",
+      "baseline_manifest_sha256": "867bdef037c60b3215d7be3753afd25c692b63ffaf8242cf53300b98a24498df"
+    }
+  ]
+}

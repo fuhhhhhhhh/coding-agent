@@ -54,7 +54,12 @@ class RunObservation(Contract):
     step: Annotated[int, Field(ge=0)]
     # kind 决定本条记录描述模型、工具还是最终停止事件。
     kind: Literal[
-        "model_requested", "model_replied", "tool_requested", "tool_result", "run_stopped"
+        "model_requested",
+        "model_replied",
+        "command_requested",
+        "tool_requested",
+        "tool_result",
+        "run_stopped",
     ]
     # 以下载荷按 kind 选用；未使用的字段保持为空，避免重复建模事件类。
     message: Message | None = None

@@ -1,0 +1,36 @@
+name: deterministic-and-wheel
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install uv==0.12.21
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y ripgrep git
+      - run: uv sync --locked
+      - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
+      - run: uv run --locked mypy
+      - run: uv run --locked pytest -q -W error::pytest.PytestUnraisableExceptionWarning
+      - run: uv build --wheel
+      - name: Install wheel outside source
+        shell: bash
+        run: |
+          uv venv /tmp/codepilot-wheel
+          uv export --locked --no-dev --no-hashes --no-emit-project --output-file /tmp/codepilot-constraints.txt
+          uv pip install --python /tmp/codepilot-wheel/bin/python --constraint /tmp/codepilot-constraints.txt dist/*.whl
+          cd /tmp
+          /tmp/codepilot-wheel/bin/codepilot --help
+          /tmp/codepilot-wheel/bin/codepilot permissions --provider fake --model fake-codepilot --backend local

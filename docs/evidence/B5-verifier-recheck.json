@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "exit_code": 0,
+  "detail": "hidden slugify options/generator/fill/count/error checks passed\n",
+  "source": "controller_hidden_verifier",
+  "first_round_verdict_unchanged": true,
+  "scope": "diagnostic recheck under updated image; not merged into first frozen suite",
+  "image": "sha256:aa644a7ecc551cb6c35674751c5cebca23096d586d01b21c5fd526505a528103"
+}

@@ -2,6 +2,8 @@
 
 import json
 import os
+import shutil
+import unicodedata
 from typing import TextIO
 
 from codepilot.app.models import ProductRunResult, RunIdentity
@@ -17,6 +19,8 @@ class EventRenderer:
         self.stream = stream
         self.jsonl = jsonl
         self._streamed_text = False
+        self._approvals: set[str] = set()
+        self._deferred: list[RuntimeEvent] = []
         self._color = (
             bool(getattr(stream, "isatty", lambda: False)()) and os.environ.get("TERM") != "dumb"
         )
@@ -26,16 +30,33 @@ class EventRenderer:
         if self.jsonl:
             return
         title = self._style("CodePilot", "1;97")
-        self._line("╭─ " + title + " ─────────────────────────────────────────────╮")
-        self._line(
-            f"│ model     {self._style(model, '36')}  backend {self._style(backend, '36')}".ljust(
-                59
-            )
-            + "│"
-        )
-        self._line(f"│ directory {workspace}".ljust(59) + "│")
-        self._line(f"│ session   {session_id}".ljust(59) + "│")
-        self._line("╰──────────────────────────────────────────────────────────╯")
+        width = max(38, min(100, shutil.get_terminal_size((100, 24)).columns - 2))
+        self._line("╭─ " + title + " " + "─" * (width - 12) + "╮")
+        for row in (
+            f"model     {model}  backend {backend}",
+            f"directory {workspace}",
+            f"session   {session_id}",
+        ):
+            visible = ""
+            used = 0
+            for char in row:
+                # 配置/路径中的控制字符不能变成终端指令；按实际字符宽度对齐中文。
+                char = char if char.isprintable() else "?"
+                size = (
+                    0
+                    if unicodedata.combining(char)
+                    else 2
+                    if unicodedata.east_asian_width(char) in {"W", "F"}
+                    else 1
+                )
+                if used + size > width - 4:
+                    visible += "…"
+                    used += 1
+                    break
+                visible += char
+                used += size
+            self._line("│ " + visible + " " * (width - 2 - used) + " │")
+        self._line("╰" + "─" * width + "╯")
         self._line("输入任务开始工作；/help 查看命令，/exit 退出。")
 
     def started(self, identity: RunIdentity, backend: str, provider: str) -> None:
@@ -43,6 +64,7 @@ class EventRenderer:
         if self.jsonl:
             self._json(
                 {
+                    "schema_version": 1,
                     "kind": "product_started",
                     **identity.model_dump(mode="json"),
                     "backend": backend,
@@ -62,6 +84,21 @@ class EventRenderer:
         if self.jsonl:
             self._json(EventRecorder.redacted(event))
             return
+        if event.kind == "approval_resolved":
+            self._approvals.discard(event.call_id or "")
+            if not self._approvals:
+                queued, self._deferred = self._deferred, []
+                for pending in queued:
+                    self(pending)
+            return
+        if event.kind == "approval_requested":
+            self._approvals.add(event.call_id or "")
+            return
+        if self._approvals:
+            # 审批期间暂停人类进度写入，避免覆盖输入提示；机器事件仍实时输出。
+            if len(self._deferred) < 128:
+                self._deferred.append(event)
+            return
         if event.kind == "model_requested":
             # 请求已发起但首个分片未到时给出明确反馈，避免把远端等待误认为终端挂起。
             self._line("  · 正在等待模型响应…（Ctrl-C 可取消）")
@@ -77,8 +114,6 @@ class EventRenderer:
             icon = "✓" if event.outcome == "success" else "!"
             color = "32" if event.outcome == "success" else "31"
             self._line(f"  {self._style(icon, color)} {event.call_id} · {event.outcome}")
-        elif event.kind == "approval_requested":
-            self._line(f"  {self._style('?', '33')} approval required · {event.call_id}")
         elif event.kind == "provider_retry":
             self._line(f"  ↻ {event.outcome} · {event.duration_seconds:g} 秒后重试；Ctrl-C 可取消")
         elif event.kind == "context_compacted":
@@ -103,7 +138,10 @@ class EventRenderer:
         if self.jsonl:
             self._json(
                 {
+                    "schema_version": 1,
                     "kind": "product_result",
+                    "execution_source": result.execution_source,
+                    "session_budget": result.session_budget,
                     **result.identity.model_dump(mode="json"),
                     "state": result.report.state.value,
                     "reason": result.report.reason,
@@ -162,6 +200,13 @@ class EventRenderer:
                 )
         if result.resources.trace_path is not None:
             self._line(f"[Trace] {result.resources.trace_path}")
+        if result.session_budget:
+            budget = result.session_budget
+            self._line(
+                f"[会话累计] 请求 {budget['request_attempts']} · "
+                f"输入 {budget['input_tokens']} / 输出 {budget['output_tokens']} Token · "
+                f"未结算 {budget['pending_attempts']} · 费用 {budget['cost_status']}"
+            )
         if result.delivery is not None:
             delivery = result.delivery
             self._line(f"[Git 起点] {delivery.base_commit}")

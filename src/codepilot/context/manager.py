@@ -153,6 +153,9 @@ class ContextManager:
         output = CURRENT_OUTPUT.get()
         try:
             result = await self.registry.execute(call)
+        except BrokenPipeError:
+            # 终端/通道断开不能降级成可让模型重试的存储错误，应停止并保留未知意图。
+            raise
         except OSError as error:
             # 存储故障停止命令后仍给模型稳定类别和已捕获引用，不能伪装为完整结果。
             result = ToolResult(

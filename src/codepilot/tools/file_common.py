@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import stat
 import tempfile
 from pathlib import Path
 
@@ -70,12 +71,15 @@ def _check_expected_hash(path: Path, expected_sha256: str | None) -> None:
 def _atomic_write(path: Path, data: bytes) -> None:
     """在目标同目录写入临时文件后原子替换，避免留下半写入文件。"""
     temporary_name: str | None = None
+    # 原子替换不能意外清除脚本执行位；仅保留普通权限位，不复制提权位。
+    mode = stat.S_IMODE(path.stat().st_mode) & 0o777 if path.exists() else 0o600
     try:
         with tempfile.NamedTemporaryFile(
             mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
         ) as temporary:
             temporary_name = temporary.name
             temporary.write(data)
+            os.fchmod(temporary.fileno(), mode)
             temporary.flush()
             os.fsync(temporary.fileno())
         os.replace(temporary_name, path)

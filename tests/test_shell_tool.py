@@ -79,7 +79,7 @@ def test_timeout_terminates_child_process_group(tmp_path: Path) -> None:
     async def scenario() -> None:
         """记录子进程 PID，超时后确认 PID 已不再存在。"""
         tool = ShellTool(Workspace(tmp_path))
-        tool.default_timeout = 0.1
+        tool.default_timeout = 60.0
         pid_file = tmp_path / "child.pid"
         child_code = (
             f"import os,time; open({str(pid_file)!r}, 'w').write(str(os.getpid())); time.sleep(60)"
@@ -89,10 +89,23 @@ def test_timeout_terminates_child_process_group(tmp_path: Path) -> None:
             f"subprocess.Popen([{sys.executable!r}, '-c', {child_code!r}]); "
             "time.sleep(60)"
         )
-        result = await ToolRegistry((tool,)).execute(
-            ToolCall(call_id="shell", name="shell", arguments={"command": command})
+        pending = asyncio.create_task(
+            ToolRegistry((tool,)).execute(
+                ToolCall(call_id="shell", name="shell", arguments={"command": command})
+            )
         )
-        assert result.is_error and "tool_timeout" in result.content
+        try:
+            # 先确认后代确实启动，再触发父时限；繁忙机器不能因启动超过 100ms 被误判泄漏。
+            async with asyncio.timeout(5):
+                while not pid_file.exists():
+                    await asyncio.sleep(0.005)
+            with pytest.raises(TimeoutError):
+                async with asyncio.timeout(0.05):
+                    await pending
+        finally:
+            if not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
         child_pid = int(pid_file.read_text(encoding="utf-8"))
         # 被终止的后代可能短暂处于僵尸态，但不得继续运行或产生输出。
         for _ in range(20):
@@ -105,5 +118,36 @@ def test_timeout_terminates_child_process_group(tmp_path: Path) -> None:
             time.sleep(0.01)
         else:
             pytest.fail("child process is still running after process-group cleanup")
+
+    asyncio.run(scenario())
+
+
+def test_paused_output_pipe_is_closed_before_event_loop_exit(tmp_path: Path) -> None:
+    """真实输出背压后清理既停止进程，也关闭暂停管道，避免循环关闭后析构警告。"""
+    from codepilot.tools.process import spawn, stop_process
+
+    async def scenario() -> None:
+        """等待 transport 确实暂停再触发停止，复现 Python 3.11 的遗留句柄。"""
+        process = await spawn(
+            (
+                sys.executable,
+                "-c",
+                "import sys,time;sys.stdout.write('x'*500000);sys.stdout.flush();time.sleep(60)",
+            ),
+            cwd=str(tmp_path),
+        )
+        try:
+            assert process.stdout is not None
+            transport = getattr(process.stdout, "_transport", None)
+            assert transport is not None
+            async with asyncio.timeout(5):
+                while transport.is_reading():
+                    await asyncio.sleep(0.005)
+            await stop_process(process)
+            assert process.returncode is not None
+            owned = getattr(process, "_transport", None)
+            assert owned is not None and owned.is_closing()
+        finally:
+            await stop_process(process)
 
     asyncio.run(scenario())

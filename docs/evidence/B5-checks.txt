@@ -1,0 +1,93 @@
+2026-10-19 UTC — B5 正式终端操作、产品评测和安装交付链
+基线 8aed16a + 本轮授权工作树；提交后由 Git 历史关联，不制造自引用 hash。
+
+确定性/静态：
+  uv run --locked ruff check . => All checks passed!
+  uv run --locked ruff format --check . => 188 files already formatted
+  uv run --locked mypy => Success: no issues found in 141 source files
+  uv run --locked pytest -q -W error::pytest.PytestUnraisableExceptionWarning --basetemp=/dev/shm/codepilot-b5-final-transport
+    324 passed, 9 skipped in 17.16s；无未回收传输警告。
+  uv build --wheel => Successfully built dist/codepilot-0.1.0-py3-none-any.whl
+  9 skipped 是显式 Rootless Docker 开关，随后单独实际运行。
+
+干净安装：
+  Python 3.11.16，/dev/shm/codepilot-b5-wheel-env，新环境安装本轮非 editable wheel。
+  依赖按 uv.lock 导出的精确约束安装，openai 2.54.0 / MCP 1.30.0 / jsonschema 4.26.0。
+  在 /tmp 执行 Python -m pytest -q -W error::pytest.PytestUnraisableExceptionWarning /绝对路径/tests：
+    324 passed, 9 skipped in 19.28s；无警告，没有靠源码 editable 路径掩盖安装缺失。
+  wheel 环境的 B4/B5 Rootless 联合测试：2 passed in 35.23s（后续 transport 修复另有最终真实模型验收）。
+  最终安装版官方模型 + 最新镜像冒烟：最多 4 请求，实际 2；1 Shell 成功，Runtime completed，
+    输出 PIPE-CHECK、用户笔记不变、后端关闭、resources=[]，独立 passed。
+    详见 B5-final-wheel-model.json；这项冒烟不替代六次真实仓库评测。
+  用户 codepilot doctor 在 testcodingagent 目录成功，零模型请求；实际目录 Git 状态仍干净。
+
+Rootless Docker：
+  既有 Workspace 7 + B4 1 + B5 1 项联合运行，镜像 codepilot-sandbox:0.1.0。
+  新 B5 验证：正式用户命令无 Provider、隐藏材料新环境验收、镜像别名创建/释放、文件模式保留。
+  使用用户级 context rootless，不修改或重启公共 Docker。
+  daemon 29.1.3，overlayfs，rootless=true；Python/镜像 ID 详见 B5-installed-doctor.json。
+  最终 transport 修复后的重新运行计数/耗时补在本文件末尾。
+
+真实任务，先冻结目标而非事后选择：
+  来源：hukkin/tomli 43a86ade8b795c6ef9b4ec53372a607cd1ed426f（src 布局）；
+        mahmoud/boltons 4e5faa3d7e4008d89e0d8bf1ea87b6d9a061a16d（普通包布局）。
+  为固定真实仓库注入已知回归，不声称修复上游现存缺陷。每任务三次独立 clone/checkout/run/隐藏验证。
+  任务 1：CRLF 与 parse_float Decimal 跨 _parser/_re 两个模块；
+  任务 2：slugify lower=False 与 chunked fill=None 跨两个真实模块。
+  保护既有未提交笔记/公开测试及所有非允许文件；隐藏验证器不进入 Agent 工作区或容器。
+  先在独立环境确认种子确实失败，修复后再独立重建/覆盖允许文件/注入隐藏材料。
+  配置、模型、参数、预算、环境、材料哈希、每个结果和失败全部保存。
+
+第一轮：
+  六次目标全部独立通过，最多 96 请求；实际 83。
+  原报告 4 success / 1 unresolved / 1 unevaluable，不能覆盖成成功。
+  其中 step_limit 候选已独立通过但被原分类错误记成 unresolved；修正后任务与 Runtime 分开。
+  最后一个验证器 RuntimeError：本轮并行更新镜像标签，旧 manifest 索引无引用，inspect 退出 1。
+  后续新镜像复核该候选通过仅作为诊断，未回填原成绩；详见 first-plan/report 与 verifier-recheck。
+
+第二轮（单独重新冻结，不与首轮混作同预算优化）：
+  各 24 请求/24 步，总 144 上限，8192 输出 Token，官方 DeepSeek Flash Chat + 离线 Rootless Docker。
+  镜像唯一别名保持索引到所有 trial/验证器结束，只移除自己创建的引用。
+  六次全部独立 passed、六次 Runtime completed，实际 62 请求；551870 输入 / 16240 输出 Token。
+  依次：Tomli 10/12/11 请求，58.79/58.19/60.86 秒；boltons 9/12/8 请求，56.26/76.06/42.05 秒。
+  model_claim：原文保存，不充当判据。
+  tool_result：版本化调用事实，公开失败、修改和测试在正式产品链实际发生。
+  runtime_outcome：每次单独记录，六次 completed。
+  independent_verdict：六次外部隐藏测试通过；保护/版本/暂存区完整性 true；
+    后端关闭、资源空、pending 空；镜像别名释放。task_gate_passed=true，release_ready=false。
+  总耗时、首字时延、工具排队、Artifact 字节、容器采样内存、控制器累计高水位保留；不宣称精确瞬时峰值。
+  两轮 145 请求 + 最终安装冒烟 2 = 147 次。预算调整、失败与独立复核均透明，没有秘密重置。
+
+重要故障与开发中修正：
+  - 非 TTY 不能阻塞读取审批；真实 PTY 批准/取消/拒绝后仍能复用输入，无残留 input 线程。
+  - 多审批期间人类进度有界暂存，避免覆盖提示；机器事件仍实时。
+  - 用户命令零模型计数，原权限拒绝无副作用，退出非零可诊断，Trace 唯一终态。
+  - 原子修改不应丢执行位；现保留普通权限位，不复制提权位。
+  - 无补丁自述、改公开测试、错误 commit/seed、验证器挂起/不存在、模型/环境漂移均不会混成通过。
+  - 报告写满保留上一份结果，保存已发生的 trial，停止后续启动；中断不自动重放。
+  - 资源预览不终止进程，apply 核验 UID/起点/进程组及容器标签；活跃会话锁阻止清理。
+  - 仅固定 image ID 不维持生命周期，现拥有临时镜像引用并清理；原故障仍有证据。
+  - Python 3.11 原 100ms 后代启动假设在负载下不可靠，改启动屏障后触发真正父超时。
+  - 3.11 输出背压时已退出进程 transport 仍开放，稳定复现并显式关闭；警告不忽略，升为失败验证。
+  - BrokenPipeError 不再被 Context 当可重试捕获错误吞掉，停止并保留未知意图。
+  - 开发中 Mypy/格式/测试失败均修正；临时工作目录错误只影响 /tmp 的材料写入，已正确落入仓库。
+
+支持与未运行：
+  真实支持证据为 Linux CPython 3.11/3.14、Local 和用户级 Rootless Docker；开发与安装分开验证。
+  本轮新评测真实模型只跑 DeepSeek Flash Chat；B3 Responses 旧证据保留，不冒称 B5 新双协议验收。
+  Windows/macOS、其他 event loop/实现、其他模型/网关、大规模长期压力、物理掉电未运行。
+  CI 已配置 Python 3.11/3.14、无密钥、确定性/安装矩阵；远程状态以实际运行结果为准。
+  B2 网络/秘密、硬磁盘配额、worktree+Docker Git、安全任务撤销仍阻断成熟发布。
+  未实现远程/有状态 MCP、写子代理/团队、完整 TUI；没有发布 PyPI，没有把这些边界改成通过。
+
+官方参考与来源：
+  https://github.com/hukkin/tomli
+  https://github.com/mahmoud/boltons
+  https://raw.githubusercontent.com/actions/checkout/v4/README.md
+  https://raw.githubusercontent.com/actions/setup-python/v5/README.md
+  2026-10-19 核对；未复用 Claude Code/Codex 私有代码，不把依赖或上游成绩写作个人贡献。
+
+最终收尾：
+  transport 修复后 Rootless Docker 全部 9 passed in 96.88s。
+  独立 docker ps 的受管容器列表为空；codepilot-eval-* 镜像引用列表为空。
+  审批 fd 逐字节读取，不让 TextIO 预读吞掉粘贴的下一行；超长答案整行拒绝，不把前缀 y 误当批准。

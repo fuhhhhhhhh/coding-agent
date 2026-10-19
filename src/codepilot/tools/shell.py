@@ -17,6 +17,7 @@ class ShellArguments(Contract):
 
     command: Annotated[str, Field(min_length=1)]
     max_output_bytes: Annotated[int, Field(ge=1, le=262_144)] = 65_536
+    timeout_seconds: Annotated[float, Field(gt=0, le=900)] = 10.0
 
 
 class ShellTool(Tool[ShellArguments]):
@@ -61,4 +62,13 @@ class ShellTool(Tool[ShellArguments]):
                 f"stdout:\n{stdout.decode('utf-8', errors='replace')}\n"
                 f"stderr:\n{stderr.decode('utf-8', errors='replace')}\n{reference}"
             ),
+        )
+
+    def timeout(self, arguments: ShellArguments) -> float:
+        """长测试可显式增加时限，数值已经过 Schema 上界校验并绑定审批。"""
+        # 未显式传入时仍尊重后端或测试设定的默认时限，不能被模型默认值意外放宽。
+        return (
+            arguments.timeout_seconds
+            if "timeout_seconds" in arguments.model_fields_set
+            else self.default_timeout
         )
