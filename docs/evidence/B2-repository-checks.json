@@ -1,28 +1,30 @@
 {
-  "date": "2026-10-19T12:43:02.305109+00:00",
+  "date": "2026-10-19T12:46:42.637753+00:00",
   "base_commit": "34bb09a3aa1a90a2f33217a5fdfca0ca7887a0fc",
   "offline_python314": {
-    "passed": 360,
+    "passed": 361,
     "skipped": 15,
-    "seconds": 18.81
+    "seconds": 18.55
   },
   "noneditable_wheel_python311": {
-    "passed": 360,
+    "passed": 361,
     "skipped": 15,
-    "seconds": 23.46
+    "seconds": 22.77
   },
   "rootless_docker": {
     "passed": 15,
     "skipped": 0,
-    "seconds": 111.45
+    "seconds": 111.45,
+    "source_commit": "832be2f730aa772ae139d7e199bad2e636a95920",
+    "tested_image_id": "sha256:abd02ae86cf24391ec0fda410b4074f52003e86f8e19d6ca5b2d742ff5d0f573"
   },
   "wheel": {
     "status": "passed",
     "python_files": 109,
-    "wheel_sha256": "6aa674d4f7614adcfbdca08cb027b2fd57311d302436976faa1bfeffd5d5cb95"
+    "wheel_sha256": "a4d96a9c91380d70092d3bf1d2a118c7f08d103026fc3f9951bdd93ee0ec3d02"
   },
   "image": {
-    "image_id": "sha256:abd02ae86cf24391ec0fda410b4074f52003e86f8e19d6ca5b2d742ff5d0f573",
+    "image_id": "sha256:d834e1675f8104ae5c45819c29f9295f462ffa3339b31888b20a14952d5f0e8e",
     "python_files": 109,
     "source_bytes_match": true
   },
@@ -144,8 +146,26 @@
     "wheel_package_path": "/dev/shm/codepilot-b5-wheel-env/lib/python3.11/site-packages/codepilot"
   },
   "credential_scan": {
-    "files_scanned": 317,
+    "files_scanned": 318,
     "matches": 0,
     "method": "existing credential resolver; exact in-memory match only, no key printed or persisted"
+  },
+  "gitfile_followup": {
+    "behavior": "Exclude .git metadata files as well as directories; actual source worktree metadata stays unchanged; task-created metadata is not delivered.",
+    "rootless_docker": {
+      "passed": 4,
+      "skipped": 0,
+      "seconds": 45.0
+    },
+    "scope": "All four bounded workflow live tests, including sixteen-file edit/undo, quota, cancel and export failure; first test asserts source .git file absent in container and preserved on host."
+  },
+  "prior_remote_ci": {
+    "commit": "832be2f730aa772ae139d7e199bad2e636a95920",
+    "conclusion": "success",
+    "python": [
+      "3.11",
+      "3.14"
+    ],
+    "url": "https://github.com/fuhhhhhhhh/coding-agent/actions/runs/39254315575"
   }
 }

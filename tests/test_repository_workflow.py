@@ -400,3 +400,19 @@ def test_sixteen_small_edits_fit_real_journal_quota(tmp_path: Path) -> None:
     journal.finish()
     assert review(journal.path, root, apply=True)["applied"]
     assert all((root / f"{i}.py").read_text() == "old" for i in range(16))
+
+
+def test_bounded_excludes_worktree_git_metadata_file(tmp_path: Path) -> None:
+    """现有 Git worktree 的 .git 文件也属于元数据，不能复制或交付到任务目录。"""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / ".git").write_text("gitdir: ../private-worktree-metadata\n")
+    (source / "a").write_text("old")
+    owned = BoundedWorkspace(source, tmp_path / "run", "git-file", 1024**2)
+    root = owned.prepare()
+    assert not (root / ".git").exists() and ".git" not in owned.record["before"]
+    (root / ".git").write_text("task-local metadata")
+    (root / "a").write_text("new")
+    result = owned.finish(apply=True)
+    assert result["applied"] and [item["path"] for item in result["files"]] == ["a"]
+    assert (source / ".git").read_text() == "gitdir: ../private-worktree-metadata\n"

@@ -42,9 +42,10 @@ def test_product_hard_quota_delivery_and_source_undo(tmp_path: Path) -> None:
     (source / "a").write_bytes(b"user\r\n")
     (source / "notes").write_text("keep")
     (source / ".env").write_text("synthetic-credentials-stay-on-host")
+    (source / ".git").write_text("gitdir: ../synthetic-outside-metadata\n")
     script = (
         "from pathlib import Path; import errno,os; "
-        "assert not Path('.env').exists(); "
+        "assert not Path('.env').exists() and not Path('.git').exists(); "
         "s=os.statvfs('.'); assert s.f_blocks*s.f_frsize==8388608; "
         "f=open('fill','wb');\n"
         "try:\n for i in range(20): f.write(b'x'*1048576); f.flush()\n"
@@ -70,6 +71,7 @@ def test_product_hard_quota_delivery_and_source_undo(tmp_path: Path) -> None:
     outputs = [m.tool_result for m in result.report.messages if m.tool_result]
     assert "kernel_ENOSPC_confirmed" in outputs[-1].content and not outputs[-1].is_error
     assert (source / "a").read_text() == "agent" and (source / "new").read_text() == "new"
+    assert (source / ".git").read_text() == "gitdir: ../synthetic-outside-metadata\n"
     (source / "a").write_text("user later")
     identity = result.identity
     assert changes(config(tmp_path), source, identity.session_id, identity.run_id, apply=True)[

@@ -31,7 +31,7 @@ def selected_files(root: Path) -> list[Path]:
                 raise ValueError("bounded workspace does not accept symbolic links")
         for name in sorted(files):
             # 凭据文件不默认复制；不声称文件名规则能识别任意秘密。
-            if name.startswith(".env"):
+            if name in DEFAULT_EXCLUDES or name.startswith(".env"):
                 continue
             path = Path(directory) / name
             if not path.is_file():

@@ -16,7 +16,7 @@
     "undo excludes unowned Shell/extension changes and legacy runs"
   ],
   "scope_correction": "Original report had historical static no-hard-quota wording; bounded-copy quota is now proven, bind remains unbounded. summarize wording corrected without rerunning or changing trial facts.",
-  "source_freeze_note": "Runtime/tool behavior frozen before trials. After real cursor misuse, parameter descriptions were clarified; CLI help and release-blocker wording were also corrected. Final checks cover those changes; no claim of measured model-behavior improvement from descriptions. After the trials, journal reservation was refined to admit 16 small files while reserving unchanged preimages on partial failure; deterministic and real Docker tests cover the maximum batch separately. Doctor bounded/worktree diagnostics corrected separately.",
+  "source_freeze_note": "Runtime/tool behavior frozen before trials. After real cursor misuse, parameter descriptions were clarified; CLI help and release-blocker wording were also corrected. Final checks cover those changes; no claim of measured model-behavior improvement from descriptions. After the trials, journal reservation was refined to admit 16 small files while reserving unchanged preimages on partial failure; deterministic and real Docker tests cover the maximum batch separately. Doctor bounded/worktree diagnostics corrected separately. Follow-up excludes preexisting/task-created .git metadata files; validated deterministically and in Rootless Docker, not an additional real-model trial.",
   "task_gate_passed": true,
   "release_ready": false,
   "owned_resources_released": true,
