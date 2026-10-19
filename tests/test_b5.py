@@ -519,3 +519,23 @@ def test_renderer_failure_before_command_does_not_start_process(tmp_path: Path) 
     assert not (workspace / "forbidden").exists()
     with SessionStore(tmp_path / "state", "broken", create=False) as stored:
         assert stored.get("status") == "needs_reconciliation"
+
+
+def test_wheel_content_check_rejects_build_before_last_edit(tmp_path: Path) -> None:
+    """构建版本名相同也不能代表内容最新，真实 zip 必须逐文件匹配源码。"""
+    from zipfile import ZipFile
+
+    source = tmp_path / "source"
+    source.mkdir()
+    code = source / "__init__.py"
+    code.write_text('"""合成包源码。"""\n')
+    wheel = tmp_path / "package.whl"
+    with ZipFile(wheel, "w") as archive:
+        archive.writestr("codepilot/__init__.py", code.read_bytes())
+    script = Path(__file__).resolve().parents[1] / "scripts/check_wheel.py"
+    args = [sys.executable, str(script), str(wheel), "--source", str(source)]
+    passed = subprocess.run(args, capture_output=True, text=True)
+    assert passed.returncode == 0 and json.loads(passed.stdout)["status"] == "passed"
+    code.write_text(code.read_text() + "version = 2\n")
+    stale = subprocess.run(args, capture_output=True, text=True)
+    assert stale.returncode != 0 and "wheel differs from source" in stale.stderr

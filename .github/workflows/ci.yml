@@ -25,6 +25,7 @@ jobs:
       - run: uv run --locked mypy
       - run: uv run --locked pytest -q -W error::pytest.PytestUnraisableExceptionWarning
       - run: uv build --wheel
+      - run: uv run --locked python scripts/check_wheel.py dist/codepilot-0.1.0-py3-none-any.whl
       - name: Install wheel outside source
         shell: bash
         run: |

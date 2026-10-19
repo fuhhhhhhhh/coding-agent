@@ -91,3 +91,19 @@ Rootless Docker：
   transport 修复后 Rootless Docker 全部 9 passed in 96.88s。
   独立 docker ps 的受管容器列表为空；codepilot-eval-* 镜像引用列表为空。
   审批 fd 逐字节读取，不让 TextIO 预读吞掉粘贴的下一行；超长答案整行拒绝，不把前缀 y 误当批准。
+
+构建新鲜度收尾：最后的超长审批修复晚于上一份 wheel，安装版定向测试明确拒绝旧包；
+源码对应测试已通过。重新构建后增加 scripts/check_wheel.py，逐 Python 文件/路径集合核验源码与
+wheel 的 SHA-256，CI 在安装前强制运行，避免用版本字符串相同的旧产物验收。旧失败不归为模型失败。
+
+构建核验补充最终结果：
+  新增陈旧 wheel 反例后，源码 325 passed / 9 skipped（20.45s）；
+  最新非 editable wheel 的 Python 3.11 仓库外 325 passed / 9 skipped（22.63s）；均以传输析构警告为失败。
+  Ruff check/189 文件格式检查、mypy 142 文件通过。check_wheel 核验 104 个 Python 文件逐字一致。
+  主功能提交 1b92d51 的 GitHub Actions 3.11/3.14 两项成功，run 39219890240，详情 B5-ci-main.json。
+  当前包的内容哈希与复验结果见 B5-wheel-content.json / B5-final-wheel-model.json；
+  首次安装冒烟保留为 B5-wheel-model-initial.json，不覆盖原数据。
+
+新鲜产物最终真实复验：原先 2 请求安装冒烟保留，新 wheel 以剩余 2 请求硬额度完成一次
+官方 DeepSeek + Docker Shell 验证，Runtime completed / 独立 passed。累计实际 83+62+2+2=149，
+分组上限 96/144/4 均未超；当前 wheel SHA 与 B5-final-wheel-model.json 完全匹配。

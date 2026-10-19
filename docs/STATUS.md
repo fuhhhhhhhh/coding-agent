@@ -20,9 +20,9 @@
 - 正式 ProductHarness 使用 CodePilotApplication，实际原生 Git checkout 完整 commit；精确注入回归和未提交笔记；先独立验证初始失败，候选结束后在新环境注入隐藏材料验收。保护文件、空修复、Git 起点/暂存区/执行配置、模式与字节都检查；模型/Runtime/独立结果分别记录。
 - 清单/环境/预算/隐藏材料/源码哈希冻结；独立 trial 和有限共享请求额度，任务所有最大额度不超 suite 上限。started/结果/报告原子保存，中断不重放，磁盘满保留旧报告。eval-compare 对版本/任务/模型/预算/环境漂移拒绝比较。
 - 首轮冻结 6 次、96 请求上限，实际 83：5 个候选独立通过，最后一个验证器因本轮更新镜像标签导致旧索引丢失而不可评测；原分类又把 step_limit 的独立成功记为 unresolved。完整首轮报告保留，不覆盖、不混算。修正独立成功统计，增加唯一镜像引用租约与结束清理。
-- 第二轮运行前重新冻结 6 次、每次最多 24 请求/24 步、总 144。官方 DeepSeek Flash Chat + Rootless Docker：六次独立通过，六次 Runtime completed，实际 62 请求；551,870 输入 / 16,240 输出 Token。Tomli 三次 CRLF/Decimal 跨模块修复，boltons 三次 slugify/分块回归；均为固定真实上游中注入的回归，不声称修复上游现存 bug。两轮合计 145 次，分组预算与失败全部保留；最终安装版/最新镜像另做 4 请求上限冒烟，实际 2 请求通过，本轮实际共 147。
+- 第二轮运行前重新冻结 6 次、每次最多 24 请求/24 步、总 144。官方 DeepSeek Flash Chat + Rootless Docker：六次独立通过，六次 Runtime completed，实际 62 请求；551,870 输入 / 16,240 输出 Token。Tomli 三次 CRLF/Decimal 跨模块修复，boltons 三次 slugify/分块回归；均为固定真实上游中注入的回归，不声称修复上游现存 bug。两轮合计 145 次，分组预算与失败全部保留；最终安装版/最新镜像另做 4 请求上限冒烟，实际 2 请求通过，本轮实际共 149（含重建后最终包的 2 请求复验）。
 - 所有成功候选保护文件未变，资源为空、budget pending 为空，评测自有镜像别名释放。task_gate_passed=true，release_ready=false；B2 网络/秘密、硬磁盘配额、worktree+Docker Git、安全任务撤销仍明确阻断成熟发布。
-- 当前离线 324 passed / 9 skipped；Rootless Docker 9 passed。Ruff 全目录/格式/mypy/wheel 通过。Python 3.11 干净 wheel 在仓库外 324 passed / 9 skipped，将未回收 transport 警告升为失败后通过；新增无密钥 CI，远程运行状态不以本机通过代替。
+- 当前离线 325 passed / 9 skipped；Rootless Docker 9 passed。Ruff 全目录/格式/mypy/wheel 通过。Python 3.11 干净 wheel 在仓库外 325 passed / 9 skipped，将未回收 transport 警告升为失败后通过；新增无密钥 CI，远程运行状态不以本机通过代替。
 - 发现并补充真实 PTY 取消、非 TTY、存储失败、渲染失败、脚本执行位、镜像生命周期回归；安装测试发现旧 100ms 进程启动假设会误报，改成后代启动屏障后触发超时。另用输出背压稳定复现 3.11 暂停 PIPE 遗留，明确关闭已停止进程的 transport 后，两个版本均无该警告。
 - 推荐阅读顺序及三题答案见 docs/learning/B5.md，掌握情况待确认。下一大阶段应回补 B2 执行与安全交付阻断，再用 B5 门槛复验；不另起 B6 或把未完成边界写成成熟发布。
 

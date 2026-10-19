@@ -1,28 +1,29 @@
 {
   "package_path": "/dev/shm/codepilot-b5-wheel-env/lib/python3.11/site-packages/codepilot/__init__.py",
-  "root": "/dev/shm/codepilot-b5-final-i9a_pzda",
+  "root": "/dev/shm/codepilot-b5-final-edpk2_n9",
+  "wheel_sha256": "be0c818be15f519fd5a1d152c1385541ab174121060804206e40451aac6d3178",
   "model": "deepseek-flash",
-  "request_cap": 4,
+  "request_cap": 2,
   "attempts": 2,
   "model_claim": [
-    "一次执行即成功：命令 exit_code=0，stdout 输出 `PIPE-CHECK`，stderr 为空。"
+    "执行成功（exit_code=0），标准输出为 `PIPE-CHECK`，标准错误为空。"
   ],
   "tool_results": [
     {
-      "call_id": "call_00_aDwMACfEHFj0EAH1wmaN1532",
-      "content": "exit_code=0\nstdout_truncated=false\nstderr_truncated=false\nstdout:\nPIPE-CHECK\n\nstderr:\n\noutput_id=output-293282e991e042559f18a6d6dcd3e3a3\noutput_state=complete\n可用 read_output/search_output 读搜原始输出。",
+      "call_id": "call_00_T3cVwd2hvhnOCEydxTRf2012",
+      "content": "exit_code=0\nstdout_truncated=false\nstderr_truncated=false\nstdout:\nPIPE-CHECK\n\nstderr:\n\noutput_id=output-2ee21da0f4014a06a1e2b9e9ced2315c\noutput_state=complete\n可用 read_output/search_output 读搜原始输出。",
       "is_error": false
     }
   ],
   "runtime_outcome": "completed",
   "independent_verdict": "passed",
   "budget": {
-    "input": 4771,
-    "output": 115,
+    "input": 4839,
+    "output": 179,
     "pending": {},
     "legacy_requests_without_usage": 0,
     "attempt_prices": {},
-    "known_cost_usd": "0.0015693",
+    "known_cost_usd": "0.0016665",
     "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
   },
   "backend_closed": true,
