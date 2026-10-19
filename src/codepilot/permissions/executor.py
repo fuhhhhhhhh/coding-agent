@@ -1,8 +1,11 @@
 """将权限判定、CLI 审批、审计和下游工具执行器组合为执行入口。"""
 
+import hashlib
+import time
 from typing import Protocol
 
 from codepilot.contracts import ToolCall, ToolResult
+from codepilot.contracts.authorization import EXECUTION_GUARD
 from codepilot.observability.trace import emit
 from codepilot.permissions.action import build_action
 from codepilot.permissions.approval import ApprovalProvider
@@ -88,15 +91,41 @@ class PermissionedExecutor:
             self._audit(request, decision, "approved", reason)
         else:
             self._audit(request, decision, "allowed", reason)
-        # 审批返回后重新核对 Action；后续接入会话信任时也必须沿用同一复核点。
-        current_spec = self._spec_for(call.name)
-        if (
-            current_spec is None
-            or build_action(current_spec, call, backend).fingerprint != request.action.fingerprint
-        ):
-            self._audit(request, "deny", "denied", "action_changed_after_approval")
-            return self._error(call, "permission_denied: action changed after approval")
-        return await self.registry.execute(call)
+
+        def validate() -> ToolResult | None:
+            """在审批返回及真正获得执行槽后复核同一次授权，排队不能延长批准寿命。"""
+            if (
+                time.monotonic() - request.issued_at > self.engine.policy.approval_ttl_seconds
+                or hashlib.sha256(self.engine.policy.model_dump_json().encode()).hexdigest()
+                != request.policy_digest
+            ):
+                self._audit(request, "deny", "denied", "approval_expired_or_policy_changed")
+                return self._error(call, "permission_denied: approval expired or policy changed")
+            current_spec = self._spec_for(call.name)
+            try:
+                current_backend = find_backend(self.registry)
+                fingerprint = (
+                    build_action(current_spec, call, current_backend).fingerprint
+                    if current_spec is not None
+                    else None
+                )
+            except (OSError, ValueError):
+                # 根目录被移走或元数据无法读取时失效授权，不能凭旧身份继续。
+                fingerprint = None
+            if current_spec is None or fingerprint != request.action.fingerprint:
+                self._audit(request, "deny", "denied", "action_changed_after_approval")
+                return self._error(call, "permission_denied: action changed after approval")
+            return None
+
+        denied = validate()
+        if denied is not None:
+            return denied
+        token = EXECUTION_GUARD.set(validate)
+        try:
+            return await self.registry.execute(call)
+        finally:
+            # ContextVar 按协程隔离并在退出恢复，不能把父调用批准传给下一次工具。
+            EXECUTION_GUARD.reset(token)
 
     def _spec_for(self, name: str) -> ToolSpec | None:
         """从注册表声明快照查找工具，避免复制注册表内部实现。"""

@@ -236,3 +236,17 @@ codepilot eval-compare /tmp/first/report.json /tmp/second/report.json
 目前 B5 的任务验收与成熟发布分别判定：`task_gate_passed` 不能替代 `release_ready`。
 网络/秘密、硬磁盘配额、worktree+Docker Git 和安全撤销仍是成熟发布阻断，不会由“样本通过”自动消失。
 详细机制、支持范围及推荐阅读入口见 [B5 设计](docs/design/B5.md)、[B5 阅读说明](docs/learning/B5.md)。
+
+文件工具修改可以在任务结束后审查和有条件撤销，两个命令均不请求模型：
+
+```bash
+codepilot changes SESSION_ID RUN_ID
+codepilot undo SESSION_ID RUN_ID            # 仅预览
+codepilot undo SESSION_ID RUN_ID --apply    # 检查全部版本后恢复原有脏内容
+```
+
+记录从本版本的新任务开始保存，只认领已确认的 `write_file`/`edit_file`；用户事后改动、未知调用、日志损坏会阻止撤销。Shell/扩展写入不在一键撤销范围，跨文件恢复不提供事务原子保证。原始正文保存在私有会话目录并随会话保留策略清理。默认依然直接修改当前目录。
+
+Docker 的显式 `--worktree` 在仓库根目录使用固定起点的完整独立 Git 副本，容器内 Git 可正常运行；源 Git 元数据与凭据不挂载，交付含任务中已经 commit 的文件变化。Docker 继续断网；当前工作区挂载没有硬磁盘配额，请求 `backend.limits.workspace_bytes` 会明确失败，不静默降级。
+
+交互会话中可使用 `/changes RUN_ID` 和 `/undo RUN_ID [--apply]`，输入 `/` 或 `/help` 可发现入口。隔离任务的独立验证也运行在所选后端，Docker 验证不会回退宿主。

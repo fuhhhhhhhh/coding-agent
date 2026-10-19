@@ -1,20 +1,27 @@
-"""实现不受 Agent 工作区修改影响的本地独立验证器。"""
+"""实现使用明确执行后端、独立材料与受控生命周期的验证器。"""
 
-import asyncio
 import shutil
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from pathlib import Path
 
 from codepilot.evals.models import VerificationResult
-from codepilot.workspace import ExecutionBackend
+from codepilot.workspace import ExecutionBackend, LocalExecutionBackend
 
 
 class IndependentVerifier:
     """用固定命令在 Agent 结束后独立验证工作区。"""
 
-    def __init__(self, command: tuple[str, ...], timeout_seconds: float = 10.0) -> None:
+    def __init__(
+        self,
+        command: tuple[str, ...],
+        timeout_seconds: float = 10.0,
+        *,
+        backend_factory: Callable[[Path], ExecutionBackend] | None = None,
+        on_started: Callable[[ExecutionBackend], None] | None = None,
+    ) -> None:
         """保存不可由任务工作区修改的 argv 和验证时限。"""
         if not command:
             raise ValueError("verifier command must not be empty")
@@ -22,43 +29,50 @@ class IndependentVerifier:
             raise ValueError("verifier timeout must be positive")
         self.command = command
         self.timeout_seconds = timeout_seconds
+        self.backend_factory = backend_factory or LocalExecutionBackend
+        self.on_started = on_started
+        self.backend: ExecutionBackend | None = None
 
     async def verify(self, workspace: Path) -> VerificationResult:
         """在工作区运行固定验证命令，并把进程故障转成明确状态。"""
         started = time.monotonic()
         try:
-            process = await asyncio.create_subprocess_exec(
-                *self.command,
-                cwd=workspace,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except (OSError, ValueError) as error:
-            # 验证器本身无法启动时不能把任务误判为代码未解决。
+            # 明确后端决定隔离边界，Docker 验收不得悄悄在控制器宿主执行候选代码。
+            async with AsyncExitStack() as resources:
+                backend = self.backend_factory(workspace)
+                self.backend = backend
+                resources.push_async_callback(backend.close)
+                await backend.start()
+                if self.on_started is not None:
+                    self.on_started(backend)
+                result = await backend.run_argv(self.command, timeout_seconds=self.timeout_seconds)
+        except (OSError, RuntimeError, ValueError) as error:
             return VerificationResult(
                 status="error",
                 passed=False,
                 detail=f"verifier_start_error: {type(error).__name__}",
                 duration_seconds=time.monotonic() - started,
             )
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), self.timeout_seconds)
-        except TimeoutError:
-            # 验证超时属于环境/验证状态，不能继续消耗纠错轮次。
-            process.kill()
-            await process.wait()
+        if result.timed_out:
             return VerificationResult(
                 status="timeout",
                 passed=False,
                 detail=f"verifier_timeout: {self.timeout_seconds:g}s",
                 duration_seconds=time.monotonic() - started,
             )
-        output = (stdout + stderr).decode("utf-8", errors="replace")
+        if result.oom_killed:
+            return VerificationResult(
+                status="error",
+                passed=False,
+                detail="verifier OOM",
+                duration_seconds=time.monotonic() - started,
+            )
+        output = result.stdout + result.stderr
         return VerificationResult(
-            status="passed" if process.returncode == 0 else "failed",
-            passed=process.returncode == 0,
-            detail=output[-4000:] or f"exit_code={process.returncode}",
-            exit_code=process.returncode,
+            status="passed" if result.exit_code == 0 else "failed",
+            passed=result.exit_code == 0,
+            detail=output[-4000:] or f"exit_code={result.exit_code}",
+            exit_code=result.exit_code,
             duration_seconds=time.monotonic() - started,
         )
 

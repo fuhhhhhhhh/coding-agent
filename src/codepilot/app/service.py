@@ -56,6 +56,7 @@ from codepilot.tasks.manager import TaskManager
 from codepilot.tools import create_basic_registry
 from codepilot.tools.base import ToolSpec
 from codepilot.workspace import DockerExecutionBackend, ExecutionBackend, LocalExecutionBackend
+from codepilot.workspace.changes import ChangeJournal
 from codepilot.workspace.git import GitDelivery, GitTaskWorkspace
 
 if TYPE_CHECKING:
@@ -241,6 +242,7 @@ class CodePilotApplication:
                 base_commit=git_config.base_commit,
                 require_clean_source=git_config.require_clean_source,
                 max_patch_bytes=git_config.max_patch_bytes,
+                independent_repository=self.config.backend.kind == "docker",
             )
             # 固定 commit 和独立 worktree 必须在后端或 Provider 创建前准备完成。
             execution_workspace = task_workspace.prepare()
@@ -272,8 +274,9 @@ class CodePilotApplication:
                         self.config, execution_workspace, backend_directory / name
                     ),
                 )
+                journal = ChangeJournal(router, execution_workspace, run_directory, identity.run_id)
                 context = ContextManager(
-                    router,
+                    journal,
                     store,
                     limits=self.config.context,
                     checkpoint_store=CheckpointStore(session.directory / "checkpoints"),
@@ -436,12 +439,36 @@ class CodePilotApplication:
                     pass
             raise
 
+        journal.finish()
         if task_workspace is not None:
             git_config = self.config.git_workspace
+
+            verification_resources: list[ExecutionBackend] = []
+
+            def verification_backend(root: Path) -> ExecutionBackend:
+                """重放验收延续原执行后端，并把新容器/进程纳入原会话资源归属。"""
+                owned = _create_backend(self.config, root, backend_directory / "verification")
+                verification_resources.append(owned)
+                return owned
+
+            def verification_started(owned: ExecutionBackend) -> None:
+                """验证容器启动后立即登记，控制器崩溃也不能跳过仍运行的验证进程。"""
+                for event in owned.events:
+                    if event.container_id:
+                        session.resource("container", {"id": event.container_id})
+
             delivery = await task_workspace.finish(
                 verification_command=git_config.verification_command,
                 verification_timeout_seconds=git_config.verification_timeout_seconds,
+                verification_backend_factory=verification_backend,
+                verification_started=verification_started,
             )
+            # 验证器清理失败仍是未知副作用，不能因主 Agent 容器已关闭就清空资源。
+            if any(
+                not any(event.kind == "backend_closed" for event in owned.events)
+                for owned in verification_resources
+            ):
+                raise RuntimeError("verification backend cleanup incomplete")
 
         if report is None or permission is None or backend is None or recorder is None:
             # 正常控制流不会到达这里，显式防御能避免返回未初始化的产品结果。

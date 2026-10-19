@@ -11,7 +11,7 @@ from codepilot.contracts import ToolCall, ToolResult
 from codepilot.sessions.outputs import CURRENT_OUTPUT
 from codepilot.tools import ToolRegistry, create_basic_registry
 from codepilot.tools.base import ToolSpec
-from codepilot.tools.process import collect, spawn
+from codepilot.tools.process import collect, spawn, workspace_environment
 from codepilot.workspace.common import BackendJournal, export_file
 from codepilot.workspace.models import BackendEvent, BackendLimits, CommandResult
 
@@ -32,6 +32,9 @@ class LocalExecutionBackend:
         if not self.root.is_dir():
             raise ValueError("workspace root must be a directory")
         self.limits = limits or BackendLimits()
+        # bind/宿主目录没有可强制的文件系统容量边界，请求硬配额必须失败关闭。
+        if self.limits.workspace_bytes is not None:
+            raise ValueError("hard workspace disk quota is unavailable for this backend")
         self.registry = registry or create_basic_registry(self.root)
         self.backend_id = f"local-{uuid.uuid4().hex}"
         self._journal = BackendJournal(audit_directory, self.root, self.backend_id)
@@ -97,7 +100,9 @@ class LocalExecutionBackend:
         factory = CURRENT_OUTPUT.get()
         call_id = f"argv-{uuid.uuid4().hex}"
         capture = factory.begin(call_id) if factory is not None else None
-        process = await spawn(command, cwd=str(self.root), capture=capture)
+        process = await spawn(
+            command, cwd=str(self.root), capture=capture, env=workspace_environment()
+        )
         if task is not None:
             self._active.add(task)
         self._processes.add(process)

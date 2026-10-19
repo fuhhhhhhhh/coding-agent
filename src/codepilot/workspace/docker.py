@@ -67,6 +67,9 @@ class DockerExecutionBackend:
             raise ValueError("container lifetime must be at least 60 seconds")
         self.image = image
         self.limits = limits or BackendLimits()
+        # bind/宿主目录没有可强制的文件系统容量边界，请求硬配额必须失败关闭。
+        if self.limits.workspace_bytes is not None:
+            raise ValueError("hard workspace disk quota is unavailable for this backend")
         self.network = network
         # 默认 owner 跨控制器进程保持稳定，崩溃后的新进程才能找到本用户遗留容器。
         self.owner = owner or f"codepilot-uid-{os.getuid()}"

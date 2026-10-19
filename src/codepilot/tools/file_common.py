@@ -68,7 +68,7 @@ def _check_expected_hash(path: Path, expected_sha256: str | None) -> None:
         raise ToolFailure(f"conflict: expected_sha256={expected_sha256} actual_sha256={actual}")
 
 
-def _atomic_write(path: Path, data: bytes) -> None:
+def _atomic_write(path: Path, data: bytes, *, expected_absent: bool = False) -> None:
     """在目标同目录写入临时文件后原子替换，避免留下半写入文件。"""
     temporary_name: str | None = None
     # 原子替换不能意外清除脚本执行位；仅保留普通权限位，不复制提权位。
@@ -82,7 +82,15 @@ def _atomic_write(path: Path, data: bytes) -> None:
             os.fchmod(temporary.fileno(), mode)
             temporary.flush()
             os.fsync(temporary.fileno())
-        os.replace(temporary_name, path)
+        # 新建以同文件系统的 link 作为原子不存在前置条件，不覆盖并发创建的用户文件。
+        if expected_absent:
+            try:
+                os.link(temporary_name, path)
+            except FileExistsError as error:
+                raise ToolFailure("conflict: destination was created concurrently") from error
+            os.unlink(temporary_name)
+        else:
+            os.replace(temporary_name, path)
         temporary_name = None
     finally:
         # 替换失败时清理临时文件，不影响原目标内容。

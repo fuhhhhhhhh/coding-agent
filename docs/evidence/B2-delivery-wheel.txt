@@ -1,0 +1,18 @@
+..................ss...............................................s.... [ 20%]
+...............s........................................................ [ 40%]
+........................................................................ [ 61%]
+........................................................................ [ 81%]
+...........................................................sssssss       [100%]
+=========================== short test summary info ============================
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_b2_docker_live.py:21: 需要显式启用 Rootless Docker
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_b2_docker_live.py:64: 需要显式启用 Rootless Docker
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_b4_docker_live.py:33: 需要显式 Rootless Docker live 开关
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_b5_docker_live.py:22: 需要显式 Rootless Docker 开关
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_workspace_docker_live.py:29: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_workspace_docker_live.py:108: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_workspace_docker_live.py:141: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_workspace_docker_live.py:189: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_workspace_docker_live.py:229: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_workspace_docker_live.py:312: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+SKIPPED [1] ../home/fuxiangyu/project/coding-agent/tests/test_workspace_docker_live.py:349: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
+343 passed, 11 skipped in 21.17s

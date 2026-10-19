@@ -26,6 +26,8 @@ class Action(Contract):
     resources: tuple[str, ...]
     network: bool = False
     secrets: tuple[str, ...] = ()
+    environment_names: tuple[str, ...] = ()
+    workspace_identity: tuple[int, int] | None = None
     fingerprint: Annotated[str, Field(min_length=64, max_length=64)]
 
 
@@ -46,6 +48,7 @@ class PermissionPolicy(Contract):
     rules: tuple[PermissionRule, ...] = ()
     container_mode: bool = False
     safe_process_reads: bool = False
+    approval_ttl_seconds: Annotated[float, Field(gt=0, le=3600)] = 300.0
 
 
 class ApprovalRequest(Contract):
@@ -56,6 +59,8 @@ class ApprovalRequest(Contract):
     call: ToolCall
     action: Action
     reason: str
+    issued_at: float = 0.0
+    policy_digest: str = ""
 
 
 class PermissionAudit(Contract):

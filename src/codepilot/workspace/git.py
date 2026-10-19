@@ -3,12 +3,17 @@
 import hashlib
 import json
 import os
+import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
 from codepilot.contracts.models import Contract, Identifier
 from codepilot.evals import IndependentVerifier, VerificationResult
+from codepilot.tools.file_common import _atomic_write
+from codepilot.tools.process import workspace_environment
+from codepilot.workspace.base import ExecutionBackend
 
 
 class GitDelivery(Contract):
@@ -39,6 +44,7 @@ class GitTaskWorkspace:
         base_commit: str = "HEAD",
         require_clean_source: bool = False,
         max_patch_bytes: int = 16 * 1024 * 1024,
+        independent_repository: bool = False,
     ) -> None:
         """保存任务身份和边界；真正的 Git 副作用延迟到 ``prepare``。"""
         self.source_workspace = source_workspace.resolve(strict=True)
@@ -49,6 +55,7 @@ class GitTaskWorkspace:
         self.requested_base = base_commit
         self.require_clean_source = require_clean_source
         self.max_patch_bytes = max_patch_bytes
+        self.independent_repository = independent_repository
         self.repository = Path()
         self.workspace = Path()
         self.worktree_root = self.run_directory / "worktree"
@@ -57,6 +64,7 @@ class GitTaskWorkspace:
         self.patch_path = self.run_directory / "changes.patch"
         self.base_commit = ""
         self._prepared = False
+        self._delivery_git_config = b""
 
     def prepare(self) -> Path:
         """核验干净 Git 起点，创建 detached worktree 并返回对应任务目录。"""
@@ -81,11 +89,29 @@ class GitTaskWorkspace:
             "rev-parse", "--verify", f"{self.requested_base}^{{commit}}"
         ).strip()
         relative = self.source_workspace.relative_to(self.repository)
+        # 容器只挂载所选工作目录；子目录看不到祖先 .git，不能悄悄回退宿主。
+        if self.independent_repository and relative.parts:
+            raise ValueError("Docker isolated Git currently requires the repository root")
         self.run_directory.mkdir(parents=True, exist_ok=False)
         try:
-            self._source_git(
-                "worktree", "add", "--detach", str(self.worktree_root), self.base_commit
-            )
+            # Docker 只挂载完整任务副本，不暴露宿主源仓库元数据或共享 objects。
+            if self.independent_repository:
+                self._source_git(
+                    "clone",
+                    "--no-local",
+                    "--no-hardlinks",
+                    "--no-checkout",
+                    "--",
+                    str(self.repository),
+                    str(self.worktree_root),
+                )
+                self._git_at(self.worktree_root, "remote", "remove", "origin")
+                self._git_at(self.worktree_root, "checkout", "--detach", self.base_commit)
+                self._delivery_git_config = (self.worktree_root / ".git/config").read_bytes()
+            else:
+                self._source_git(
+                    "worktree", "add", "--detach", str(self.worktree_root), self.base_commit
+                )
         except BaseException:
             # worktree add 可能在失败前创建目录或登记元数据，统一做保守清理。
             self._remove_owned_worktree(self.worktree_root, force=True)
@@ -101,10 +127,14 @@ class GitTaskWorkspace:
         verification_command: tuple[str, ...] = (),
         verification_timeout_seconds: float = 120.0,
         failed: bool = False,
+        verification_backend_factory: Callable[[Path], ExecutionBackend] | None = None,
+        verification_started: Callable[[ExecutionBackend], None] | None = None,
     ) -> GitDelivery:
         """导出全部修改、在干净 worktree 重放，并只自动删除无修改任务。"""
         if not self._prepared:
             raise RuntimeError("task worktree is not prepared")
+        if self.independent_repository:
+            self._prepare_delivery_metadata()
         changed = self.changed_files()
         if not changed:
             self._remove_owned_worktree(self.worktree_root)
@@ -124,21 +154,51 @@ class GitTaskWorkspace:
         digest = hashlib.sha256(patch).hexdigest()
         replay_status: Literal["passed", "failed"] = "failed"
         verification: VerificationResult | None = None
+        verifier: IndependentVerifier | None = None
+        replay_retained = False
         try:
-            self._source_git("worktree", "add", "--detach", str(self.replay_root), self.base_commit)
+            # Docker 验证副本也必须自带 Git 元数据；测试可能依赖 Git 版本信息。
+            if self.independent_repository:
+                self._source_git(
+                    "clone",
+                    "--no-local",
+                    "--no-hardlinks",
+                    "--no-checkout",
+                    "--",
+                    str(self.repository),
+                    str(self.replay_root),
+                )
+                self._git_at(self.replay_root, "remote", "remove", "origin")
+                self._git_at(self.replay_root, "checkout", "--detach", self.base_commit)
+            else:
+                self._source_git(
+                    "worktree", "add", "--detach", str(self.replay_root), self.base_commit
+                )
             self._git_at(self.replay_root, "apply", "--check", "--binary", str(self.patch_path))
             self._git_at(self.replay_root, "apply", "--binary", str(self.patch_path))
             replay_status = "passed"
             if verification_command:
-                verification = await IndependentVerifier(
-                    verification_command, verification_timeout_seconds
-                ).verify(self.replay_root)
+                verifier = IndependentVerifier(
+                    verification_command,
+                    verification_timeout_seconds,
+                    backend_factory=verification_backend_factory,
+                    on_started=verification_started,
+                )
+                verification = await verifier.verify(self.replay_root)
         except (OSError, RuntimeError, ValueError):
             # 重放失败不能删除原工作树或补丁；最终状态明确要求人工检查。
             replay_status = "failed"
         finally:
-            # replay 目录完全由本对象创建且补丁已在外部保存，可强制删除验证副本。
-            self._remove_owned_worktree(self.replay_root, force=True)
+            # 仅在验证后端确定关闭后删除自有副本；未知资源仍保留挂载目录。
+            verification_backend = verifier.backend if verifier is not None else None
+            if verification_backend is None or any(
+                event.kind == "backend_closed" for event in verification_backend.events
+            ):
+                self._remove_owned_worktree(self.replay_root, force=True)
+            else:
+                # 验证进程或容器未确定关闭时保留挂载目录，不删除仍可能被使用的代码。
+                replay_retained = True
+                self._write_manifest("failed_retained", replay_retained=str(self.replay_root))
         state: Literal["changes_retained", "failed_retained"] = (
             "failed_retained"
             if failed
@@ -152,6 +212,7 @@ class GitTaskWorkspace:
             patch_sha256=digest,
             replay_status=replay_status,
             verification=verification,
+            replay_retained=str(self.replay_root) if replay_retained else None,
         )
         return GitDelivery(
             source_repository=self.repository,
@@ -165,8 +226,40 @@ class GitTaskWorkspace:
             verification=verification,
         )
 
+    def _prepare_delivery_metadata(self) -> None:
+        """后端关闭后核验副本元数据，并恢复控制器配置，防止候选 filter 在宿主执行。"""
+        metadata = self.worktree_root / ".git"
+        # 元数据重定向不是可交付代码；未知路径必须保留，不能回退读取宿主仓库。
+        if metadata.is_symlink() or not metadata.is_dir() or (metadata / "commondir").exists():
+            raise ValueError("isolated Git metadata was redirected; workspace retained")
+        for index, path in enumerate(metadata.rglob("*")):
+            if index >= 100000 or path.is_symlink() or not (path.is_file() or path.is_dir()):
+                raise ValueError("unsafe isolated Git metadata; workspace retained")
+        config = metadata / "config"
+        if config.stat().st_size > 262144 or (metadata / "objects/info/alternates").exists():
+            raise ValueError("unsafe isolated Git configuration; workspace retained")
+        # git status/add 等也可能调用候选配置的 filter；候选结束后不在宿主信任它。
+        actual = config.read_bytes()
+        if actual != self._delivery_git_config:
+            self._write_private(self.run_directory / "task-git-config.before-delivery", actual)
+            _atomic_write(config, self._delivery_git_config)
+
     def changed_files(self) -> tuple[str, ...]:
         """使用 NUL 分隔 porcelain 输出返回新增、删除、重命名及模式变化路径。"""
+        # 模型可在副本里运行 Git；交付前不能相信被重定向的元数据与工作区配置。
+        if self.independent_repository:
+            metadata = self.worktree_root / ".git"
+            if not metadata.is_dir() or metadata.is_symlink():
+                raise ValueError("isolated Git metadata was replaced; workspace retained")
+            discovered = self._git_at(self.worktree_root, "rev-parse", "--show-toplevel").strip()
+            common = self._git_at(
+                self.worktree_root, "rev-parse", "--path-format=absolute", "--git-common-dir"
+            ).strip()
+            if (
+                Path(discovered).resolve() != self.worktree_root
+                or Path(common).resolve() != metadata
+            ):
+                raise ValueError("isolated Git metadata identity changed; workspace retained")
         output = self._git_bytes_at(
             self.worktree_root,
             "status",
@@ -175,7 +268,15 @@ class GitTaskWorkspace:
             "--untracked-files=all",
         )
         fields = output.split(b"\0")
-        paths: list[str] = []
+        # status 只看未提交内容；交付还必须包括任务在副本内已提交的改动。
+        committed = self._git_bytes_at(
+            self.worktree_root, "diff", "--name-only", "-z", self.base_commit
+        )
+        paths = [
+            part.decode("utf-8", errors="surrogateescape")
+            for part in committed.split(b"\0")
+            if part
+        ]
         index = 0
         while index < len(fields) and fields[index]:
             record = fields[index]
@@ -187,7 +288,7 @@ class GitTaskWorkspace:
             # 重命名和复制记录还包含一个原路径；交付列表保留最终路径即可。
             if b"R" in status or b"C" in status:
                 index += 1
-        return tuple(sorted(paths))
+        return tuple(sorted(set(paths)))
 
     def cleanup(self) -> None:
         """仅在任务 worktree 已干净且归属清单匹配时执行显式清理。"""
@@ -209,7 +310,7 @@ class GitTaskWorkspace:
     def _build_patch(self) -> bytes:
         """通过临时 index 把未跟踪文件也纳入 Git 原生二进制补丁。"""
         index_path = self.run_directory / "delivery.index"
-        environment = {**os.environ, "GIT_INDEX_FILE": str(index_path)}
+        environment = {**workspace_environment(), "GIT_INDEX_FILE": str(index_path)}
         try:
             self._git_at(self.worktree_root, "read-tree", self.base_commit, env=environment)
             # intent-to-add 不读取 clean filter 产物，但让 git diff 能看见未跟踪文件。
@@ -236,6 +337,7 @@ class GitTaskWorkspace:
         """以仅所有者权限原子记录资源归属、状态和清理条件。"""
         payload = {
             "version": 1,
+            "independent_repository": self.independent_repository,
             "creator_uid": os.getuid(),
             "session_id": self.session_id,
             "task_id": self.task_id,
@@ -279,6 +381,10 @@ class GitTaskWorkspace:
             raise ValueError("refusing to remove worktree outside owned run directory")
         if not resolved.exists():
             return
+        # 完整副本只删除本对象的固定目录；调用者已经核验变更与归属。
+        if self.independent_repository:
+            shutil.rmtree(resolved)
+            return
         arguments = ["worktree", "remove"]
         if force:
             arguments.append("--force")
@@ -305,9 +411,10 @@ class GitTaskWorkspace:
     ) -> bytes:
         """不经 Shell 执行 Git，失败时只暴露有界诊断。"""
         process = subprocess.run(
-            ("git", "-c", "core.hooksPath=/dev/null", *arguments),
+            ("git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", *arguments),
             cwd=cwd,
-            env=env,
+            env=env if env is not None else workspace_environment(),
+            timeout=120,
             capture_output=True,
             check=False,
         )

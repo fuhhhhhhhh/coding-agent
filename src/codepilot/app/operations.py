@@ -63,6 +63,15 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
     ancestor = state
     while not ancestor.exists():
         ancestor = ancestor.parent
+    checks["execution_boundary"] = {
+        "network": "none" if config.backend.kind == "docker" else "host-unrestricted",
+        "hard_workspace_quota": False,
+        "requested_workspace_bytes": config.backend.limits.workspace_bytes,
+        "secret_injection": False,
+        "worktree_git": "independent-clone"
+        if config.backend.kind == "docker"
+        else "native-worktree",
+    }
     checks["storage"] = {
         "path": str(state),
         "writable_parent": os.access(ancestor, os.W_OK),
@@ -98,6 +107,7 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
         and checks["rg"]["available"]
         and checks["workspace"]["readable"]
         and checks["storage"]["writable_parent"]
+        and config.backend.limits.workspace_bytes is None
     )
     if config.backend.kind == "docker":
         required = (
@@ -118,8 +128,9 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
         "limits": [
             "Docker network=none",
             "bind mount has no hard disk quota",
-            "worktree+Docker Git unsupported",
-            "automatic safe undo unavailable",
+            "Docker isolated Git requires repository root and an independent clone",
+            "undo owns confirmed file-tool writes only; arbitrary Shell changes are excluded",
+            "scoped networking and secret injection unavailable",
         ],
     }
 
@@ -281,3 +292,36 @@ async def prune(config: ProductConfig, session_id: str, *, apply: bool = False) 
         "resources": results,
         "workspace_files_deleted": False,
     }
+
+
+def changes(
+    config: ProductConfig, root: Path, session_id: str, run_id: str, *, apply: bool = False
+) -> dict[str, Any]:
+    """在现有会话排他锁内审查/撤销文件工具成果，拒绝未知运行与工作区身份漂移。"""
+    from codepilot.sessions.store import safe_id, workspace_stamp
+    from codepilot.workspace.changes import review
+
+    safe_id(run_id)
+    with SessionStore(_state_root(config), session_id, create=False) as session:
+        identity = session.get("workspace")
+        # 当前目录撤销不能把隔离副本的 stamp 写回源工作区会话。
+        if not isinstance(identity, list) or identity[0] != str(root):
+            raise ValueError("undo workspace does not match session")
+        # 运行中或未知副作用必须先协调；维护命令不能绕过正常恢复边界。
+        if session.get("status") != "ready":
+            raise ValueError("session needs reconciliation before reviewing undo")
+        paths = list(session.directory.glob(f"task-*/{run_id}/changes.json"))
+        if len(paths) != 1:
+            raise ValueError("run change journal is missing or ambiguous")
+        if apply:
+            # 先落盘恢复阻断，再修改文件；崩溃或半批失败不能让会话错误地显示 ready。
+            session.commit("undo_started", {"run_id": run_id}, status="needs_reconciliation")
+        result = review(paths[0], root, apply=apply)
+        if apply:
+            session.commit(
+                "undo_settled",
+                {"run_id": run_id, "applied": result["applied"], "conflicts": result["conflicts"]},
+                status="ready",
+                stamp=workspace_stamp(root) if result["applied"] else session.get("stamp"),
+            )
+        return result

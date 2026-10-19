@@ -211,6 +211,18 @@ def _validate_project_security(layer: Mapping[str, Any], current: Mapping[str, A
         if forbidden:
             names = ", ".join(sorted(str(item) for item in forbidden))
             raise ValueError(f"工作区配置不能修改执行后端字段：{names}")
+        limits = backend.get("limits")
+        if isinstance(limits, Mapping):
+            ceiling = BackendLimits.model_validate(current.get("backend", {}).get("limits", {}))
+            for name, value in limits.items():
+                previous = getattr(ceiling, name, None)
+                # 仓库只能降低既有数值上限；None 不能撤销用户请求的硬边界。
+                if previous is not None and (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or value > previous
+                ):
+                    raise ValueError(f"工作区配置不能扩大执行配额：{name}")
     requested = layer.get("permission")
     if requested is None:
         return

@@ -8,7 +8,7 @@ from pydantic import Field
 from codepilot.contracts.models import Contract
 from codepilot.sessions.outputs import CURRENT_CALL, CURRENT_OUTPUT
 from codepilot.tools.base import Tool, ToolFailure, ToolOutput
-from codepilot.tools.process import collect, spawn
+from codepilot.tools.process import collect, spawn, workspace_environment
 from codepilot.tools.workspace import Workspace
 
 
@@ -47,7 +47,11 @@ class ShellTool(Tool[ShellArguments]):
         capture = factory.begin(call_id) if factory is not None else None
         # 先成功登记捕获，再允许命令启动；磁盘故障不能先造成用户文件副作用。
         process = await spawn(
-            (arguments.command,), cwd=str(self.workspace.root), shell=True, capture=capture
+            (arguments.command,),
+            cwd=str(self.workspace.root),
+            shell=True,
+            capture=capture,
+            env=workspace_environment(),
         )
         self.active_process = process
         stdout, stdout_truncated, stderr, stderr_truncated, reference = await collect(

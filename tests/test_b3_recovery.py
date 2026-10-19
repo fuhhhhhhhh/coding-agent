@@ -2,6 +2,7 @@
 
 import asyncio
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,7 @@ def test_migration_backs_up_before_upgrade_and_preserves_unknown(tmp_path: Path)
     assert result["schema_before"] == 1 and result["schema_after"] == 2
     backup = Path(str(result["backup"]))
     assert backup.stat().st_mode & 0o777 == 0o600
-    with sqlite3.connect(backup) as db:
+    with closing(sqlite3.connect(backup)) as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == 1
         assert db.execute("SELECT count(*) FROM events").fetchone()[0] == 1
     with SessionStore(tmp_path, "legacy", create=False) as stored:
@@ -54,7 +55,7 @@ def test_migration_sql_failure_rolls_back_version_and_tables(
     monkeypatch.setattr(migrations, "SNAPSHOT_SQL", "CREATE TABLE events (duplicate TEXT)")
     with pytest.raises(sqlite3.OperationalError):
         maintain_database(directory, migrate=True)
-    with sqlite3.connect(directory / "session.db") as db:
+    with closing(sqlite3.connect(directory / "session.db")) as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == 1
         assert db.execute("SELECT count(*) FROM events").fetchone()[0] == 1
     assert len(list((directory / "backups").glob("*.db"))) == 1
@@ -75,7 +76,7 @@ def test_backup_failure_and_live_lock_never_modify_legacy(
     monkeypatch.setattr(migrations, "backup_database", fail_backup)
     with pytest.raises(OSError):
         maintain_database(directory, migrate=True)
-    with sqlite3.connect(directory / "session.db") as db:
+    with closing(sqlite3.connect(directory / "session.db")) as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == 1
     with SessionStore(tmp_path, "active"):
         with pytest.raises(ValueError, match="already in use"):

@@ -15,6 +15,7 @@ class WriteFileArguments(Contract):
 
     path: Annotated[str, Field(min_length=1)]
     content: str
+    expected_absent: bool = False
     expected_sha256: Annotated[str | None, Field(pattern=r"^[0-9a-fA-F]{64}$")] = None
 
 
@@ -36,5 +37,10 @@ class WriteFileTool(Tool[WriteFileArguments]):
         path = self.workspace.resolve(arguments.path, must_exist=False)
         data = _validate_write(path, arguments.content)
         _check_expected_hash(path, arguments.expected_sha256)
-        _atomic_write(path, data)
+        # 不能同时要求已有版本和目标不存在，避免含糊前置条件。
+        if arguments.expected_absent and arguments.expected_sha256 is not None:
+            from codepilot.tools.base import ToolFailure
+
+            raise ToolFailure("conflict: expected_absent and expected_sha256 are exclusive")
+        _atomic_write(path, data, expected_absent=arguments.expected_absent)
         return f"written: path={self.workspace.relative(path)} bytes={len(data)}"

@@ -568,8 +568,8 @@ def summarize(suite: Suite, plan: str, results: list[dict[str, Any]]) -> dict[st
         "release_blockers": [
             "B2 network/secrets boundary incomplete",
             "no hard workspace disk quota",
-            "worktree+Docker Git unsupported",
-            "safe task-owned undo incomplete",
+            "Docker isolated Git supports repository roots only",
+            "undo excludes unowned Shell/extension changes and legacy runs",
         ],
         "results": results,
     }

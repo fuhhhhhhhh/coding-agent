@@ -1,5 +1,7 @@
 """实现权限规则匹配和只读、审批、受控编辑预设。"""
 
+import hashlib
+import time
 from pathlib import PurePosixPath
 from uuid import uuid4
 
@@ -50,14 +52,14 @@ class PermissionEngine:
         # 请求容器模式但执行链没有真实容器后端时继续拒绝，不能只相信策略名称。
         if self.policy.container_mode and not container_available:
             return "deny", "container_backend_unavailable"
-        # 只有预设明确开启时才把严格白名单内的查询 Shell 当作安全读操作。
-        if self.policy.safe_process_reads and is_safe_process_read(call):
-            return "allow", "safe_process_read"
         matches = [rule for rule in self.policy.rules if _rule_matches(rule, spec, call)]
         # 任意匹配到的 deny 都优先于 allow 或 ask，避免规则顺序意外放权。
         for rule in matches:
             if rule.decision == "deny":
                 return "deny", "matched_deny_rule"
+        # 只有预设明确开启时才把严格白名单内的查询 Shell 当作安全读操作。
+        if self.policy.safe_process_reads and is_safe_process_read(call):
+            return "allow", "safe_process_read"
         if matches:
             rule = matches[0]
             return rule.decision, f"matched_{rule.decision}_rule"
@@ -69,6 +71,8 @@ class PermissionEngine:
         """为 ask 决策创建绑定完整调用参数的审批请求。"""
         return ApprovalRequest(
             request_id=str(uuid4()),
+            issued_at=time.monotonic(),
+            policy_digest=hashlib.sha256(self.policy.model_dump_json().encode()).hexdigest(),
             tool=spec,
             call=call.model_copy(deep=True),
             reason=reason,

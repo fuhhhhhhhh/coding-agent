@@ -48,6 +48,16 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("doctor", "diff", "permissions"):
         operation = commands.add_parser(name, help="无模型的诊断、变更审查或权限查看")
         _add_shared_arguments(operation, suppress_defaults=True)
+    for name in ("changes", "undo"):
+        change = commands.add_parser(
+            name, help="审查或有条件撤销指定 run 的文件工具修改，零模型请求"
+        )
+        _add_shared_arguments(change, suppress_defaults=True)
+        change.add_argument("session_id")
+        change.add_argument("run_id")
+        if name == "undo":
+            # 审查入口始终只读，只有显式 undo --apply 能产生文件副作用。
+            change.add_argument("--apply", action="store_true", help="明确应用撤销；默认仅预览")
     testing = commands.add_parser("test", help="按现有权限执行测试，零模型请求")
     _add_shared_arguments(testing, suppress_defaults=True)
     testing.add_argument("--timeout", type=float, default=120.0)
@@ -332,7 +342,7 @@ def _read_interactive_task(prompt: str) -> str:
                 # 只在用户明确开始斜杠命令时显示，普通自然语言输入不被打扰。
                 sys.stdout.write(
                     "\n  /help /status /model /sessions /tasks /context /compact "
-                    "/doctor /diff /permissions /test /exit\n❯ /"
+                    "/doctor /diff /changes /undo /permissions /test /exit\n❯ /"
                 )
                 menu_shown = True
             sys.stdout.flush()
@@ -352,8 +362,24 @@ def _handle_slash_command(
         print(
             "/help 帮助  /status 当前运行状态  /model 当前模型  "
             "/sessions 会话列表  /tasks 后台任务  /context 上下文  /compact 压缩历史  "
-            "/doctor 诊断 /diff 变更 /permissions 权限 /test 命令 /exit 退出"
+            "/doctor 诊断 /diff 变更 /changes RUN 归属 /undo RUN [--apply] 撤销 "
+            "/permissions 权限 /test 命令 /exit 退出"
         )
+        return True
+    if command in {"/changes", "/undo"}:
+        from codepilot.app.operations import changes
+
+        try:
+            parts = shlex.split(task)
+            if len(parts) not in {2, 3} or (
+                len(parts) == 3 and (command != "/undo" or parts[2] != "--apply")
+            ):
+                raise ValueError("用法：/changes RUN_ID 或 /undo RUN_ID [--apply]")
+            data = changes(config, arguments.workspace, session_id, parts[1], apply=len(parts) == 3)
+            print(json.dumps(data, ensure_ascii=False))
+        except (ValueError, OSError) as error:
+            # 审查错误只结束本条外壳命令，不把恢复操作交给模型猜测。
+            print(f"变更操作未完成：{error}", file=sys.stderr)
         return True
     if command in {"/doctor", "/diff", "/permissions", "/test"}:
         from codepilot.app import operations
@@ -508,6 +534,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             explicit_path=arguments.config,
             overrides=_overrides(arguments),
         )
+        if arguments.command in {"changes", "undo"}:
+            from codepilot.app.operations import changes
+
+            data = changes(
+                config,
+                workspace,
+                arguments.session_id,
+                arguments.run_id,
+                apply=arguments.command == "undo" and arguments.apply,
+            )
+            print(json.dumps(data, ensure_ascii=False))
+            return 1 if data["conflicts"] else 0
         if arguments.command == "eval-compare":
             from codepilot.evals.product import compare_reports
 

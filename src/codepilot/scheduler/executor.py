@@ -8,6 +8,7 @@ from pathlib import PurePosixPath
 from typing import Protocol
 
 from codepilot.contracts import ToolCall, ToolResult
+from codepilot.contracts.authorization import EXECUTION_GUARD
 from codepilot.observability.trace import emit
 from codepilot.scheduler.models import ExecutionPlan
 from codepilot.tools.base import ToolSpec
@@ -76,6 +77,11 @@ class ScheduledExecutor:
             )
             raise
         try:
+            # 审批位于排队之前；实际副作用前重核有效期、策略与工作区身份。
+            guard = EXECUTION_GUARD.get()
+            denied = guard() if guard is not None else None
+            if denied is not None:
+                return denied
             return await self.registry.execute(call)
         finally:
             # 正常、错误、超时和运行中取消都通过同一出口唤醒候选调用。

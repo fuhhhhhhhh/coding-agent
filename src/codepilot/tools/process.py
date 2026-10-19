@@ -11,6 +11,23 @@ from codepilot.sessions.outputs import CURRENT_OUTPUT, Capture, OutputLimitError
 T = TypeVar("T")
 
 
+def workspace_environment() -> dict[str, str]:
+    """只继承基础执行环境；Provider、代理、SSH agent 与任意用户变量不会自动转发。"""
+    allowed = {"PATH", "LANG", "LC_ALL", "TZ", "TERM"}
+    environment = {key: value for key, value in os.environ.items() if key in allowed}
+    # 仓库配置不能让自动放行的 Git 查询启动 fsmonitor/Hook 或读取用户全局凭据配置。
+    environment.update(
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_GLOBAL="/dev/null",
+        GIT_CONFIG_COUNT="2",
+        GIT_CONFIG_KEY_0="core.fsmonitor",
+        GIT_CONFIG_VALUE_0="false",
+        GIT_CONFIG_KEY_1="core.hooksPath",
+        GIT_CONFIG_VALUE_1="/dev/null",
+    )
+    return environment
+
+
 async def settle(awaitable: Awaitable[T]) -> T:
     """等待清理真正结束；重复取消只延迟传播，不遗弃后台清理任务。"""
     task = asyncio.ensure_future(awaitable)

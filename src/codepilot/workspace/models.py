@@ -10,6 +10,7 @@ from codepilot.contracts.models import Contract
 class BackendLimits(Contract):
     """集中保存任务容器的资源与输出硬限制。"""
 
+    workspace_bytes: Annotated[int, Field(gt=0)] | None = None
     cpus: Annotated[float, Field(gt=0)] = 1.0
     memory_bytes: Annotated[int, Field(ge=16 * 1024 * 1024)] = 256 * 1024 * 1024
     pids: Annotated[int, Field(ge=16)] = 128

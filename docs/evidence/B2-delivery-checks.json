@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-19T11:27:35.773997+00:00",
+  "source_python": "3.14.7",
+  "base_commit": "6149f6fa7a6ae7185db8a3d1c08f5f1bce9c5b29",
+  "source_state": "uncommitted implementation; commit recorded by Git after validation",
+  "offline": {
+    "passed": 343,
+    "skipped": 11,
+    "command": ".venv/bin/pytest -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning",
+    "scope": "Python 3.14; tmpfs fixtures do not prove power-loss durability"
+  },
+  "docker": {
+    "passed": 11,
+    "seconds": 185.52,
+    "rootless": true,
+    "image": "codepilot-sandbox:0.1.0",
+    "image_id": "sha256:628c887fabe9142e585c26fe00041a8d7193787463a3ace7ea3bb62e0dd0560e",
+    "command": "CODEPILOT_DOCKER_LIVE=1 .venv/bin/pytest -q tests/test_b2_docker_live.py tests/test_b4_docker_live.py tests/test_b5_docker_live.py tests/test_workspace_docker_live.py"
+  },
+  "latest_isolation_recheck": {
+    "passed": 2,
+    "seconds": 29.44,
+    "command": "CODEPILOT_DOCKER_LIVE=1 .venv/bin/pytest -q tests/test_b2_docker_live.py",
+    "checks": [
+      "native Git commit and binary replay",
+      "verifier cwd=/workspace and native Git inside Docker",
+      "dirty-file byte/mode restore",
+      "atomic expected_absent creation and undo"
+    ]
+  },
+  "wheel": {
+    "status": "passed",
+    "python_files": 106,
+    "wheel_sha256": "c4e3d607cfcd8e289d9736feadab45651716d7cce05cae2efa05af7636b24a68"
+  },
+  "static_checks": {
+    "ruff": "passed",
+    "format": "146 files",
+    "mypy": "146 source files",
+    "documentation": "2 passed"
+  },
+  "real_provider": {
+    "source": "B2-delivery-live.json",
+    "requests_cap": 16,
+    "requests_actual": 6,
+    "model": "deepseek-flash",
+    "provider": "official DeepSeek",
+    "independent": "passed",
+    "tools": 7,
+    "runtime": "completed"
+  },
+  "failures_preserved": [
+    "First strict offline run: 3 failed / 332 passed / 9 skipped; unclosed SQLite connections in legacy test fixtures. Explicit close fixed the leak.",
+    "First Docker run interrupted after one passing dot, no complete verdict. One exact owned Created container was independently inspected and removed before fresh runs.",
+    "Before final refinements, resumed Docker group passed 11 in 469.65s; not substituted for final 185.52s group."
+  ],
+  "not_run": [
+    "Windows/macOS TTY",
+    "live authorized networking and short-lived secret injection",
+    "hard quota task disk",
+    "B5 public-repository repeated real-model suite was not repeated this turn"
+  ],
+  "release_ready": false,
+  "remaining": [
+    "scoped network enforcement and scoped secret injection",
+    "capacity-limited workspace storage and conflict-safe delivery",
+    "P3.5 read pagination/search coverage and mandatory read-version policy",
+    "Shell/extension ownership and batch review beyond confirmed file tools"
+  ],
+  "clean_wheel_python311": {
+    "passed": 343,
+    "skipped": 11,
+    "seconds": 21.17,
+    "cwd": "/tmp",
+    "editable": false,
+    "package_path": "/dev/shm/codepilot-b5-wheel-env/lib/python3.11/site-packages/codepilot",
+    "wheel_sha256": "c4e3d607cfcd8e289d9736feadab45651716d7cce05cae2efa05af7636b24a68",
+    "command": "env -u PYTHONPATH /dev/shm/codepilot-b5-wheel-env/bin/python -m pytest -q /home/fuxiangyu/project/coding-agent/tests -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning"
+  },
+  "final_resources": {
+    "managed_containers": 0,
+    "temporary_image_alias_released": true,
+    "testcodingagent_worktree": "clean"
+  }
+}

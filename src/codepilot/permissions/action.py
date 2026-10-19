@@ -8,6 +8,7 @@ from typing import Any, Literal
 from codepilot.contracts import ToolCall
 from codepilot.permissions.models import Action
 from codepilot.tools.base import ToolSpec
+from codepilot.tools.process import workspace_environment
 
 
 def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Action:
@@ -23,7 +24,14 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
     )
     if backend is None:
         backend_kind = "unknown"
+    identity = None
+    if isinstance(cwd_value, Path):
+        info = cwd_value.stat()
+        identity = (info.st_dev, info.st_ino)
     summary = _argument_summary(arguments)
+    # Local 进程具备宿主联网能力；不能把未注入网络参数误写成断网保证。
+    network = backend_kind != "container" or getattr(backend, "network", "none") != "none"
+    environment_names = tuple(sorted(workspace_environment()))
     fingerprint = _fingerprint(
         spec.name,
         spec.effect,
@@ -34,6 +42,9 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
         backend_id,
         spec.resources,
         spec.provenance,
+        identity,
+        network,
+        environment_names,
     )
     return Action(
         tool_name=spec.name,
@@ -46,6 +57,9 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
         backend_id=backend_id,
         resources=spec.resources,
         fingerprint=fingerprint,
+        workspace_identity=identity,
+        network=network,
+        environment_names=environment_names,
     )
 
 
