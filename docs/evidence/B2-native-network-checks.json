@@ -289,8 +289,8 @@
     "B5 repeated real repair and clean upgrade support matrix"
   ],
   "remote_ci": {
-    "code_commit": "61d7d422d30e321e109ebf78092d0b6e28ee0676",
-    "url": "https://github.com/fuhhhhhhhh/coding-agent/actions/runs/39370886919",
+    "code_commit": "5234c6440ec7891110f9ddda97743623b2b31deb",
+    "url": "https://github.com/fuhhhhhhhh/coding-agent/actions/runs/39371851106",
     "conclusion": "success",
     "jobs": [
       {
@@ -317,6 +317,35 @@
     "actual_container_cases": 15,
     "deterministic_cases": 50,
     "model_requests_added": 0,
-    "ci": "pending_push"
+    "ci": {
+      "code_commit": "5234c6440ec7891110f9ddda97743623b2b31deb",
+      "url": "https://github.com/fuhhhhhhhh/coding-agent/actions/runs/39371851106",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "checks (3.14)",
+          "conclusion": "success"
+        },
+        {
+          "name": "checks (3.11)",
+          "conclusion": "success"
+        }
+      ]
+    }
+  },
+  "previous_ci": {
+    "code_commit": "61d7d422d30e321e109ebf78092d0b6e28ee0676",
+    "url": "https://github.com/fuhhhhhhhh/coding-agent/actions/runs/39370886919",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "checks (3.14)",
+        "conclusion": "success"
+      },
+      {
+        "name": "checks (3.11)",
+        "conclusion": "success"
+      }
+    ]
   }
 }
