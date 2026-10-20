@@ -516,6 +516,9 @@ class SessionStore:
             if message.tool_result is not None:
                 pending.discard(message.tool_result.call_id)
         reliable = report is None or report.reason != "persistence_error"
+        # 主容器关闭不能覆盖专有联网容器的未知清理；保留引用供正式 prune 核验。
+        if any(item["phase"] != "closed" for item in self.native_leases()):
+            clean = False
         # HTTP 已可能发送但未拿到完整响应时，配对的错误结果也不能证明远端没有副作用。
         status = (
             "ready"
@@ -575,6 +578,12 @@ class SessionStore:
             # 外来所有者的资源不能由当前会话确认或清理。
             if resource.get("uid", os.getuid()) != os.getuid():
                 raise ValueError("resource owner mismatch")
+            if resource["kind"] == "native_lease":
+                from codepilot.network.leases import lease_path, load_lease
+
+                lease = load_lease(lease_path(self.directory, resource["manifest"]))
+                if lease["phase"] != "closed":
+                    raise ValueError("native lease requires resources prune before reconciliation")
             if resource["kind"] == "process":
                 current_identity = process_identity(resource["pid"])
                 # 进程不存在时空身份不表示活跃；仍存在但起点未知时保守阻断。
@@ -713,12 +722,35 @@ class SessionStore:
             "resources": self.get("resources", []),
             "provider_pending": self.get("provider_budget", {}).get("pending", {}),
             "network_pending": self.get("network_pending", {}),
+            "native_leases": self.native_leases(),
             "recovery": "explicit_reconcile_required"
             if self.get("status") in {"running", "needs_reconciliation"}
             else "check_workspace_before_resume",
             "automatic_replay": False,
             "bounded_workspaces": self.bounded_workspaces(),
         }
+
+    def native_leases(self) -> list[dict[str, Any]]:
+        """只读私有租约的归属及生命周期；清单损坏一律阻断假成功收尾。"""
+        from codepilot.network.leases import lease_path, load_lease
+
+        result: list[dict[str, Any]] = []
+        for resource in self.get("resources", []):
+            if resource["kind"] != "native_lease":
+                continue
+            try:
+                lease = load_lease(lease_path(self.directory, resource["manifest"]))
+                result.append(
+                    {
+                        "manifest": resource["manifest"],
+                        "phase": lease["phase"],
+                        "container_id": lease.get("container_id", ""),
+                    }
+                )
+            except (OSError, ValueError, KeyError):
+                # 资源仍可能存在，不能用无效清单把会话恢复为 ready。
+                result.append({"manifest": resource.get("manifest"), "phase": "unreadable"})
+        return result
 
     def bounded_workspaces(self) -> list[dict[str, Any]]:
         """仅展示持久阶段及恢复入口，损坏清单明确阻断，不读取文件正文。"""

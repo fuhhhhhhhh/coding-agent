@@ -209,8 +209,10 @@ class ExtensionRouter:
 
     @property
     def specs(self) -> tuple[ToolSpec, ...]:
-        """主工具仍来自后端，扩展不能覆盖内置同名工具。"""
-        return (*self.registry.specs, *self.extras.specs)
+        """可信装配可增强 Shell 控制参数，外部扩展仍不能注册或覆盖内置名称。"""
+        extras = self.extras.specs
+        names = {spec.name for spec in extras}
+        return (*(spec for spec in self.registry.specs if spec.name not in names), *extras)
 
     async def execute(self, call: ToolCall) -> ToolResult:
         """动态工具先走注册表；普通文件工具返回有来源的作用域规则。"""

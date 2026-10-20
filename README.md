@@ -283,7 +283,7 @@ codepilot delivery SESSION RUN
 
 ### 受控 HTTPS 资料读取
 
-Docker 工具继续断网。需要读取外部资料时，在用户级配置或显式 `--config` 文件中启用请求代理；项目配置只能禁用它：
+默认 Docker 工具继续断网；原生命令联网需单独配置（见下一节）。需要读取外部资料时，在用户级配置或显式 `--config` 文件中启用请求代理；项目配置只能禁用它：
 
 ```yaml
 network:
@@ -316,8 +316,38 @@ codepilot fetch https://www.python.org/robots.txt
       file: /home/your-user/.config/codepilot/credentials/docs-token
 ```
 
-对应目的地也必须先加入 destinations；任务只使用 `secret_ref: docs-token` 或 `fetch URL --secret-ref docs-token`。匿名请求省略引用或用空字符串。不要把值写进配置、任务或仓库。凭据只在获批 TLS 连接中使用；认证重定向拒绝，回显检测有明确边界，详见 [B2 设计](docs/design/B2.md)。这不是 Shell 透明代理，尚不开放联网 Git、pip 安装、SSH 或远程 MCP。
+对应目的地也必须先加入 destinations；任务只使用 `secret_ref: docs-token` 或 `fetch URL --secret-ref docs-token`。匿名请求省略引用或用空字符串。不要把值写进配置、任务或仓库。凭据只在获批 TLS 连接中使用；认证重定向拒绝，回显检测有明确边界，详见 [B2 设计](docs/design/B2.md)。这是请求级工具；原生 Git/pip 联网使用下一节的独立授权。SSH 或远程 MCP 尚未支持。
 
 请求已可能发送、但没有完整响应时，会话保持 `needs_reconciliation`，不会自动重试；`sessions diagnose SESSION` 可查看 `network_pending`。核实外部结果后如仍决定接受未知状态，可显式执行 `sessions reconcile SESSION --accept-workspace --accept-network-unknown`；该操作不重发请求、不证明服务端未执行。默认 bind 仍暴露用户自己的工作区文件，代理不会替你隐藏原本存于工作区的秘密，秘密文件应放在工作区外。
 
 HTTPS 代理只使用系统 TLS 信任路径，忽略项目 `.env` 中的 `SSL_CERT_FILE`、`SSL_CERT_DIR`、`SSLKEYLOGFILE`；不会通过这些变量加载自定义 CA 或写 TLS 密钥日志。当前支持范围不包含自定义 CA 配置。
+
+### 原生 Git / pip 受控联网
+
+需要原生 CLI 联网时，在用户级配置（项目不能扩大权限）单独开启：
+
+~~~yaml
+network:
+  enabled: true
+  native:
+    enabled: true
+    hosts: [gitlab.com, pypi.org, files.pythonhosted.org]
+    max_connections: 32
+    max_parallel: 4
+    total_bytes: 16777216
+    lease_seconds: 120.0
+    idle_seconds: 10.0
+~~~
+
+仅支持 Linux Rootless Docker 的 bind 工作区；默认关闭。模型使用原来的 shell，显式 network: true 才申请联网，仍须 process 审批。零模型命令：
+
+~~~bash
+codepilot test --network -- git ls-remote https://gitlab.com/gitlab-org/gitlab-test.git HEAD
+# 交互模式：/test --network git ls-remote https://gitlab.com/gitlab-org/gitlab-test.git HEAD
+~~~
+
+每次批准的命令使用专有临时容器，通过回环 CONNECT 代理访问已授权域名的 TCP:443；主容器、后台任务、Hook、MCP 和只读子 Runner 继续断网。命令结束先关闭代理再删除整容器。连接次数、并发、双向字节和租期在同一 run 累计，拒绝后不会回落宿主执行或直连。域名要覆盖包索引和实际文件下载域名；依赖安装建议使用锁定版本与哈希。
+
+CONNECT 不检查加密后的 URL/方法，也不强制里面一定是 HTTPS；这份授权比资料读取的路径权限宽。原生 Git/pip 自行校验证书，命令及其依赖脚本都属于已批准执行的代码。不向 CLI 注入业务秘密，既有 http_request 的秘密引用不能在此使用；私有仓库认证、SSH、限容副本联网尚未支持。宿主能访问某站点不代表代理能访问：代理不继承宿主企业代理/VPN，直连失败会明确返回错误。
+
+发送后超时、取消、配额耗尽等情况保留 network_pending，需独立核验后明确接受未知结果。临时容器清理失败时保留私有租约，先用 resources prune SESSION 预览、--apply 精确回收，再协调会话；这些维护均不重放命令。详情及阅读顺序见 [原生联网设计](docs/design/B2-native-network.md) 与 [学习记录](docs/learning/B2-native-network.md)。

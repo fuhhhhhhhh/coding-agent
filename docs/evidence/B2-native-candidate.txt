@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""仓库检查工具：输出指定仓库 HEAD 提交与受版本控制文件数量的一行 JSON。"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+
+提交哈希正则 = re.compile(r"^[0-9a-f]{40}$")
+
+
+class 检查失败(Exception):
+    """表示仓库检查过程中出现的可预期失败。"""
+
+
+def 执行git(工作目录: str, 参数列表: list[str]) -> subprocess.CompletedProcess:
+    """在指定目录运行只读 Git 命令，禁止交互提示且不访问网络。"""
+    环境 = os.environ.copy()
+    环境["GIT_TERMINAL_PROMPT"] = "0"
+    环境["GIT_OPTIONAL_LOCKS"] = "0"
+    环境["GIT_ASKPASS"] = ""
+    环境["LC_ALL"] = "C"
+    try:
+        return subprocess.run(
+            ["git", *参数列表],
+            cwd=工作目录,
+            env=环境,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except FileNotFoundError as 异常:
+        raise 检查失败("未找到 git 可执行文件") from 异常
+    except OSError as 异常:
+        raise 检查失败(f"执行 git 失败: {异常}") from 异常
+
+
+def 读取git输出(工作目录: str, 参数列表: list[str]) -> str:
+    """运行 Git 命令并在成功时返回去除首尾空白的标准输出，失败则抛出检查失败。"""
+    结果 = 执行git(工作目录, 参数列表)
+    if 结果.returncode != 0:
+        错误信息 = 结果.stderr.decode("utf-8", "replace").strip()
+        命令 = " ".join(["git", *参数列表])
+        raise 检查失败(f"命令失败（退出码 {结果.returncode}）：{命令}：{错误信息}")
+    return 结果.stdout.decode("utf-8", "replace").strip()
+
+
+def 解析仓库目录(路径: str) -> str:
+    """校验给定路径是 Git 仓库，并返回可用于后续命令的仓库工作目录。"""
+    if not os.path.exists(路径):
+        raise 检查失败(f"路径不存在：{路径}")
+    if not os.path.isdir(路径):
+        raise 检查失败(f"路径不是目录：{路径}")
+    绝对路径 = os.path.abspath(路径)
+    在检出树内 = 执行git(绝对路径, ["rev-parse", "--is-inside-work-tree"])
+    if 在检出树内.returncode != 0:
+        raise 检查失败(f"不是 Git 仓库：{路径}")
+    if 在检出树内.stdout.decode("utf-8", "replace").strip() == "true":
+        顶层 = 读取git输出(绝对路径, ["rev-parse", "--show-toplevel"])
+        return 顶层 or 绝对路径
+    裸仓库目录 = 读取git输出(绝对路径, ["rev-parse", "--absolute-git-dir"])
+    return 裸仓库目录 or 绝对路径
+
+
+def 读取提交哈希(仓库目录: str) -> str:
+    """返回仓库 HEAD 指向的 40 位提交哈希，缺失或格式异常时抛出检查失败。"""
+    哈希 = 读取git输出(仓库目录, ["rev-parse", "--verify", "HEAD^{commit}"])
+    if not 提交哈希正则.match(哈希):
+        raise 检查失败(f"无法获取有效的 HEAD 提交哈希：{哈希!r}")
+    return 哈希
+
+
+def 统计受控文件(仓库目录: str) -> int:
+    """统计 HEAD 树中被 Git 跟踪的文件数量（等价于 ls-tree -r 的条目数）。"""
+    输出 = 执行git(仓库目录, ["ls-tree", "-r", "--name-only", "HEAD"])
+    if 输出.returncode != 0:
+        错误信息 = 输出.stderr.decode("utf-8", "replace").strip()
+        raise 检查失败(f"读取 HEAD 文件列表失败：{错误信息}")
+    列表 = 输出.stdout.decode("utf-8", "replace").splitlines()
+    return sum(1 for 行 in 列表 if 行.strip())
+
+
+def 生成报告(路径: str) -> dict:
+    """汇总仓库检查结果，返回仅含 commit 与 tracked_files 两个字段的字典。"""
+    仓库目录 = 解析仓库目录(路径)
+    return {
+        "commit": 读取提交哈希(仓库目录),
+        "tracked_files": 统计受控文件(仓库目录),
+    }
+
+
+def 构建参数解析器() -> argparse.ArgumentParser:
+    """构造命令行参数解析器，仅提供 --repo 选项。"""
+    解析器 = argparse.ArgumentParser(
+        description="检查 Git 仓库并输出一行 JSON（commit 与 tracked_files）。"
+    )
+    解析器.add_argument("--repo", required=True, help="待检查的仓库目录")
+    return 解析器
+
+
+def 主函数(argv: list[str] | None = None) -> int:
+    """解析命令行参数，打印结果 JSON；出错时向标准错误输出信息并返回非零码。"""
+    参数 = 构建参数解析器().parse_args(argv)
+    try:
+        报告 = 生成报告(参数.repo)
+    except 检查失败 as 异常:
+        print(f"错误：{异常}", file=sys.stderr)
+        return 1
+    print(json.dumps(报告, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(主函数())

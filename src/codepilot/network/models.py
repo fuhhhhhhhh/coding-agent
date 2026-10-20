@@ -82,10 +82,40 @@ class SecretReference(Destination):
         return path
 
 
+class NativeNetworkConfig(Contract):
+    """声明原生 CLI 的独立 TCP:443 目的地与运行累计额度，不继承 HTTP 路径权限。"""
+
+    enabled: bool = False
+    hosts: tuple[str, ...] = ()
+    max_connections: Annotated[int, Field(ge=1, le=128)] = 32
+    max_parallel: Annotated[int, Field(ge=1, le=16)] = 4
+    total_bytes: Annotated[int, Field(ge=1024, le=256 * 1024**2)] = 16 * 1024**2
+    lease_seconds: Annotated[float, Field(gt=0, le=600)] = 120.0
+    idle_seconds: Annotated[float, Field(gt=0, le=30)] = 10.0
+
+    @field_validator("hosts", mode="before")
+    @classmethod
+    def parse_hosts(cls, value: object) -> object:
+        """配置数组转不可变域名集合，保留严格输入校验。"""
+        return tuple(value) if isinstance(value, list) else value
+
+    @model_validator(mode="after")
+    def check_hosts(self) -> Self:
+        """空授权不能变为全网，主机范围必须独立、精确且有限。"""
+        if self.enabled and not self.hosts:
+            raise ValueError("native network requires explicit hosts")
+        if len(self.hosts) > 32 or len(set(self.hosts)) != len(self.hosts):
+            raise ValueError("native network hosts must be unique and bounded")
+        for host in self.hosts:
+            checked_host(host)
+        return self
+
+
 class NetworkConfig(Contract):
     """默认关闭的请求代理；所有重定向共享一次运行的有限额度。"""
 
     enabled: bool = False
+    native: NativeNetworkConfig = NativeNetworkConfig()
     destinations: tuple[Destination, ...] = ()
     secrets: tuple[SecretReference, ...] = ()
     max_requests: Annotated[int, Field(ge=1, le=64)] = 8
@@ -105,7 +135,9 @@ class NetworkConfig(Contract):
     def validate_scope(self) -> Self:
         """秘密不能偷偷增加网络目的地，重复命名必须在请求前拒绝。"""
         # 空允许列表和超大策略都不能隐式退化为无限制联网。
-        if self.enabled and not self.destinations:
+        if self.native.enabled and not self.enabled:
+            raise ValueError("native network requires network.enabled")
+        if self.enabled and not self.destinations and not self.native.enabled:
             raise ValueError("enabled network requires explicit destinations")
         if len(self.destinations) > 32 or len(self.secrets) > 16:
             raise ValueError("network scope exceeds entry limit")

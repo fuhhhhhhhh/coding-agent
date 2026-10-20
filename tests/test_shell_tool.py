@@ -110,9 +110,11 @@ def test_timeout_terminates_child_process_group(tmp_path: Path) -> None:
         # 被终止的后代可能短暂处于僵尸态，但不得继续运行或产生输出。
         for _ in range(20):
             proc_stat = Path(f"/proc/{child_pid}/stat")
-            if not proc_stat.exists():
+            try:
+                state = proc_stat.read_text(encoding="utf-8").split()[2]
+            except (FileNotFoundError, ProcessLookupError):
+                # /proc 条目可在 exists/stat/read 任一步消失；这正是清理完成，不能判作失败。
                 break
-            state = proc_stat.read_text(encoding="utf-8").split()[2]
             if state == "Z":
                 break
             time.sleep(0.01)

@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from codepilot.app.models import ProductRunResult, ResourceOwnership, RunIdentity
 from codepilot.config import ProductConfig
@@ -29,6 +29,7 @@ from codepilot.credentials import resolve_provider_api_key
 from codepilot.extensions.executor import ManagedExecutor, OperationBudget
 from codepilot.extensions.router import ExtensionRouter, InputArguments
 from codepilot.network.broker import HttpRequestTool
+from codepilot.network.native import NativeShellTool
 from codepilot.observability import EventRecorder
 from codepilot.observability.trace import CURRENT_RECORDER, CURRENT_TURN
 from codepilot.permissions import (
@@ -56,7 +57,7 @@ from codepilot.tasks.children import run_child
 from codepilot.tasks.controls import watch_controls
 from codepilot.tasks.manager import TaskManager
 from codepilot.tools import create_basic_registry
-from codepilot.tools.base import ToolSpec
+from codepilot.tools.base import Tool, ToolSpec
 from codepilot.workspace import DockerExecutionBackend, ExecutionBackend, LocalExecutionBackend
 from codepilot.workspace.bounded import BoundedWorkspace
 from codepilot.workspace.changes import ChangeJournal
@@ -121,7 +122,9 @@ class CodePilotApplication:
         self.approval = approval
         self.on_event = on_event
 
-    def _network_tools(self, session: SessionStore, run_id: str) -> tuple[HttpRequestTool, ...]:
+    def _network_tools(
+        self, session: SessionStore, run_id: str, backend: ExecutionBackend, directory: Path
+    ) -> tuple[Tool[Any], ...]:
         """仅用户启用时装配控制器代理，绝不向容器或子 Runner 传递凭据。"""
         if not self.config.network.enabled:
             return ()
@@ -145,11 +148,27 @@ class CodePilotApplication:
                 network_pending=pending,
             )
 
-        return (
-            HttpRequestTool(
-                self.config.network, self.workspace, self.config.provider.api_key_file, progress
-            ),
-        )
+        tools: list[Tool[Any]] = []
+        if self.config.network.destinations:
+            tools.append(
+                HttpRequestTool(
+                    self.config.network, self.workspace, self.config.provider.api_key_file, progress
+                )
+            )
+        if self.config.network.native.enabled:
+            # 配置和实际后端都需吻合，不能因工厂替换而回退到宿主联网。
+            if not isinstance(backend, DockerExecutionBackend):
+                raise ValueError("native network requires an actual Docker backend")
+            tools.append(
+                NativeShellTool(
+                    backend,
+                    self.config.network.native,
+                    session,
+                    run_id,
+                    directory / "native-leases",
+                )
+            )
+        return tuple(tools)
 
     async def run(
         self,
@@ -332,7 +351,9 @@ class CodePilotApplication:
                     lambda name: _create_backend(
                         self.config, execution_workspace, backend_directory / name
                     ),
-                    extra_tools=self._network_tools(session, identity.run_id),
+                    extra_tools=self._network_tools(
+                        session, identity.run_id, backend, backend_directory
+                    ),
                 )
                 journal = ChangeJournal(
                     router,

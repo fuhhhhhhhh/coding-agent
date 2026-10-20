@@ -12,6 +12,9 @@ def is_safe_process_read(call: ToolCall) -> bool:
     """判断 Shell 调用是否属于无组合语法、无写入和无网络的只读命令。"""
     if call.name != "shell":
         return False
+    # 只读命令也可能借临时代理产生外部访问，显式申请网络必须走 process 审批。
+    if call.arguments.get("network") is not None and call.arguments.get("network") is not False:
+        return False
     command = call.arguments.get("command")
     if not isinstance(command, str) or not command.strip():
         return False

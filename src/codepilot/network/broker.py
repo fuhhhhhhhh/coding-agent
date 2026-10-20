@@ -6,9 +6,9 @@ import hashlib
 import ipaddress
 import json
 import os
-import socket
 import ssl
 import stat
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -23,6 +23,14 @@ from codepilot.network.models import NetworkConfig, SecretReference, parse_url
 from codepilot.observability.trace import emit
 from codepilot.sessions.outputs import CURRENT_CALL
 from codepilot.tools.base import Tool, ToolFailure, ToolSpec
+from codepilot.tools.process import collect, settle, spawn, stop_process, workspace_environment
+
+# 系统解析器可能卡在 NSS；独立进程可被取消和登记，不能遗留默认线程池中的阻塞解析。
+_DNS_PROGRAM = (
+    "import json,socket,sys; "
+    "print(json.dumps(sorted({a[4][0] for a in socket.getaddrinfo("
+    "sys.argv[1],443,type=socket.SOCK_STREAM)})))"
+)
 
 
 class HttpArguments(Contract):
@@ -60,12 +68,30 @@ def public_address(value: str) -> bool:
 
 async def resolve_public(host: str) -> str:
     """解析一次且拒绝任何非公开答案，后续连接固定数字地址避免二次 DNS。"""
-    answers = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
-    addresses = sorted({str(item[4][0]) for item in answers})
+    process = await spawn(
+        (sys.executable, "-I", "-c", _DNS_PROGRAM, host),
+        cwd=str(Path(sys.executable).parent),
+        env=workspace_environment(),
+    )
+    try:
+        async with asyncio.timeout(10):
+            output, cut, _, _, _ = await collect(process, 8192, "network-dns")
+        if process.returncode != 0 or cut:
+            raise ToolFailure("network_dns_failed")
+        addresses = json.loads(output)
+        if (
+            not isinstance(addresses, list)
+            or len(addresses) > 128
+            or any(not isinstance(value, str) for value in addresses)
+        ):
+            raise ToolFailure("network_dns_answer_invalid")
+    finally:
+        # 请求期限、取消和解析异常都终止并回收解析进程，不依赖 OS 解析器自己返回。
+        await settle(stop_process(process))
     # 不能仅选择一个安全答案而忽略同组私网地址，否则解析行为可能拓宽授权。
     if not addresses or any(not public_address(a) for a in addresses):
         raise ToolFailure("network_destination_not_public")
-    return addresses[0]
+    return str(addresses[0])
 
 
 def secret_identity(ref: SecretReference) -> tuple[int, ...]:

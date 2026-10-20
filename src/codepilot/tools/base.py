@@ -24,6 +24,7 @@ class ToolSpec(Contract):
     background: bool = False
     control: bool = False
     provenance: str = ""
+    network_scope: tuple[str, ...] = ()
 
 
 class ToolFailure(Exception):

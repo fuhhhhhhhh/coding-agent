@@ -1,6 +1,6 @@
 # 开发状态
 
-当前开发主题：B2 受控 HTTPS 与凭据代理（明确请求级支持范围已验收）。B3 限容恢复已交付；请求代理与透明 CLI 网络能力分开，后者仍是发布缺口。
+当前开发主题：B2 原生命令受控联网已在 Linux Rootless/bind 与匿名 Git/pip 范围验收。B3 限容恢复、请求级 HTTPS 已有证据；私有 CLI 凭据/短期秘密、限容网络组合及 B5 最终支持矩阵仍为发布缺口。
 
 已验收范围：B1 可靠执行与持久会话基础已通过受限真实验收；B2 基础与安全交付回补已在明确范围验证，B3 在 Linux/官方 DeepSeek Flash 双协议范围通过受限验收，B4 在 Linux Local/Rootless Docker/官方 DeepSeek Flash Chat 范围通过受限验收，B5 终端操作与正式评测已在明确范围验收；成熟发布仍被 B2 遗留项阻断
 
@@ -15,7 +15,20 @@
 
 日期：2026-10-20（UTC）
 
-## 最新 B2：受控 HTTPS 与凭据代理（2026-10-20）
+## 最新 B2：原生命令受控联网（2026-10-20）
+
+- 本轮完整主题为可信配置、同一 shell 显式 network 参数、Action/审批/调度复核、专有临时容器、私有 CONNECT、共享额度/租期、原生 Git/pip、未知状态和崩溃维护的统一产品链。默认关闭；普通主容器、Hook/MCP/后台/只读子 Runner 继续断网。没有新增 Git/pip 包装工具。
+- 仅 Linux Rootless Docker bind。每次联网命令在同一实际 bind 工作区的专有 network=none 容器执行，只有它只读挂载 owner-only socket；固定回环桥向控制器转发 CONNECT。精确域名 TCP:443、整组公开 DNS/固定数字 IP、累计连接/并发/双向字节/租期；不继承宿主代理，不回落直连。CONNECT 不检查加密路径/方法，也不强制内部是 HTTPS；TLS 校验由原生客户端负责。
+- 租期在首次申请时启动；持续单向下载按双向共同活动计空闲。DNS 在可终止独立进程运行，取消独立核对 PID 已结束。监听/创建之前登记私有资源，create 返回 ID 前持久阶段覆盖不确定创建；先关代理再删整容器。主容器关闭不能掩盖 child 清理失败，未关闭/损坏租约保留并阻断 ready；resources prune 精确核验归属/镜像/ID/隔离属性/socket，默认预览。活动控制器仍拥有的活动租约拒绝接管；已结束调用的 cleanup_failed 可在持会话锁后明确回收。
+- 连接前持久 network_pending；命令成功、所有连接结束且全部清理成功才结算。已发后的超限/超时/取消保留未知，不能靠 accept-workspace 清除，不自动重放。桥/Docker 故障返回固定错误类别，不回显异常原文。新增 test --network、/test --network，doctor/permissions/diagnose 可见范围与边界；真实 TTY 批准后 Git 查询成功，零模型请求。
+- 最终源码 Python 3.14：448 passed /31 skipped /26.51s；仓库外 Python 3.11 非 editable wheel：448 passed /31 skipped /32.03s，详见 B2-native-network-checks.json。Ruff、215 文件格式、166 文件 mypy 通过，117 个 Python 源文件与 wheel 字节核验。Rootless 联合 82 passed /215.07s，其中 32 项实际容器、50 项配置/协议/产品链确定性；最终原生容器组再验 11 passed /93.16s。全组之后只增加总开关关闭回归与下载空闲修正；最终容器组已覆盖修正后的核心链，最终源码/安装再验计数以上述文件为准。
+- 实际匿名 GitLab 查询；受控真实 TLS/git-http-backend fetch/push，宿主独立核对 remote ref 和正文；固定 idna 3.20 wheel 按 uv.lock SHA256 安装，后续独立断网容器导入；IPv4/IPv6 绕过、未授权域名/审批拒绝、桥失败、child 清理失败、实际已发后超限/超时/取消、SIGKILL 控制器后正式 prune 均验证。公开 GitHub 直连在宿主也超时，不能把宿主代理成功算作受控代理成功，失败保留在 evidence。
+- 官方 DeepSeek Flash Chat：冻结总上限 12，实际 10 请求、66,378 输入/5,108 输出 Token；11 工具全成功，1 个原生联网命令、1 条 CONNECT、1,420,560 双向观察字节。Runtime completed；模型生成 inspect_repo.py 后，由新断网验证容器分别对固定公开提交（43 文件）与隐藏不同提交（44 文件）独立验收，非法目录非零，保护字节不变，Provider/network pending 为空，主/验证容器均关闭。四层事实及原始候选 SHA 分别保存；不把这些结果推广为任意任务成功率。
+- 镜像仍为已验证的旧不可变 worker sha256:d834e1675f8104ae5c45819c29f9295f462ffa3339b31888b20a14952d5f0e8e；本轮固定桥源码由可信控制器执行，验收的是新控制器+该镜像组合，未重新构建/声称新镜像源码字节相等。用户全局 native 默认未开启；真实用户测试仓库仍 clean、HEAD 4f04ef3。
+- 当前未支持：私有 CLI 凭据、发行方短期令牌生命周期、SSH、bounded-copy 联网、rootful/Local 强制网络范围、扩展联网、自定义企业代理及跨平台。不是整个 B2/成熟发布完成，release_ready=false。下一大阶段集中秘密生命周期与 B5 支持矩阵/固定任务/安装升级复验，详见 PRODUCTIZATION_PLAN 和 ROADMAP；不重复已验收机制。
+- 阅读顺序及三道理解题答案在 learning/B2-native-network，契约与目录原因在 design/B2-native-network；运行/失败证据在 B2-native-network-checks、B2-native-model、B2-native-candidate。实现通过，学习待用户确认。
+
+## 上一轮 B2：受控 HTTPS 与凭据代理（2026-10-20）
 
 - 完整请求级产品链：可信用户/显式配置目的地与秘密引用 → 主 Runner http_request / 零模型 fetch、/fetch → 现有 Action/审批/排队后复核 → 控制器 HTTPS → Context/会话/Trace/诊断。Docker Shell 始终 network=none。默认关闭，项目只能关闭，不允许 Local 宣称强制网络范围；不会给只读子 Runner 增加联网能力。
 - 仅 HTTPS:443、精确 DNS 名/路径段范围；所有 DNS 地址必须公开单播，连接固定数字 IP、TLS SNI 和证书仍核验原域名。匿名重定向逐跳复核和扣额；认证重定向拒绝；不继承宿主代理/Cookie，不接受任意 header/body/POST，无自动重试。共享请求/响应字节/总字节/租期上限，原生 asyncio TLS 取消关闭连接，h11 处理 HTTP 边界。

@@ -45,10 +45,31 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
             network_scope = ("<invalid>",)
         ref = arguments.get("secret_ref")
         secrets = (ref,) if isinstance(ref, str) and ref else ()
+    elif spec.name == "shell" and arguments.get("network") is True:
+        network = True
+        network_scope = spec.network_scope
     # HTTPS 代理不启动进程或继承环境，不能把 Shell 的环境白名单展示成此次注入。
     environment_names = (
         () if spec.name == "http_request" else tuple(sorted(workspace_environment()))
     )
+    # 原生代理的固定环境名也属于审批内容，值仅是容器回环地址且不含秘密。
+    if spec.name == "shell" and arguments.get("network") is True:
+        environment_names = tuple(
+            sorted(
+                set(environment_names)
+                | {
+                    "HTTP_PROXY",
+                    "HTTPS_PROXY",
+                    "ALL_PROXY",
+                    "http_proxy",
+                    "https_proxy",
+                    "all_proxy",
+                    "NO_PROXY",
+                    "no_proxy",
+                    "GIT_TERMINAL_PROMPT",
+                }
+            )
+        )
     fingerprint = _fingerprint(
         spec.name,
         spec.effect,

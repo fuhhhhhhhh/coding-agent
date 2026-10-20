@@ -20,14 +20,14 @@
 | Shell / 原生 Git | 全部 Git 子命令经 Shell 权限链；默认非 Git/脏目录直写 | P3 流式输出与环境边界；P5 变更归属及保守撤销；不重建 Git 子命令 wrapper |
 | 显式 worktree | 固定 commit、二进制补丁、新工作树重放、失败保留 | P3.6 修复 Docker 元数据边界；P5 恢复与安全交付，自动合并不默认启用 |
 | 权限 | allow/deny/ask、审批绑定 ToolCall、审计 | P3 可信配置、Action、网络/秘密；P7 扩展权限不能越过父级 |
-| Local / Docker | 真实 Rootless Docker、断网、资源约束、取消清理；显式 tmpfs 限容副本与源版本交付 | Local 是可信宿主执行；bind 无硬磁盘配额；B3 已支持显式跨控制器恢复；B2 请求级 HTTPS/凭据代理见最新节，透明 CLI 联网仍未开放 |
+| Local / Docker | 真实 Rootless Docker、断网、资源约束、取消清理；显式 tmpfs 限容副本与源版本交付 | Local 是可信宿主执行；bind 无硬磁盘配额；B3 已支持显式跨控制器恢复；B2 请求级 HTTPS/凭据代理及 Rootless/bind 原生 CONNECT 见最新设计，私有 CLI 凭据/限容组合仍未开放 |
 | Context | 大结果引用、近似预算、完整回合压缩；B1 已捕获截断前原文并持久保留引用 | P4 完整请求预算、滚动检查点、来源核验 |
 | Provider | fake、Chat Completions / Responses；DeepSeek 双协议真实修复、脱敏错误与安全有限重试 | P6 完整能力与费用矩阵；同协议不同站点不算第二协议，当前通过范围不推广到其他站点 |
 | Trace / 恢复 | 脱敏 JSONL；B1 SQLite 事务事件/索引、资源归属、跨进程续问、未知副作用阻断 | B3 迁移、滚动检查点和复杂崩溃协调；不承诺自动重放未知操作 |
 | 评测 | 临时仓库、失败反馈、独立验证器 | P3 起固定任务回归；P8 完成可复现 checkout、真实仓库、重复试验和发布门槛 |
 | Skills / Hooks / MCP / 子 Agent | B4 已接统一链：按需技能、受控 Hook、无状态 stdio MCP、只读子 Runner、后台/PTY | 仅 Linux 受限验收；远程/有状态 MCP、写 Agent/团队未通过；不以数量证明成熟 |
 
-真实 Provider 的当前边界：网关 qwen3.5-flash 有成功证据；该网关上的 qwen-turbo、qwen3-coder-plus 返回不完整/空流，结论只适用于“模型 + 网关流式接口”组合。官方 deepseek-chat 已成功调用 Shell Git。当前已接入安全有界重试，仅明确 429 拒绝及可证明未发送的建连失败允许重试；未知接受状态不重放。官方 DeepSeek Flash 的 Chat Completions 与 Responses 均通过真实读写、Shell 测试、resume 和压缩验收。Docker Shell 默认断网，联网 Git fetch/push 未通过；显式 worktree + Docker 已使用独立完整 clone，不再暴露源元数据。请求级 HTTPS/秘密引用的能力和边界见 B2 最新设计，不能推广为透明 CLI 联网。
+真实 Provider 的当前边界：网关 qwen3.5-flash 有成功证据；该网关上的 qwen-turbo、qwen3-coder-plus 返回不完整/空流，结论只适用于“模型 + 网关流式接口”组合。官方 deepseek-chat 已成功调用 Shell Git。当前已接入安全有界重试，仅明确 429 拒绝及可证明未发送的建连失败允许重试；未知接受状态不重放。官方 DeepSeek Flash 的 Chat Completions 与 Responses 均通过真实读写、Shell 测试、resume 和压缩验收。Docker Shell 默认断网；显式原生联网的当前验收见 B2-native-network evidence，不能推广到私有认证；显式 worktree + Docker 已使用独立完整 clone，不再暴露源元数据。请求级 HTTPS/秘密引用的能力和边界见 B2 最新设计，与原生 TCP:443 CONNECT 采用独立授权，后者见 B2-native-network 设计。
 
 ## 2. 阶段顺序、交付单位与完成判据
 
@@ -370,3 +370,17 @@ B3 并非未开始：已有长任务预算、压缩、双协议、备份迁移�
 B3 限容恢复上一组已通过，本轮按最早发布缺口推进 B2 受控 HTTPS 与凭据代理，产品链与验收契约写入 design/B2、learning/B2。主 Runner 的 http_request 与零模型 fetch / /fetch 共用审批/调度/会话/Trace；精确目的地/路径、DNS 全答案公开性、IP 固定 TLS、请求/响应/租期额度、引用凭据和取消清理为本组承诺。合成秘密不发往真实外部服务；真实模型只有公开 GET 和文件产出。
 
 这是一组完整的请求级能力，不等同于整个 P3.4 或 B2 闭合。计划中的透明强制网络代理、依赖安装与原生 Git 联网、短期进程凭据仍单列；选择不需要这些能力的断网基础版时，应先明确支持矩阵和发布条件，不能静默删除门槛。后续 B5 复验需同时覆盖默认断网、启用代理、拒绝、取消、秘密不落盘、安装与恢复。新 TUI/写 Agent/远程 MCP 不混入本组。
+
+
+## B2 原生命令受控联网交付与后续大阶段（2026-10-20）
+
+当前交付完整链：可信用户 network.native → 同一 shell 的显式 network 参数 → Action/审批/调度复核 → 同 bind 工作区的 Rootless 临时容器 → Unix socket 固定桥/CONNECT → 公开 DNS 固定 IP 与累计额度 → 原生 Git/pip → 持久未知结果/精确资源维护 → 真实容器与官方模型独立验收。详细契约、支持范围、实际结果分别见 design/B2-native-network、STATUS、evidence/B2-native-*。
+
+这不是整个 B2 或成熟发布通过。CONNECT 仅授权精确域名 TCP:443，不核验加密路径/方法或替客户端做 TLS；无业务秘密注入，普通容器/扩展不开放网络。现有 HTTP 秘密引用仍独立。
+
+下一次完整交付应把剩余秘密生命周期与发布支持矩阵放在同一主题推进：
+1. 固定真正需要支持的私有服务及发行方契约；选用控制器持有秘密的认证代理/短期发行机制，不能把任意进程环境复制 token 当作隔离。
+2. 明确凭据来源/权限/版本、最小目的地/操作、有效期与撤销；覆盖发行失败、过期、轮换、取消、未知服务端结果和日志/输出回显。遇到不支持的发行方协议保持明确拒绝，不能假装替服务端保证撤销。
+3. 明确 Rootless bind、限容任务盘、私有 Git/包源、SSH/远程 MCP 的支持或拒绝矩阵；组合能力分别验证，不能用匿名 Git 成功证明认证能力。
+4. 按固定仓库/固定预算重复“获取依赖→修复→离线测试→审查→跨进程继续”，补取消/崩溃/安装升级/输出与成本证据；四层结论分开。
+5. 更新文档、干净安装和 CI，再根据强制门槛决定是否可把受限日常版本交付；release_ready 不能凭编号全部出现就改为 true。

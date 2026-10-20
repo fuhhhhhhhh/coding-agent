@@ -144,6 +144,9 @@ class ProductConfig(Contract):
         # Local 任意进程可绕过代理，因此不能以此模式宣称强制目的地限制。
         if self.network.enabled and self.backend.kind != "docker":
             raise ValueError("controlled HTTPS broker requires Docker network=none")
+        # 临时联网容器与主容器只共享 bind 文件，不冒充能同步独立 tmpfs 任务盘。
+        if self.network.native.enabled and self.backend.workspace_mode != "bind":
+            raise ValueError("native network currently requires a bind workspace")
         if self.backend.workspace_mode == "bounded-copy":
             quota = self.backend.limits.workspace_bytes
             if quota is None or not 1024**2 <= quota <= 64 * 1024**2 or quota % 4096:
@@ -216,6 +219,9 @@ def load_product_config(
         if path == project_path:
             # 仓库内配置来自待检查代码，不能静默改变用户的 Provider、凭据、后端或放权级别。
             _validate_project_security(layer, merged)
+            # 仓库关闭总开关时同时收紧子能力，不能让继承的 native=true 导致配置报错。
+            if layer.get("network") == {"enabled": False}:
+                layer["network"] = {"enabled": False, "native": {"enabled": False}}
         _deep_merge(merged, layer)
     if overrides:
         _deep_merge(merged, dict(overrides))

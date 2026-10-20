@@ -196,11 +196,7 @@ def test_mixed_dns_answer_fails_before_connect(monkeypatch: pytest.MonkeyPatch) 
     async def run() -> None:
         """仅替换解析器答案，不替换生产地址分类逻辑。"""
 
-        async def resolve(*args: Any, **kwargs: Any) -> list[Any]:
-            """产生模拟重绑定答案，原生产连接代码不会被调用。"""
-            return [(2, 1, 6, "", ("8.8.8.8", 443)), (2, 1, 6, "", ("127.0.0.1", 443))]
-
-        monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
+        monkeypatch.setattr(broker, "_DNS_PROGRAM", 'print(\'["8.8.8.8","127.0.0.1"]\')')
         with pytest.raises(ToolFailure, match="not_public"):
             await resolve_public(HOST)
 

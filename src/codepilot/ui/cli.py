@@ -79,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     testing = commands.add_parser("test", help="按现有权限执行测试，零模型请求")
     _add_shared_arguments(testing, suppress_defaults=True)
     testing.add_argument("--timeout", type=float, default=120.0)
+    testing.add_argument("--network", action="store_true", help="显式申请配置内原生联网，仍需审批")
     testing.add_argument("argv", nargs=argparse.REMAINDER)
     cleanup = commands.add_parser("resources", help="预览/清理会话精确归属资源，不删除代码")
     _add_shared_arguments(cleanup, suppress_defaults=True)
@@ -408,7 +409,8 @@ def _handle_slash_command(
             "/help 帮助  /status 当前运行状态  /model 当前模型  "
             "/sessions 会话列表  /tasks 后台任务  /context 上下文  /compact 压缩历史  "
             "/doctor 诊断 /diff 变更 /changes RUN 归属 /undo RUN [--apply] 撤销 "
-            "/delivery RUN [--apply] 受限副本交付 /permissions 权限 /test 命令 /exit 退出"
+            "/delivery RUN [--apply] 受限副本交付 "
+            "/permissions 权限 /test [--network] 命令 /exit 退出"
             " /recover RUN [--apply] 恢复限容产物"
             " /fetch URL [--secret-ref NAME] 受控 HTTPS"
         )
@@ -474,7 +476,16 @@ def _handle_slash_command(
             data = asyncio.run(operations.diff(arguments.workspace))
         else:
             argv = shlex.split(task.partition(" ")[2])
-            data = asyncio.run(operations.test_command(config, arguments.workspace, argv, 120.0))
+            network = bool(argv and argv[0] == "--network")
+            data = asyncio.run(
+                operations.test_command(
+                    config,
+                    arguments.workspace,
+                    argv[1:] if network else argv,
+                    120.0,
+                    network=network,
+                )
+            )
         print(json.dumps(data, ensure_ascii=False))
         return True
     if command == "/context":
@@ -688,10 +699,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                     flush=True,
                 )
                 data = asyncio.run(
-                    operations.test_command(config, workspace, arguments.argv, arguments.timeout)
+                    operations.test_command(
+                        config,
+                        workspace,
+                        arguments.argv,
+                        arguments.timeout,
+                        network=arguments.network,
+                    )
                 )
                 print(json.dumps(data, ensure_ascii=False))
-                return 0 if data["command_succeeded"] and data["backend_closed"] else 1
+                return (
+                    0
+                    if (
+                        data["command_succeeded"]
+                        and data["backend_closed"]
+                        and not data["needs_reconciliation"]
+                    )
+                    else 1
+                )
             else:
                 from codepilot.evals.product import ProductHarness, Suite
 

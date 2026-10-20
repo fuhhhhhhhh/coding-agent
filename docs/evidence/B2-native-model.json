@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "frozen_request_cap": 12,
+  "source_url": "https://gitlab.com/gitlab-org/gitlab-test.git",
+  "expected_commit": "ddd0f15ae83993f5cb66a927a28673882e99100b",
+  "expected_tracked_files": 43,
+  "hidden_commit": "869f426ea289a0eb81ee1c751da2556c7076bd49",
+  "hidden_tracked_files": 44,
+  "workspace": "/dev/shm/codepilot-native-model-ymu8qt0x/source",
+  "status": "finished",
+  "model_requests": 10,
+  "provider_budget": {
+    "input": 66378,
+    "output": 5108,
+    "pending": {},
+    "legacy_requests_without_usage": 0,
+    "attempt_prices": {},
+    "known_cost_usd": "0.0260430",
+    "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+  },
+  "model_claim": "完成。证据如下。\n\n## 1. 唯一一次联网：原生 Git 拉取（network=true）\n\n```\nmkdir -p upstream && cd upstream && git init -q . && git fetch --depth 1 \\\n  https://gitlab.com/gitlab-org/gitlab-test.git ddd0f15ae83993f5cb66a927a28673882e99100b \\\n  && git checkout -q FETCH_HEAD\n```\n- 输出：`ddd0f15ae83993f5cb66a927a28673882e99100b`，`git ls-tree -r --name-only HEAD | wc -l` = **43**\n- 控制器记录 `native_egress.connections=1`，仅此一次联网；后续所有 shell 调用均为 network=false 默认值。\n- `.git/config` 仅含 `[core]` 段：**没有 remote、没有凭据**（`git remote -v` 输出 0 行，全局 `~/.gitconfig` 不存在），工作区干净（`git status --porcelain` 0 行）。\n\n## 2. `inspect_repo.py`\n\n仅用标准库（`argparse/json/os/re/subprocess/sys` + `from __future__`），每个函数都写中文 docstring：`执行git / 读取git输出 / 解析仓库目录 / 读取提交哈希 / 统计受控文件 / 生成报告 / 构建参数解析器 / 主函数`。设计要点：命令以 `cwd` 只读执行，`GIT_TERMINAL_PROMPT=0`、`GIT_ASKPASS=\"\"`、`stdin=DEVNULL`、`LC_ALL=C`，不触网、不写仓库；优先用 `rev-parse --show-toplevel` 定位仓库根，裸仓库回退 `--absolute-git-dir`；commit 用 `HEAD^{commit}` 校验 40 位小写十六进制。\n\n## 3. 实测（全部 network=false）\n\n| 用例 | 结果 |\n|---|---|\n| `--repo upstream` | `{\"commit\": \"ddd0f15ae83993f5cb66a927a28673882e99100b\", \"tracked_files\": 43}`，exit 0 |\n| 子目录 `--repo upstream/bar` | 同上，exit 0 |\n| 空目录 `/tmp/not_a_repo` | exit 1（`不是 Git 仓库`） |\n| 不存在路径 | exit 1（`路径不存在`） |\n| 文件 `protected.txt` | exit 1（`路径不是目录`） |\n| 空仓库(无提交) | exit 1（`无法获取有效的 HEAD 提交哈希`） |\n| `--repo .`（非仓库工作区） | exit 1 |\n\n输出格式核验：stdout 恰好 1 行、stderr 0 字节、JSON 键数 = 2（`commit`、`tracked_files`）；`commit` 与 `git rev-parse HEAD` 一致且长 40，`tracked_files` 与 `ls-tree -r` 及 `ls-files` 计数（43）三方一致。`python3 -m py_compile` 通过。\n\n## 4. 未触碰项\n\n- `protected.txt` 未修改：sha256 仍为 `fccecc01761b2211fd170afd01ef2605dc590de23360a9932e2f00edecf407f0`（40 字节）。\n- 未设置凭据、未添加其他远端、未安装任何依赖；临时测试目录与 `__pycache__` 已清理，工作区现仅 `inspect_repo.py`、`protected.txt`、`upstream/`。",
+  "tool_results": [
+    {
+      "call_id": "call_00_WJh5ZBTWoN4VpjnWHLYV2655",
+      "content": "exit_code=0\nstdout_truncated=false\nstderr_truncated=false\nstdout:\n/workspace\ntotal 8\ndrwxrwxr-x 2 root root   60 Oct 20 04:35 .\ndrwxr-xr-x 1 root root 4096 Oct 20 04:35 ..\n-rw-rw-r-- 1 root root   40 Oct 20 04:35 protected.txt\nfatal: not a git repository (or any parent up to mount point /)\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n\nstderr:\n\noutput_id=output-24ad66edfa6f46fea9ac450e60fed630\noutput_state=complete\n可用 read_output/search_output 读搜原始输出。",
+      "is_error": false
+    },
+    {
+      "call_id": "call_01_H8qyiASVmwOCxg1Ga2j19900",
+      "content": "protected.txt",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_MhNqE0iqVAGd2eu7AlLd8023",
+      "content": "{\"sha256\": \"fccecc01761b2211fd170afd01ef2605dc590de23360a9932e2f00edecf407f0\", \"total_lines\": 2, \"file_bytes\": 40, \"start_line\": 1, \"start_offset\": 0, \"end_offset\": 40, \"content\": \"existing user bytes\\r\\nnot owned by agent\\n\", \"truncated\": false, \"next_cursor\": null}",
+      "is_error": false
+    },
+    {
+      "call_id": "call_01_Wut9w1JMrcQ0YqZEFHlt2193",
+      "content": "exit_code=0\nstdout_truncated=false\nstderr_truncated=false\nstdout:\ngit version 2.39.5\nPython 3.12.12\n\nstderr:\n\noutput_id=output-6d109cc2e5714153b9a1465de5b6b823\noutput_state=complete\n可用 read_output/search_output 读搜原始输出。",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_n4lT36X2UiXcOq4iMFkI5197",
+      "content": "{\"exit_code\": 0, \"stdout\": \"ddd0f15ae83993f5cb66a927a28673882e99100b\\n43\\n\", \"stderr\": \"From https://gitlab.com/gitlab-org/gitlab-test\\n * branch            ddd0f15ae83993f5cb66a927a28673882e99100b -> FETCH_HEAD\\n\", \"stdout_truncated\": false, \"stderr_truncated\": false, \"timed_out\": false, \"oom_killed\": false, \"cancelled\": false, \"output_reference\": \"output_id=output-f26188e2a3c34ceb9d913993855c69bd\\noutput_state=complete\\n可用 read_output/search_output 读搜原始输出。\", \"native_egress\": {\"connections\": 1, \"bytes\": 1420560, \"policy_failed\": false, \"errors\": []}}",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_PJRHaemU4k8T8oVm3RC76460",
+      "content": "exit_code=0\nstdout_truncated=false\nstderr_truncated=false\nstdout:\nremotes_empty=0\nddd0f15 Merge branch 'po-fix-test-env-path' into 'master'\n0\nCHANGELOG\nCONTRIBUTING.md\nGemfile.zip\nLICENSE\nMAINTENANCE.md\nPROCESS.md\nREADME\nREADME.md\nVERSION\nbar\n\nstderr:\n\noutput_id=output-b142daaec78c4e0b98faeb29fae95583\noutput_state=complete\n可用 read_output/search_output 读搜原始输出。",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_ANtD7wyhdTv9vXf7gOQM5699",
+      "content": "written: path=inspect_repo.py bytes=4790",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_uLaL9NC6zPVHhoucIHqb6487",
+      "content": "exit_code=0\nstdout_truncated=false\nstderr_truncated=false\nstdout:\n== 1) upstream ==\n{\"commit\": \"ddd0f15ae83993f5cb66a927a28673882e99100b\", \"tracked_files\": 43}\nexit=0\n== 2) 非仓库空目录 ==\nexit=1\n== 3) 不存在的路径 ==\nexit=1\n== 4) 文件路径 ==\nexit=1\n== 5) 空仓库(无提交) ==\nexit=1\n== 6) workspace 本身 ==\nexit=1\n\nstderr:\n错误：不是 Git 仓库：/tmp/not_a_repo\n错误：路径不存在：/tmp/definitely_missing_dir\n错误：路径不是目录：protected.txt\n错误：命令失败（退出码 128）：git rev-parse --verify HEAD^{commit}：fatal: Needed a single revision\n错误：不是 Git 仓库：.\n\noutput_id=output-3e0c55fcc258480d87d10995dfb92bc1\noutput_state=complete\n可用 read_output/search_output 读搜原始输出。",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_7tcVmzXnVB5IluYnZxmR2123",
+      "content": "exit_code=0\nstdout_truncated=false\nstderr_truncated=false\nstdout:\nexit=0\nlines=1\nstderr_bytes=0\nraw_repr= b'{\"commit\": \"ddd0f15ae83993f5cb66a927a28673882e99100b\", \"tracked_files\": 43}\\n'\nkeys= ['commit', 'tracked_files'] count= 2\ncommit_match= True len_commit= 40\ncount_match= True 43 43 43\n-- 子目录调用 --\nexit=1\n-- 仓库状态 --\n0\n0\n. .. FETCH_HEAD HEAD branches config description hooks index info logs objects refs shallow \n-- protected.txt 校验 --\nfccecc01761b2211fd170afd01ef2605dc590de23360a9932e2f00edecf407f0  protected.txt\ntotal 16\ndrwxrwxr-x  3 root root  100 Oct 20 04:35 .\ndrwxr-xr-x  1 root root 4096 Oct 20 04:35 ..\n-rw-------  1 root root 4790 Oct 20 04:35 inspect_repo.py\n-rw-rw-r--  1 root root   40 Oct 20 04:35 protected.txt\ndrwxr-xr-x 12 root root  480 Oct 20 04:35 upstream\n-- 语法/依赖检查 --\ncompile_ok\n4:from __future__ import annotations\n6:import argparse\n7:import json\n8:import os\n9:import re\n10:import subprocess\n11:import sys\n\nstderr:\n错误：路径不存在：upstream/app\n\noutput_id=output-46216a7b28974b188961519984407669\noutput_state=complete\n可用 read_output/search_output 读搜原始输出。",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_1Eb3lBs1NxyYcusJiaN63193",
+      "content": "exit_code=0\nstdout_truncated=false\nstderr_truncated=false\nstdout:\nCHANGELOG\nCONTRIBUTING.md\nGemfile.zip\nLICENSE\nMAINTENANCE.md\nPROCESS.md\nREADME\nREADME.md\nVERSION\nbar/\ncustom-highlighting/\nencoding/\nfiles/\nfoo/\ngitlab-grack/\ngitlab-shell/\nsix/\nwith space/\n-- 子目录调用(bar) --\n{\"commit\": \"ddd0f15ae83993f5cb66a927a28673882e99100b\", \"tracked_files\": 43}\nexit=0\n\nstderr:\n\noutput_id=output-978c0ac330294d90976213de06af553b\noutput_state=complete\n可用 read_output/search_output 读搜原始输出。",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_4xhDrHC87lW9equJQQfb4865",
+      "content": "exit_code=0\nstdout_truncated=false\nstderr_truncated=false\nstdout:\n[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n--- global gitconfig ---\n(无全局 gitconfig)\n.\n..\ninspect_repo.py\nprotected.txt\nupstream\n\nstderr:\n\noutput_id=output-a8c3ba082f2c4d448465c02eaa77de3a\noutput_state=complete\n可用 read_output/search_output 读搜原始输出。",
+      "is_error": false
+    }
+  ],
+  "runtime_outcome": "completed",
+  "independent_verdict": "passed",
+  "independent_actual": {
+    "commit": "ddd0f15ae83993f5cb66a927a28673882e99100b",
+    "tracked_files": 43
+  },
+  "independent_hidden_actual": {
+    "commit": "869f426ea289a0eb81ee1c751da2556c7076bd49",
+    "tracked_files": 44
+  },
+  "invalid_directory_nonzero": true,
+  "verification_backend_closed": true,
+  "protected_unchanged": true,
+  "network_pending": {},
+  "needs_reconciliation": false,
+  "backend_closed": true,
+  "image_id": "sha256:d834e1675f8104ae5c45819c29f9295f462ffa3339b31888b20a14952d5f0e8e",
+  "base_commit": "de27c31ba433dbfe3d52bfa05185273ed2ee062d",
+  "worktree_changes": true,
+  "controller_uid": 1016
+}

@@ -58,6 +58,8 @@ class DockerExecutionBackend:
         runner: DockerRunner | None = None,
         audit_directory: Path | None = None,
         on_container: Callable[[str], None] | None = None,
+        proxy_socket: Path | None = None,
+        on_creating: Callable[[], None] | None = None,
     ) -> None:
         """校验并保存任务配置，但暂不访问 Docker daemon。
 
@@ -77,6 +79,11 @@ class DockerExecutionBackend:
         if lifetime_seconds < 60:
             raise ValueError("container lifetime must be at least 60 seconds")
         self.on_container = on_container
+        self.proxy_socket = proxy_socket
+        self.on_creating = on_creating
+        self.image_id = ""
+        if proxy_socket is not None and (workspace_mode != "bind" or "," in str(proxy_socket)):
+            raise ValueError("native proxy socket requires an unambiguous bind workspace")
         self.image = image
         self.limits = limits or BackendLimits()
         # bind/宿主目录没有可强制的文件系统容量边界，请求硬配额必须失败关闭。
@@ -164,12 +171,17 @@ class DockerExecutionBackend:
         if code != 0 or not stdout.strip().startswith(b"sha256:"):
             raise RuntimeError(f"docker image unavailable: {_safe_error(stderr)}")
         image_id = stdout.decode().strip()
+        self.image_id = image_id
         container_user = await self._container_user()
         if self.workspace_mode == "bounded-copy" and container_user != "0:0":
             raise RuntimeError("bounded workspace currently requires Rootless Docker")
+        if self.proxy_socket is not None and container_user != "0:0":
+            raise RuntimeError("native networking currently requires Rootless Docker")
         command = self._create_command(image_id, container_user)
         # 创建调用本身可能已被 daemon 接收，先保存随机名称与标签绑定以覆盖返回前崩溃。
         self._save_handoff("creating", image_id=image_id)
+        if self.on_creating is not None:
+            self.on_creating()
         code, stdout, stderr = await self._docker(command)
         if code != 0:
             raise RuntimeError(f"docker create failed: {_safe_error(stderr)}")
@@ -444,6 +456,49 @@ class DockerExecutionBackend:
             self._record("backend_close_failed", outcome="bounded_export_incomplete")
             raise
 
+    @property
+    def container_id(self) -> str:
+        """公开当前确切容器身份，供控制器的私有租约在创建后立即持久绑定。"""
+        return self._container_id
+
+    async def start_native_bridge(self, source: str) -> None:
+        """执行可信包中冻结的回环桥代码，不依赖镜像内同步额外工具或开放网络接口。"""
+        self._ensure_ready()
+        if self.proxy_socket is None:
+            raise RuntimeError("native bridge requires an explicitly mounted private socket")
+        async with asyncio.timeout(10):
+            code, _, _ = await self._docker(
+                (
+                    "exec",
+                    "-d",
+                    self._container_id,
+                    "python",
+                    "-c",
+                    source,
+                    "--socket",
+                    "/run/codepilot-egress.sock",
+                    "--port",
+                    "3129",
+                )
+            )
+            if code != 0:
+                raise RuntimeError("native bridge failed to start")
+            for _ in range(20):
+                code, _, _ = await self._docker(
+                    (
+                        "exec",
+                        self._container_id,
+                        "python",
+                        "-c",
+                        "import socket; "
+                        "socket.create_connection(('127.0.0.1',3129),timeout=.2).close()",
+                    )
+                )
+                if code == 0:
+                    return
+                await asyncio.sleep(0.05)
+        raise RuntimeError("native bridge readiness failed")
+
     async def close(self) -> None:
         """删除当前 backend 拥有的容器和匿名卷，并使关闭操作幂等。
 
@@ -594,7 +649,13 @@ class DockerExecutionBackend:
         `container_user` 由 `_container_user` 决定；镜像使用已解析的 ID，避免同一
         标签在任务执行期间漂移到另一份镜像。
         """
-        mount = ("--mount", f"type=bind,src={self.root},dst=/workspace")
+        mount: tuple[str, ...] = ("--mount", f"type=bind,src={self.root},dst=/workspace")
+        # 专有联网容器只额外挂载单个 owner-only socket，主容器没有此能力。
+        if self.proxy_socket is not None:
+            mount += (
+                "--mount",
+                f"type=bind,src={self.proxy_socket},dst=/run/codepilot-egress.sock,readonly",
+            )
         entry = "import time; time.sleep(2147483647)"
         if self.workspace_mode == "bounded-copy":
             mount = (

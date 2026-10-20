@@ -150,6 +150,18 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
         config.backend.workspace_mode == "bounded-copy"
         and checks.get("daemon", {}).get("rootless", False)
     )
+    checks["native_network"] = {
+        "configured": config.network.native.enabled,
+        "scope": list(config.network.native.hosts),
+        "supported": bool(
+            config.backend.kind == "docker"
+            and config.backend.workspace_mode == "bind"
+            and checks.get("daemon", {}).get("rootless", False)
+        ),
+        "connectivity_checked": False,
+    }
+    if config.network.native.enabled:
+        required = required and checks["native_network"]["supported"]
     return {
         "schema_version": 1,
         "ready": bool(required),
@@ -169,7 +181,8 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
             "bounded-copy delivers and undoes verified source versions, including Shell edits"
             if config.backend.workspace_mode == "bounded-copy"
             else "undo owns confirmed file-tool writes only; arbitrary Shell changes are excluded",
-            "HTTPS GET broker only; Shell networking and process secret injection unavailable",
+            "Explicit native Shell uses Rootless bind-only TCP:443 CONNECT scope; "
+            "no process secrets",
         ],
     }
 
@@ -215,6 +228,7 @@ def permissions(config: ProductConfig) -> dict[str, Any]:
         "https_broker_enabled": config.network.enabled,
         "network_destinations": [d.model_dump() for d in config.network.destinations],
         "secret_refs": [s.name for s in config.network.secrets],
+        "native_network": config.network.native.model_dump(mode="json"),
     }
 
 
@@ -261,6 +275,8 @@ async def test_command(
     argv: list[str],
     timeout: float,
     approval: ApprovalProvider | None = None,
+    *,
+    network: bool = False,
 ) -> dict[str, Any]:
     """用户 argv 转为单个审批绑定命令，零模型调用且保留正式会话/输出事实。"""
     if argv and argv[0] == "--":
@@ -281,7 +297,11 @@ async def test_command(
         direct_tool=ToolCall(
             call_id=f"command-{uuid4().hex}",
             name="shell",
-            arguments={"command": shlex.join(argv), "timeout_seconds": timeout},
+            arguments={
+                "command": shlex.join(argv),
+                "timeout_seconds": timeout,
+                **({"network": True} if network else {}),
+            },
         ),
     )
     tool = next(item.result for item in result.report.observations if item.result)
@@ -294,6 +314,7 @@ async def test_command(
         "independent_verdict": "not_run",
         "result": tool.model_dump(mode="json"),
         "backend_closed": result.resources.backend_closed,
+        "needs_reconciliation": result.needs_reconciliation,
         "trace_path": str(result.resources.trace_path),
     }
 
@@ -312,6 +333,19 @@ async def prune(config: ProductConfig, session_id: str, *, apply: bool = False) 
             results.append(entry)
             if record.get("uid") != os.getuid():
                 entry["reason"] = "owner_mismatch"
+                continue
+            if record["kind"] == "native_lease":
+                from codepilot.network.leases import lease_path, recover_lease
+                from codepilot.workspace.docker import _run_docker
+
+                async with asyncio.timeout(60):
+                    entry.update(
+                        await recover_lease(
+                            lease_path(stored.directory, record["manifest"]),
+                            _run_docker,
+                            apply=apply,
+                        )
+                    )
                 continue
             if record["kind"] == "process":
                 pid = int(record["pid"])
