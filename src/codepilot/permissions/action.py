@@ -47,7 +47,11 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
         secrets = (ref,) if isinstance(ref, str) and ref else ()
     elif spec.name == "shell" and arguments.get("network") is True:
         network = True
-        network_scope = spec.network_scope
+        selected = arguments.get("git_credentials", [])
+        secrets = tuple(str(v) for v in selected) if isinstance(selected, (list, tuple)) else ()
+        network_scope = spec.network_scope + tuple(
+            spec.credential_scopes.get(name, "<invalid credential>") for name in secrets
+        )
     # HTTPS 代理不启动进程或继承环境，不能把 Shell 的环境白名单展示成此次注入。
     environment_names = (
         () if spec.name == "http_request" else tuple(sorted(workspace_environment()))
@@ -67,6 +71,15 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
                     "NO_PROXY",
                     "no_proxy",
                     "GIT_TERMINAL_PROMPT",
+                    "GIT_CONFIG_COUNT",
+                    *(
+                        f"GIT_CONFIG_{kind}_{i}"
+                        for i in range(
+                            int(workspace_environment()["GIT_CONFIG_COUNT"]),
+                            int(workspace_environment()["GIT_CONFIG_COUNT"]) + len(secrets),
+                        )
+                        for kind in ("KEY", "VALUE")
+                    ),
                 }
             )
         )

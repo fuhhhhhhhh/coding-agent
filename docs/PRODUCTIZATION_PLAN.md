@@ -384,3 +384,16 @@ B3 限容恢复上一组已通过，本轮按最早发布缺口推进 B2 受控 
 3. 明确 Rootless bind、限容任务盘、私有 Git/包源、SSH/远程 MCP 的支持或拒绝矩阵；组合能力分别验证，不能用匿名 Git 成功证明认证能力。
 4. 按固定仓库/固定预算重复“获取依赖→修复→离线测试→审查→跨进程继续”，补取消/崩溃/安装升级/输出与成本证据；四层结论分开。
 5. 更新文档、干净安装和 CI，再根据强制门槛决定是否可把受限日常版本交付；release_ready 不能凭编号全部出现就改为 true。
+
+
+## 仓库凭据交付与下一组发行故障门槛（2026-10-20）
+
+本轮范围与契约已落盘于 design/B2-credential-leases，实际通过/失败在 STATUS 与 B2-credential evidence，支持矩阵在 design/B2-support-matrix。控制器持令牌、原生 Git 仓库网关、单仓库 GitHub App 发行、AES-GCM 持久租约、服务端撤销、取消和精确维护已进入同一 shell / 零模型 test / Slash / Action / Session 链。默认不启用，合成发行方的真实 RSA/TLS/Git 和新控制器 SIGKILL 撤销已验证；不能据此宣称 GitHub 官方安装或整个 B2 完成。
+
+最终 Rootless 串行组在主容器 docker create 60 秒超时；实际 daemon 可留下 Created 容器，现有 bind 主容器没有像 native child/bounded-copy 那样在 create 之前持久绑定归属。本轮保留失败并核验本轮容器清理，未放宽时限或重启服务。下一整组 B5 应先修这个已复现的执行/恢复缺口，再跑发行门槛：
+
+1. bind 主容器创建前保存 owner/run/随机名/镜像/隔离与目录身份；timeout/取消不等于 daemon 未接受，拒绝盲目重发。迟到 CID、杀控制器、未知创建与启动握手失败都能由维护入口精确核验，不能凭名字删除无关容器。
+2. 终端把配置、Provider、创建超时、命令失败、资源未知分别诊断；正常重开与未知协调、取消和资源清理纳入同一产品链，重跑最终凭据九项和原网络组，保留所有失败。
+3. 固定 bind/显式限容的上游修复与保护文件、隐藏判据、跨进程续问、磁盘/字节配额、网络未知、私钥轮换/密钥丢失、安装与旧会话升级；Python 3.11/3.14 非 editable wheel、CI 与残留资源独立核验。
+4. GitHub App 官方安装是单独条件：专用测试仓库/最小权限/真实发行和撤销/旧 token 被拒/远端 ref，缺少凭据及写授权保持 not_run。Local 固定 Tomli 的13/16请求回归只证明对应主链，不当作私有认证或 Rootless 通过。
+5. 不另起 B 编号、不用功能数量或测试数量解除 release_ready=false；实现、链路集成、真实验收、产品就绪仍分开。Windows/macOS/限容网络/SSH/私有包索引/写代理按支持矩阵处理。

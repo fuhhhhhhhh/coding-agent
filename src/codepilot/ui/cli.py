@@ -80,6 +80,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_shared_arguments(testing, suppress_defaults=True)
     testing.add_argument("--timeout", type=float, default=120.0)
     testing.add_argument("--network", action="store_true", help="显式申请配置内原生联网，仍需审批")
+    testing.add_argument(
+        "--git-credential",
+        action="append",
+        default=[],
+        help="显式选择已配置的 GitHub 仓库引用，可重复",
+    )
     testing.add_argument("argv", nargs=argparse.REMAINDER)
     cleanup = commands.add_parser("resources", help="预览/清理会话精确归属资源，不删除代码")
     _add_shared_arguments(cleanup, suppress_defaults=True)
@@ -410,7 +416,7 @@ def _handle_slash_command(
             "/sessions 会话列表  /tasks 后台任务  /context 上下文  /compact 压缩历史  "
             "/doctor 诊断 /diff 变更 /changes RUN 归属 /undo RUN [--apply] 撤销 "
             "/delivery RUN [--apply] 受限副本交付 "
-            "/permissions 权限 /test [--network] 命令 /exit 退出"
+            "/permissions 权限 /test [--network] [--git-credential 引用] 命令 /exit 退出"
             " /recover RUN [--apply] 恢复限容产物"
             " /fetch URL [--secret-ref NAME] 受控 HTTPS"
         )
@@ -475,17 +481,23 @@ def _handle_slash_command(
         elif command == "/diff":
             data = asyncio.run(operations.diff(arguments.workspace))
         else:
-            argv = shlex.split(task.partition(" ")[2])
-            network = bool(argv and argv[0] == "--network")
-            data = asyncio.run(
-                operations.test_command(
-                    config,
-                    arguments.workspace,
-                    argv[1:] if network else argv,
-                    120.0,
-                    network=network,
+            try:
+                options = build_parser().parse_args(["test", *shlex.split(task.partition(" ")[2])])
+                data = asyncio.run(
+                    operations.test_command(
+                        config,
+                        arguments.workspace,
+                        options.argv,
+                        options.timeout,
+                        network=options.network,
+                        git_credentials=tuple(options.git_credential),
+                    )
                 )
-            )
+            except (SystemExit, ValueError) as error:
+                # 命令语法错误只结束当前 slash 操作，不能退出持久交互或发送给模型。
+                if not isinstance(error, SystemExit):
+                    print(f"测试命令未执行：{error}", file=sys.stderr)
+                return True
         print(json.dumps(data, ensure_ascii=False))
         return True
     if command == "/context":
@@ -705,6 +717,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         arguments.argv,
                         arguments.timeout,
                         network=arguments.network,
+                        git_credentials=tuple(arguments.git_credential),
                     )
                 )
                 print(json.dumps(data, ensure_ascii=False))

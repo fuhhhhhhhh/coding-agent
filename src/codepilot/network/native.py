@@ -7,12 +7,16 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 from uuid import uuid4
+
+from pydantic import field_validator, model_validator
 
 from codepilot.contracts import ToolCall
 from codepilot.network.broker import check_resolver
+from codepilot.network.credentials import GitHubLease, file_identity
 from codepilot.network.egress import ConnectProxy, EgressBudget
+from codepilot.network.git_gateway import GitGateway, git_environment
 from codepilot.network.leases import cleanup_socket, save_lease
 from codepilot.network.models import NativeNetworkConfig
 from codepilot.observability.trace import emit
@@ -27,10 +31,43 @@ from codepilot.workspace.docker import DockerExecutionBackend
 _BRIDGE_SOURCE = Path(__file__).with_name("bridge.py").read_text(encoding="utf-8")
 
 
+def credential_identities(
+    config: NativeNetworkConfig, workspace: Path, provider_file: Path | None = None
+) -> dict[str, tuple[int, ...]]:
+    """共享启动与 doctor 的文件身份检查，不读取私钥或探测实际发行方。"""
+    identities: dict[str, tuple[int, ...]] = {}
+    for ref in config.github_repositories:
+        path = ref.private_key_file
+        if path.resolve().is_relative_to(workspace.resolve()) or (
+            provider_file is not None and path.resolve() == provider_file.resolve()
+        ):
+            raise ValueError("GitHub key must be outside workspace and distinct from provider")
+        identities[ref.name] = file_identity(path)
+    return identities
+
+
 class NetworkShellArguments(ShellArguments):
     """复用 Shell 命令契约，只增加由控制器消费的显式联网能力请求。"""
 
     network: bool = False
+    git_credentials: tuple[str, ...] = ()
+
+    @field_validator("git_credentials", mode="before")
+    @classmethod
+    def parse_references(cls, value: object) -> object:
+        """JSON 数组转换为不可变引用，禁止运行中扩展授权。"""
+        return tuple(value) if isinstance(value, list) else value
+
+    @model_validator(mode="after")
+    def check_references(self) -> Self:
+        """凭据必须明确申请联网，且每次至多四个不重复名字。"""
+        if self.git_credentials and not self.network:
+            raise ValueError("git_credentials requires network=true")
+        if len(self.git_credentials) > 4 or len(set(self.git_credentials)) != len(
+            self.git_credentials
+        ):
+            raise ValueError("git_credentials must be unique and bounded")
+        return self
 
 
 class NativeShellTool(Tool[NetworkShellArguments]):
@@ -49,28 +86,44 @@ class NativeShellTool(Tool[NetworkShellArguments]):
         session: SessionStore,
         run_id: str,
         directory: Path,
+        *,
+        provider_file: Path | None = None,
     ) -> None:
         """绑定原后端、共享额度及会话，不在构造阶段创建 socket 或容器。"""
         check_resolver(backend.root)
         self.backend, self.config, self.session = backend, config, session
         self.run_id, self.directory = run_id, directory
+        self.identities = credential_identities(config, backend.root, provider_file)
+        if config.github_repositories and session.directory.parent.resolve().is_relative_to(
+            backend.root.resolve()
+        ):
+            raise ValueError("credential vault must be outside workspace")
         self.budget = EgressBudget(config, self.progress)
         self.description = (
             "在当前工作区执行原生 Shell/Git/包管理器。默认 network=false 仍断网；"
             "network=true 申请专有临时容器及精确 TCP:443 CONNECT 代理，必须 process 批准。"
-            f"允许域名：{','.join(config.hosts)}。不注入业务密钥，TLS 由原生客户端校验。"
+            f"允许匿名域名：{','.join(config.hosts)}。不注入业务密钥，TLS 由原生客户端校验。"
+            "git_credentials 显式选择下列仓库引用，通过控制器网关认证，token 不进入进程："
+            + ",".join(r.name + "=" + r.scope for r in config.github_repositories)
         )
 
     @property
     def spec(self) -> ToolSpec:
         """策略与固定桥源摘要进入审批指纹，工具声明不向模型公开宿主 socket 路径。"""
+        identities: list[tuple[str, object]] = []
+        for ref in self.config.github_repositories:
+            try:
+                identities.append((ref.name, file_identity(ref.private_key_file)))
+            except (OSError, ValueError):
+                identities.append((ref.name, "unavailable"))
         digest = hashlib.sha256(
-            (self.config.model_dump_json() + _BRIDGE_SOURCE).encode()
+            (self.config.model_dump_json() + _BRIDGE_SOURCE + json.dumps(identities)).encode()
         ).hexdigest()
         return super().spec.model_copy(
             update={
                 "provenance": "native-egress:" + digest,
                 "network_scope": tuple("tcp://" + host + ":443" for host in self.config.hosts),
+                "credential_scopes": {r.name: r.scope for r in self.config.github_repositories},
             }
         )
 
@@ -115,13 +168,23 @@ class NativeShellTool(Tool[NetworkShellArguments]):
                 ToolCall(
                     call_id=CURRENT_CALL.get() or "shell",
                     name="shell",
-                    arguments=arguments.model_dump(exclude={"network"}, exclude_unset=True),
+                    arguments=arguments.model_dump(
+                        exclude={"network", "git_credentials"}, exclude_unset=True
+                    ),
                 )
             )
             return ToolOutput(content=normal.content, is_error=normal.is_error)
         # 固定 argv worker 的预览协议最少 1KiB，不能悄悄扩大用户申请的更小上限。
         if arguments.max_output_bytes < 1024:
             raise ToolFailure("native output preview requires at least 1024 bytes")
+        references = {r.name: r for r in self.config.github_repositories}
+        if any(name not in references for name in arguments.git_credentials):
+            raise ToolFailure("git_credential_reference_denied")
+        leases = {
+            name: GitHubLease(references[name], self.identities[name], self.session, self.run_id)
+            for name in arguments.git_credentials
+        }
+        gateway = GitGateway(leases, self.budget) if leases else None
         self.budget.check()
         # 优先用户运行目录；缺失时只能选工作区外的私有临时目录。
         runtime = Path(f"/run/user/{os.getuid()}")
@@ -132,7 +195,9 @@ class NativeShellTool(Tool[NetworkShellArguments]):
         socket_directory = Path(
             tempfile.mkdtemp(prefix=f"codepilot-egress-{os.getuid()}-", dir=runtime)
         )
-        proxy = ConnectProxy(self.budget, socket_directory / "proxy.sock")
+        proxy = ConnectProxy(
+            self.budget, socket_directory / "proxy.sock", gateway.handle if gateway else None
+        )
         manifest = self.directory / f"lease-{uuid4().hex}.json"
         info = socket_directory.stat()
         record: dict[str, Any] = {
@@ -213,9 +278,10 @@ class NativeShellTool(Tool[NetworkShellArguments]):
                     "http_proxy=http://127.0.0.1:3129",
                     "https_proxy=http://127.0.0.1:3129",
                     "all_proxy=http://127.0.0.1:3129",
-                    "NO_PROXY=",
-                    "no_proxy=",
+                    "NO_PROXY=" + ("127.0.0.1" if leases else ""),
+                    "no_proxy=" + ("127.0.0.1" if leases else ""),
                     "GIT_TERMINAL_PROMPT=0",
+                    *git_environment(leases),
                     "/bin/sh",
                     "-c",
                     arguments.command,
@@ -255,6 +321,11 @@ class NativeShellTool(Tool[NetworkShellArguments]):
                     await proxy.close()
                 except BaseException:
                     failed = True
+                if gateway is not None:
+                    try:
+                        await gateway.close()
+                    except BaseException:
+                        failed = True
                 if child is not None:
                     if record["phase"] == "creating" and not record["container_id"]:
                         failed = True

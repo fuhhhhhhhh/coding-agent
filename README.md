@@ -9,6 +9,8 @@ B1 已完成持久会话、跨进程续问、原始输出与保守协调验收�
 更完整的受控执行与工作区保护；B3 已补齐共享预算、安全重试、滚动检查点、备份迁移、版本化控制器事实及保守恢复；B4 已接入受控扩展、后台任务和只读子代理并通过受限验收；B5 已接终端维护、正式真实任务评测与安装链；B2 遗留执行边界仍阻断成熟发布。后续成熟度门槛与实施顺序见
 [产品化路线](docs/PRODUCTIZATION_PLAN.md)。
 
+实验性私有 Git 使用控制器持有的 GitHub App 仓库级凭据，默认关闭；可通过 `test --network --git-credential` 或同一 shell 引用选择。配置和生命周期见 [仓库凭据设计](docs/design/B2-credential-leases.md) 与 [支持矩阵](docs/design/B2-support-matrix.md)。本机真实协议已验，最终 Rootless 联合组因创建超时受阻，官方 App 安装未验；当前仍非成熟发布。
+
 需要 Python 3.11+ 和 uv。在本目录执行：
 
 ```bash
@@ -46,7 +48,8 @@ uv build --wheel
 `--config`、CLI 覆盖的顺序合并；旧的 `.codepilot.toml` 继续兼容。同一层同时存在多个候选文件会
 直接报错，避免用户修改了一个实际却读取另一个。`codepilot.product.example.yaml` 展示了 DeepSeek
 官方接口、Rootless Docker 和受控编辑。当前机器使用用户级 `config.yaml`，启动时会自动读取工作区根目录权限为 0600 的 `.env`，真实密钥通过
-`DEEPSEEK_API_KEY` 注入，不进入仓库、Trace 或容器；已经存在的 shell 环境变量优先，CI 仍可直接设置。
+`DEEPSEEK_API_KEY` 供控制器使用，不自动写入仓库、Trace 或容器环境；已经存在的 shell 环境变量优先，CI 仍可直接设置。
+默认 bind 会挂载工作区已有文件，环境过滤不会隐藏其中的 `.env`；工作区外的用户凭据文件与本轮 GitHub 私钥引用才不在该挂载内。
 用户级默认配置还可以回退到权限为 0600 的 `~/.config/codepilot/credentials.yaml`，因此从其他工作区
 启动不需要再次 `source` 项目 `.env`。工作区 `.env` 只适合项目本地覆盖，不会覆盖已经存在的环境变量。
 

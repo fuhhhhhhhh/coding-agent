@@ -1,0 +1,20 @@
+# 可信用户/显式 --config 示例。保持关闭；不要放真实 PEM/token，也不要当工作区配置加载。
+# 使用前需专门的测试仓库 App 安装、最小 contents 权限、工作区外 0600 RSA 私钥。
+backend:
+  kind: docker
+  docker_image: codepilot-sandbox:0.1.0
+  workspace_mode: bind
+network:
+  enabled: false
+  native:
+    enabled: false
+    hosts: []
+    github_repositories:
+      - name: private_repo
+        client_id: REPLACE_APP_CLIENT_ID
+        installation_id: 1
+        repository_id: 1
+        owner: your-org
+        repository: your-repo
+        private_key_file: /home/you/.config/codepilot/credentials/github-app.pem
+        contents: read

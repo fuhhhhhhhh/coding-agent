@@ -1,6 +1,6 @@
 # 开发状态
 
-当前开发主题：B2 原生命令受控联网已在 Linux Rootless/bind 与匿名 Git/pip 范围验收。B3 限容恢复、请求级 HTTPS 已有证据；私有 CLI 凭据/短期秘密、限容网络组合及 B5 最终支持矩阵仍为发布缺口。
+当前开发主题：B2 仓库级 GitHub App 凭据链已实现并接入统一产品入口，确定性/本机真实协议与 Local 真实任务通过；最终 Rootless 联合复验被 docker create 60 秒超时阻断，整体阶段不能记全通过。release_ready=false。
 
 已验收范围：B1 可靠执行与持久会话基础已通过受限真实验收；B2 基础与安全交付回补已在明确范围验证，B3 在 Linux/官方 DeepSeek Flash 双协议范围通过受限验收，B4 在 Linux Local/Rootless Docker/官方 DeepSeek Flash Chat 范围通过受限验收，B5 终端操作与正式评测已在明确范围验收；成熟发布仍被 B2 遗留项阻断
 
@@ -14,6 +14,19 @@
 原 M01 命名修改已由 AI 实施并验证，不记作用户独立贡献。
 
 日期：2026-10-20（UTC）
+
+## 最新 B2：仓库级短期凭据与发行边界（2026-10-20）
+
+- 可信 `network.native.github_repositories` 声明精确仓库、最小 contents 及私钥引用；唯一 shell 显式 `network=true, git_credentials=[名称]`，Action/审批绑定范围和私钥文件身份。默认关闭，普通 Shell/扩展/子 Runner 不签发、不拿代理或 token。新增零模型 `test --network --git-credential 名称 -- git …` 和同参数 `/test`，示例见 examples/github-app.yaml。
+- 原生 Git URL 仅在当前进程重写到私有回环网关，追加而不覆盖 hooks/fsmonitor 安全配置。控制器只代理指定仓库的 smart HTTP 读写；发行方 TLS 可信后才读 owner-only、无链接 RSA 私钥，签 RS256 JWT，按单 repository_id/最小权限请求 token，核验仓库/权限/到期；禁止通用 HTTP、客户端认证头、重定向、越权和无界正文。不是通用进程秘密注入。
+- issuing 在发送前持久化；返回 token 后 AES-GCM 密文存状态根独立库，AAD 绑定身份/范围，session/Trace 只有 ID。网关先关闭，撤销控制面独立于业务额度；只有确认 204 才删除密文。取消/撤销失败/密钥丢失保持阻断；SIGKILL 后正式 resources prune 从密文撤销，不重跑 Git。未收到 token 的发行未知只能显式接受，并保留 issuance_unknown_accepted，不冒充服务端撤销。仅备份会话不包含凭据库/主密钥。
+- 最新源码 Python 3.14：476 passed /40 skipped /41.47s；仓库外非 editable wheel Python 3.11：476 passed /40 skipped /65.26s。Ruff、224 文件格式检查、172 文件 mypy；120 个 Python 源文件与 wheel 字节一致。新凭据确定性/真实本机协议组 26 passed /9 deselected，包含实际 RSA/TLS/Git push/fetch、远端正文独立检查、配额/回显/权限/到期、私钥身份轮换、实际 SIGKILL、新控制器撤销及缺主密钥恢复。合成发行方不是 GitHub 官方验收。
+- Rootless 前期六项实际容器场景通过（真实 Git 读写/拒绝/撤销失败回收/回显/取消/审批拒绝），随后发现并修复新配置 JSON Path 往返问题。最终代码两次串行联合重验均在主容器 `docker create` 超过 60 秒而失败，未到凭据工具；最后一次 1 failed /26 deselected /62.07s。不能据早期六项宣布最终九项通过。主容器 create 已接受但 CID 未返回时存在归属记录缺口，是本次实际复现的 B5 发行阻断；本轮未修复该既有路径。已精确核对本轮 Created 容器的 owner/镜像/挂载/隔离并请求清理，异步结果须按 evidence 的独立核对记录判断，未重启/修改公共或用户 Docker 服务。
+- 官方 DeepSeek Flash Chat，改用明确标注的 Local 可信宿主后端做独立产品回归：总上限16，实际13请求（修复11+跨进程续问2），132,312输入/3,284输出Token。固定 Tomli commit 43a86ade8b795c6ef9b4ec53372a607cd1ed426f 来自既有缓存、重新独立 clone/pin；精确注入 CRLF/Decimal 两处回归，14 工具成功，Runtime completed，隐藏 CRLF/Decimal/binary/date/invalid-input 判据通过，只改两个允许文件。续问2个读取工具，Runtime completed、源快照不变、pending为空、后端关闭。不是新发现上游缺陷或私有 Git/Rootless 模型联合验收。
+- 失败不覆盖：首次续问脚本误用 .json 配置扩展名，在零 Provider 请求时解析失败；修正为 YAML 扩展名，核对累计仍11请求/ready后，沿原会话剩余4次额度继续，没有重跑修复或重开预算。首次失败与最终续问均留在 B2-credential-local-model.json。测试夹具缺 workspace、未捕获取消、缺导入等失败及磁盘测试中断也单独记录。
+- 未运行：专用真实 GitHub App 安装/发行/撤销、最终完整 Rootless 凭据九项、新镜像完整构建、限容联网、SSH/LFS/私有包索引/跨平台。新控制器与旧不可变 worker 的前期组合验收不等于新镜像源码一致。官方凭据缺少时不借 Provider key/全局 Git 认证补跑，不新建外部业务资源。
+- 设计与边界：design/B2-credential-leases、design/B2-support-matrix；推荐阅读和三题答案：learning/B2-credential-leases；证据 B2-credential-*。用户测试仓库独立 Git 核对仍干净，HEAD 4f04ef3。实现/链路集成与真实验收分开，学习待确认。
+- 下一整组是执行故障与 B5 发行验收：先持久化 bind 主容器 create 前的精确归属并补真实超时/崩溃维护，再在恢复的 Rootless 环境重验凭据/网络/取消/安装/升级组合与固定任务；真实 GitHub App 安装仍是单独条件，不改 release_ready=true。
 
 ## 最新 B2：原生命令受控联网（2026-10-20）
 

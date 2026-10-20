@@ -161,11 +161,13 @@ name = "codepilot"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "h11" },
     { name = "jsonschema" },
     { name = "mcp" },
     { name = "openai" },
     { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "pyyaml" },
 ]
 
@@ -180,11 +182,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=46,<51" },
     { name = "h11", specifier = ">=0.16,<1" },
     { name = "jsonschema", specifier = ">=4.23,<5" },
     { name = "mcp", specifier = ">=1.26,<2" },
     { name = "openai", specifier = ">=2,<3" },
     { name = "pydantic", specifier = ">=2.12,<3" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15,<3" },
     { name = "pyyaml", specifier = ">=6.0.3,<7" },
 ]
 

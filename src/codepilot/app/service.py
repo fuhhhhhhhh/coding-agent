@@ -169,6 +169,7 @@ class CodePilotApplication:
                     session,
                     run_id,
                     directory / "native-leases",
+                    provider_file=self.config.provider.api_key_file,
                 )
             )
         return tuple(tools)

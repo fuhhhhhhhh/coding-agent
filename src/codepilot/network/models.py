@@ -2,10 +2,10 @@
 
 import re
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 
 from codepilot.contracts.models import Contract
 
@@ -82,18 +82,54 @@ class SecretReference(Destination):
         return path
 
 
+class GitHubRepository(Contract):
+    """可信用户声明单个 GitHub App 仓库与最小权限，私钥不进入工具参数。"""
+
+    name: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")]
+    client_id: Annotated[str, Field(pattern=r"^[A-Za-z0-9_.-]{1,100}$")]
+    installation_id: Annotated[int, Field(gt=0)]
+    repository_id: Annotated[int, Field(gt=0)]
+    owner: Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")]
+    repository: Annotated[str, Field(pattern=r"^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,99}$")]
+    private_key_file: Path
+    contents: Literal["read", "write"] = "read"
+
+    @field_validator("private_key_file", mode="before")
+    @classmethod
+    def parse_key(cls, value: object, info: ValidationInfo) -> object:
+        """私钥必须固定在绝对路径，不能随工作区切换。"""
+        path = Path(value).expanduser() if isinstance(value, str) else value
+        if isinstance(path, Path) and not path.is_absolute():
+            raise ValueError("GitHub key requires absolute path")
+        # JSON 模式的 Path 核心校验接收字符串，Python/YAML 模式则接收已转换 Path。
+        return str(path) if info.mode == "json" and isinstance(path, Path) else path
+
+    @model_validator(mode="after")
+    def canonical_repository(self) -> Self:
+        """拒绝具有 URL 或目录歧义的仓库名。"""
+        if self.repository.endswith(".git") or ".." in self.repository:
+            raise ValueError("GitHub repository requires canonical name without .git")
+        return self
+
+    @property
+    def scope(self) -> str:
+        """审批展示精确仓库和读写，不把名字解释成全安装授权。"""
+        return f"https://github.com/{self.owner}/{self.repository}.git:contents={self.contents}"
+
+
 class NativeNetworkConfig(Contract):
     """声明原生 CLI 的独立 TCP:443 目的地与运行累计额度，不继承 HTTP 路径权限。"""
 
     enabled: bool = False
     hosts: tuple[str, ...] = ()
+    github_repositories: tuple[GitHubRepository, ...] = ()
     max_connections: Annotated[int, Field(ge=1, le=128)] = 32
     max_parallel: Annotated[int, Field(ge=1, le=16)] = 4
     total_bytes: Annotated[int, Field(ge=1024, le=256 * 1024**2)] = 16 * 1024**2
     lease_seconds: Annotated[float, Field(gt=0, le=600)] = 120.0
     idle_seconds: Annotated[float, Field(gt=0, le=30)] = 10.0
 
-    @field_validator("hosts", mode="before")
+    @field_validator("hosts", "github_repositories", mode="before")
     @classmethod
     def parse_hosts(cls, value: object) -> object:
         """配置数组转不可变域名集合，保留严格输入校验。"""
@@ -102,10 +138,18 @@ class NativeNetworkConfig(Contract):
     @model_validator(mode="after")
     def check_hosts(self) -> Self:
         """空授权不能变为全网，主机范围必须独立、精确且有限。"""
-        if self.enabled and not self.hosts:
+        if self.enabled and not self.hosts and not self.github_repositories:
             raise ValueError("native network requires explicit hosts")
         if len(self.hosts) > 32 or len(set(self.hosts)) != len(self.hosts):
             raise ValueError("native network hosts must be unique and bounded")
+        if len(self.github_repositories) > 8 or len(
+            {r.name for r in self.github_repositories}
+        ) != len(self.github_repositories):
+            raise ValueError("GitHub references must be unique and bounded")
+        if len({(r.owner, r.repository) for r in self.github_repositories}) != len(
+            self.github_repositories
+        ):
+            raise ValueError("GitHub repository scopes must be unique")
         for host in self.hosts:
             checked_host(host)
         return self

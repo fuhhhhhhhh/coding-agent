@@ -90,6 +90,7 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
         "configured": config.network.enabled,
         "valid": True,
         "credential_values_read": False,
+        "github_repositories": [r.scope for r in config.network.native.github_repositories],
         "connectivity_checked": False,
     }
     if config.network.enabled:
@@ -97,6 +98,10 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
 
         try:
             HttpRequestTool(config.network, root, config.provider.api_key_file)
+            if config.network.native.enabled:
+                from codepilot.network.native import credential_identities
+
+                credential_identities(config.network.native, root, config.provider.api_key_file)
         except (OSError, ValueError) as error:
             # doctor 只核对本地文件身份；缺失/越权按类别报告，不读取秘密或请求远端。
             checks["https_broker"].update(valid=False, error_type=type(error).__name__)
@@ -280,8 +285,16 @@ async def test_command(
     approval: ApprovalProvider | None = None,
     *,
     network: bool = False,
+    git_credentials: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """用户 argv 转为单个审批绑定命令，零模型调用且保留正式会话/输出事实。"""
+    if git_credentials:
+        if not network or not config.network.native.enabled:
+            raise ValueError("git credentials require enabled native network and --network")
+        from codepilot.network.native import credential_identities
+
+        # 零模型入口重置 Provider 前核对原凭据文件排除，不能因 fake 化丢失安全上下文。
+        credential_identities(config.network.native, root, config.provider.api_key_file)
     if argv and argv[0] == "--":
         argv = argv[1:]
     if not argv:
@@ -304,6 +317,7 @@ async def test_command(
                 "command": shlex.join(argv),
                 "timeout_seconds": timeout,
                 **({"network": True} if network else {}),
+                **({"git_credentials": list(git_credentials)} if git_credentials else {}),
             },
         ),
     )
@@ -336,6 +350,15 @@ async def prune(config: ProductConfig, session_id: str, *, apply: bool = False) 
             results.append(entry)
             if record.get("uid") != os.getuid():
                 entry["reason"] = "owner_mismatch"
+                continue
+            if record["kind"] == "credential_lease":
+                from codepilot.network.credentials import recover
+
+                try:
+                    entry.update(await recover(stored, record["lease_id"], apply=apply))
+                except Exception as error:
+                    # 解密/撤销异常只显示类型，保留原资源供后续恢复，绝不输出认证正文。
+                    entry["reason"] = "credential_recovery_failed:" + type(error).__name__
                 continue
             if record["kind"] == "native_lease":
                 from codepilot.network.leases import lease_path, recover_lease

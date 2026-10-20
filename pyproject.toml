@@ -9,6 +9,8 @@ description = "An incremental, provider-neutral terminal coding agent"
 requires-python = ">=3.11"
 dependencies = [
     "h11>=0.16,<1",
+    "cryptography>=46,<51",
+    "pyjwt[crypto]>=2.15,<3",
     "jsonschema>=4.23,<5",
     "mcp>=1.26,<2",
     "openai>=2,<3",

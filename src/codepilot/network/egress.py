@@ -3,7 +3,7 @@
 import asyncio
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import h11
@@ -75,9 +75,25 @@ class EgressBudget:
 class ConnectProxy:
     """每次批准的 Shell 拥有一个私有 socket，只有专有临时容器挂载它。"""
 
-    def __init__(self, budget: EgressBudget, path: Path) -> None:
+    def __init__(
+        self,
+        budget: EgressBudget,
+        path: Path,
+        gateway: Callable[
+            [
+                h11.Request,
+                h11.Connection,
+                asyncio.StreamReader,
+                asyncio.StreamWriter,
+                Callable[[], None],
+            ],
+            Awaitable[None],
+        ]
+        | None = None,
+    ) -> None:
         """保存共享账本和固定 socket 路径，构造阶段不监听或联网。"""
         self.budget, self.path = budget, path
+        self.gateway = gateway
         self.server: asyncio.Server | None = None
         self.tasks: set[asyncio.Task[None]] = set()
         self.opened: set[int] = set()
@@ -111,9 +127,20 @@ class ConnectProxy:
         try:
             duration = self.budget.deadline - time.monotonic()
             async with asyncio.timeout(max(0.001, duration)):
-                request = await self._request(reader)
+                parsed = await self._request(reader)
                 # 桥的就绪探测只建立空连接，不计成联网或违规请求。
-                if request is None:
+                if parsed is None:
+                    return
+                request, connection = parsed
+                if request.method != b"CONNECT" and self.gateway is not None:
+                    reserved = self.budget.reserve()
+
+                    def opened() -> None:
+                        """网关完成本地校验后才登记外连，拒绝请求不能伪装成远端未知。"""
+                        self.opened.add(reserved)
+                        self.budget.record("native_opened", reserved)
+
+                    await self.gateway(request, connection, reader, writer, opened)
                     return
                 host = self._host(request)
                 reserved = self.budget.reserve()
@@ -173,7 +200,9 @@ class ConnectProxy:
                 if not self.tasks:
                     self.idle.set()
 
-    async def _request(self, reader: asyncio.StreamReader) -> h11.Request | None:
+    async def _request(
+        self, reader: asyncio.StreamReader
+    ) -> tuple[h11.Request, h11.Connection] | None:
         """有限时间和容量解析请求头，不接受无限头、正文或流水线升级。"""
         connection = h11.Connection(h11.SERVER, max_incomplete_event_size=16384)
         size = 0
@@ -190,9 +219,9 @@ class ConnectProxy:
                 event = connection.next_event()
                 if isinstance(event, h11.Request):
                     # 客户端需等 200 再发送 TLS，提前流水线字节拒绝以免静默丢失。
-                    if connection.trailing_data[0]:
+                    if event.method == b"CONNECT" and connection.trailing_data[0]:
                         raise ToolFailure("native_proxy_pipeline_denied")
-                    return event
+                    return event, connection
                 if event is not h11.NEED_DATA:
                     raise ToolFailure("native_proxy_request_invalid")
 

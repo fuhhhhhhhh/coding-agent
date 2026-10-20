@@ -25,6 +25,7 @@ class ToolSpec(Contract):
     control: bool = False
     provenance: str = ""
     network_scope: tuple[str, ...] = ()
+    credential_scopes: dict[str, str] = {}
 
 
 class ToolFailure(Exception):

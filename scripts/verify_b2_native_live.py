@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -22,8 +23,12 @@ COMMIT = "ddd0f15ae83993f5cb66a927a28673882e99100b"
 TOTAL_CAP = 12
 
 
-async def main(repository: Path, output: Path) -> None:
+async def main(
+    repository: Path, output: Path, *, request_cap: int = TOTAL_CAP, resume_acceptance: bool = False
+) -> None:
     """固定任务与保护字节；保存全部四层结论后才断言任务验收通过。"""
+    if not 1 <= request_cap <= 16:
+        raise ValueError("acceptance cap must stay within authorized aggregate 16")
     base = load_product_config(workspace=repository)
     if (base.provider.base_url or "").rstrip(
         "/"
@@ -109,12 +114,12 @@ async def main(repository: Path, output: Path) -> None:
             "provider": base.provider.model_copy(
                 update={
                     "protocol": "chat-completions",
-                    "max_requests": TOTAL_CAP,
+                    "max_requests": request_cap,
                     "max_tokens": 8192,
                 }
             ),
-            "runtime": RunLimits(max_steps=TOTAL_CAP, max_tool_calls=24, timeout_seconds=360.0),
-            "sessions": base.sessions.model_copy(update={"max_requests": TOTAL_CAP}),
+            "runtime": RunLimits(max_steps=request_cap, max_tool_calls=24, timeout_seconds=360.0),
+            "sessions": base.sessions.model_copy(update={"max_requests": request_cap}),
             "git_workspace": base.git_workspace.model_copy(update={"enabled": False}),
             "permission": "controlled-edit",
             "state_directory": root / "state",
@@ -123,7 +128,7 @@ async def main(repository: Path, output: Path) -> None:
     # 从第一次请求前固定任务、版本、预算和独立判据，失败也保留，禁止静默另开预算重试。
     frozen = {
         "schema_version": 1,
-        "frozen_request_cap": TOTAL_CAP,
+        "frozen_request_cap": request_cap,
         "source_url": URL,
         "expected_commit": COMMIT,
         "expected_tracked_files": count,
@@ -131,6 +136,7 @@ async def main(repository: Path, output: Path) -> None:
         "hidden_tracked_files": count + 1,
         "workspace": str(source),
         "status": "running",
+        "resume_acceptance_requested": resume_acceptance,
     }
     output.write_text(json.dumps(frozen, ensure_ascii=False, indent=2) + "\n")
     result = await CodePilotApplication(config, source, approval=ScriptedApproval([True] * 24)).run(
@@ -197,6 +203,68 @@ async def main(repository: Path, output: Path) -> None:
         and verification_closed
         and (source / "protected.txt").read_bytes() == protected
     )
+    # 首次结果先落盘，跨进程续问失败也不得覆盖或另开第一次请求的预算。
+    frozen.update(
+        first_requests=requests, first_independent_verdict="passed" if independent else "failed"
+    )
+    output.write_text(json.dumps(frozen, ensure_ascii=False, indent=2) + "\n")
+    resumed: dict[str, object] = {"status": "not_run"}
+    if resume_acceptance and independent and not result.needs_reconciliation:
+        before = candidate.read_bytes()
+        configuration = root / "resume-config.yaml"
+        configuration.write_text(config.model_dump_json())
+        configuration.chmod(0o600)
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            "from codepilot.ui.cli import main; raise SystemExit(main())",
+            "--config",
+            str(configuration),
+            "--workspace",
+            str(source),
+            "resume",
+            "native-model",
+            "继续刚才的任务，只使用 read_file 读取 inspect_repo.py。"
+            "用中文解释两个 JSON 字段的计算方式。"
+            "不要联网、不要执行命令、不要修改任何文件。",
+            "--jsonl",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            async with asyncio.timeout(180):
+                resume_stdout, resume_stderr = await process.communicate()
+        finally:
+            # 只回收本次验收创建的 CLI；超时也不另开会话补发 Provider 请求。
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+        with SessionStore(root / "state", "native-model", create=False) as session:
+            requests = session.get("request_attempts")
+            budget = session.get("provider_budget")
+            resumed = {
+                "status": "passed"
+                if process.returncode == 0 and session.get("status") == "ready"
+                else "failed",
+                "exit_code": process.returncode,
+                "requests_after_resume": requests,
+                "network_pending": session.get("network_pending", {}),
+                "provider_pending": budget.get("pending", {}),
+                "candidate_unchanged": candidate.read_bytes() == before,
+                "jsonl": [
+                    json.loads(line)
+                    for line in resume_stdout.decode().splitlines()
+                    if line.startswith("{")
+                ],
+                "stderr": resume_stderr.decode(),
+            }
+        independent = (
+            independent
+            and resumed["status"] == "passed"
+            and bool(resumed["candidate_unchanged"])
+            and requests <= request_cap
+        )
+    frozen["cross_process_resume"] = resumed
     frozen.update(
         {
             "status": "finished",
@@ -253,5 +321,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", type=Path, default=Path.cwd())
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--request-cap", type=int, default=TOTAL_CAP)
+    parser.add_argument("--resume-acceptance", action="store_true")
     arguments = parser.parse_args()
-    asyncio.run(main(arguments.repository, arguments.output))
+    asyncio.run(
+        main(
+            arguments.repository,
+            arguments.output,
+            request_cap=arguments.request_cap,
+            resume_acceptance=arguments.resume_acceptance,
+        )
+    )

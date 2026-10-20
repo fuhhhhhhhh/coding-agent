@@ -517,7 +517,9 @@ class SessionStore:
                 pending.discard(message.tool_result.call_id)
         reliable = report is None or report.reason != "persistence_error"
         # 主容器关闭不能覆盖专有联网容器的未知清理；保留引用供正式 prune 核验。
-        if any(item["phase"] != "closed" for item in self.native_leases()):
+        if any(
+            item["phase"] != "closed" for item in self.native_leases() + self.credential_leases()
+        ):
             clean = False
         # HTTP 已可能发送但未拿到完整响应时，配对的错误结果也不能证明远端没有副作用。
         status = (
@@ -584,6 +586,24 @@ class SessionStore:
                 lease = load_lease(lease_path(self.directory, resource["manifest"]))
                 if lease["phase"] != "closed":
                     raise ValueError("native lease requires resources prune before reconciliation")
+            if resource["kind"] == "credential_lease":
+                from codepilot.network.credentials import CredentialVault
+
+                vault = CredentialVault(self.directory.parent)
+                lease = vault.load(resource["lease_id"], self.session_id)
+                if lease["phase"] != "closed":
+                    # 只有从未收到 token 的发行未知可人为接受，已知凭据必须先实际撤销。
+                    if (
+                        accept_network_unknown
+                        and lease["phase"] == "issuing"
+                        and "ciphertext" not in lease
+                    ):
+                        lease.update(phase="closed", issuance_unknown_accepted=True)
+                        vault.save(lease)
+                    else:
+                        raise ValueError(
+                            "credential lease requires resources prune before reconciliation"
+                        )
             if resource["kind"] == "process":
                 current_identity = process_identity(resource["pid"])
                 # 进程不存在时空身份不表示活跃；仍存在但起点未知时保守阻断。
@@ -699,6 +719,9 @@ class SessionStore:
         """私有记录可删除，但仍保留的代码工作树与补丁不能随会话销毁。"""
         if self.get("status") in {"running", "needs_reconciliation"}:
             raise ValueError("reconcile session before deletion")
+        # 独立凭据库不随会话删除，未撤销引用必须保留，以免丢失恢复入口。
+        if any(item["phase"] != "closed" for item in self.credential_leases()):
+            raise ValueError("revoke credential leases before deletion")
         # 已结束但未交付的副本仍是用户劳动，TTL 不能授权丢弃这些代码。
         if any(
             item["state"] not in {"applied", "undone", "empty"}
@@ -723,12 +746,30 @@ class SessionStore:
             "provider_pending": self.get("provider_budget", {}).get("pending", {}),
             "network_pending": self.get("network_pending", {}),
             "native_leases": self.native_leases(),
+            "credential_leases": self.credential_leases(),
             "recovery": "explicit_reconcile_required"
             if self.get("status") in {"running", "needs_reconciliation"}
             else "check_workspace_before_resume",
             "automatic_replay": False,
             "bounded_workspaces": self.bounded_workspaces(),
         }
+
+    def credential_leases(self) -> list[dict[str, Any]]:
+        """仅展示凭据生命周期元数据，缺钥和损坏不能默认为已撤销。"""
+        from codepilot.network.credentials import CredentialVault
+
+        vault = CredentialVault(self.directory.parent)
+        result: list[dict[str, Any]] = []
+        for resource in self.get("resources", []):
+            if resource["kind"] != "credential_lease":
+                continue
+            try:
+                lease = vault.load(resource["lease_id"], self.session_id)
+                result.append({"id": lease["id"], "phase": lease["phase"], "scope": lease["scope"]})
+            except (OSError, ValueError, KeyError):
+                # 即使本地密文丢失，发行方仍可能持有有效 token，绝不能清空资源引用。
+                result.append({"id": resource.get("lease_id"), "phase": "unreadable"})
+        return result
 
     def native_leases(self) -> list[dict[str, Any]]:
         """只读私有租约的归属及生命周期；清单损坏一律阻断假成功收尾。"""
