@@ -123,6 +123,19 @@ def contains_secret(data: bytes, value: bytes) -> bool:
     return any(item in data for item in variants)
 
 
+def system_tls_context() -> ssl.SSLContext:
+    """只加载 OpenSSL 编译时系统信任路径，忽略工作区可设置的 CA/密钥日志环境。"""
+    paths = ssl.get_default_verify_paths()
+    cafile = paths.openssl_cafile if Path(paths.openssl_cafile).is_file() else None
+    capath = paths.openssl_capath if Path(paths.openssl_capath).is_dir() else None
+    # 找不到系统信任库时失败关闭，不能回落到受 SSL_CERT_* 环境影响的默认加载。
+    if cafile is None and capath is None:
+        raise ToolFailure("network_system_trust_store_unavailable")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.load_verify_locations(cafile=cafile, capath=capath)
+    return context
+
+
 class HttpRequestTool(Tool[HttpArguments]):
     """只有控制器代理持有网络；普通 Docker Shell 始终无法直连。"""
 
@@ -304,7 +317,7 @@ class HttpRequestTool(Tool[HttpArguments]):
         reader, writer = await asyncio.open_connection(
             address,
             443,
-            ssl=ssl.create_default_context(),
+            ssl=system_tls_context(),
             server_hostname=host,
             ssl_handshake_timeout=min(10.0, self.config.timeout_seconds),
             limit=32768,

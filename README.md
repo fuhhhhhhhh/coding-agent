@@ -319,3 +319,5 @@ codepilot fetch https://www.python.org/robots.txt
 对应目的地也必须先加入 destinations；任务只使用 `secret_ref: docs-token` 或 `fetch URL --secret-ref docs-token`。匿名请求省略引用或用空字符串。不要把值写进配置、任务或仓库。凭据只在获批 TLS 连接中使用；认证重定向拒绝，回显检测有明确边界，详见 [B2 设计](docs/design/B2.md)。这不是 Shell 透明代理，尚不开放联网 Git、pip 安装、SSH 或远程 MCP。
 
 请求已可能发送、但没有完整响应时，会话保持 `needs_reconciliation`，不会自动重试；`sessions diagnose SESSION` 可查看 `network_pending`。核实外部结果后如仍决定接受未知状态，可显式执行 `sessions reconcile SESSION --accept-workspace --accept-network-unknown`；该操作不重发请求、不证明服务端未执行。默认 bind 仍暴露用户自己的工作区文件，代理不会替你隐藏原本存于工作区的秘密，秘密文件应放在工作区外。
+
+HTTPS 代理只使用系统 TLS 信任路径，忽略项目 `.env` 中的 `SSL_CERT_FILE`、`SSL_CERT_DIR`、`SSLKEYLOGFILE`；不会通过这些变量加载自定义 CA 或写 TLS 密钥日志。当前支持范围不包含自定义 CA 配置。

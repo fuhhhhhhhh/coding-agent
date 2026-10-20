@@ -2,9 +2,9 @@
 ..........s...................s.ssss.................................... [ 32%]
 ........................................................................ [ 48%]
 ....................................................................sss. [ 64%]
-........................................................................ [ 81%]
+........................................................................ [ 80%]
 ........................................................................ [ 97%]
-.....sssssss                                                             [100%]
+......sssssss                                                            [100%]
 =========================== short test summary info ============================
 SKIPPED [1] tests/test_b2_docker_live.py:21: 需要显式启用 Rootless Docker
 SKIPPED [1] tests/test_b2_docker_live.py:64: 需要显式启用 Rootless Docker
@@ -26,4 +26,4 @@ SKIPPED [1] tests/test_workspace_docker_live.py:189: 需要显式设置 CODEPILO
 SKIPPED [1] tests/test_workspace_docker_live.py:229: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
 SKIPPED [1] tests/test_workspace_docker_live.py:312: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
 SKIPPED [1] tests/test_workspace_docker_live.py:349: 需要显式设置 CODEPILOT_DOCKER_LIVE=1 并提供隔离测试 daemon
-424 passed, 20 skipped in 25.48s
+425 passed, 20 skipped in 23.71s

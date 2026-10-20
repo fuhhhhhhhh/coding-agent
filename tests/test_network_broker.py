@@ -739,3 +739,24 @@ def test_sent_but_incomplete_response_blocks_resume_until_explicit_ack(
             assert any(m.tool_result and m.tool_result.is_error for m in session.history())
 
     asyncio.run(run())
+
+
+def test_workspace_tls_environment_cannot_replace_trust_or_enable_keylog(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    certificates: tuple[ssl.SSLContext, ssl.SSLContext],
+) -> None:
+    """项目 dotenv 不能替代理信任测试 CA，也不能把 TLS 会话密钥写进模型可读文件。"""
+    from codepilot.network.broker import system_tls_context
+
+    del certificates
+    keylog = tmp_path / "tls-secrets.log"
+    cert = tmp_path / "cert.pem"
+    monkeypatch.setenv("SSL_CERT_FILE", str(cert))
+    monkeypatch.setenv("SSL_CERT_DIR", str(tmp_path))
+    monkeypatch.setenv("SSLKEYLOGFILE", str(keylog))
+    context = system_tls_context()
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+    assert context.keylog_filename is None and not keylog.exists()
+    synthetic_cert = ssl.PEM_cert_to_DER_cert(cert.read_text())
+    assert synthetic_cert not in context.get_ca_certs(binary_form=True)

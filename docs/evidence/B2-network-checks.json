@@ -4,28 +4,28 @@
   "base_commit": "82a5f36dc48f1978d9c500a62a7c3f0b95cf36dc",
   "source": "base commit plus this reviewed working tree; final commit records exact source",
   "offline": {
-    "command": ".venv/bin/python -m pytest -q --basetemp=/dev/shm/codepilot-network-source-final",
-    "passed": 424,
+    "command": ".venv/bin/python -m pytest -q --basetemp=/dev/shm/codepilot-network-tls-offline",
+    "passed": 425,
     "skipped": 20,
-    "seconds": 25.48,
+    "seconds": 23.71,
     "python": "3.14.7"
   },
   "wheel": {
-    "passed": 424,
+    "passed": 425,
     "skipped": 20,
-    "seconds": 28.81,
+    "seconds": 28.44,
     "python": "3.11.16",
     "non_editable": true,
     "cwd": "/dev/shm",
     "python_files_verified": 113,
-    "sha256": "235682b873b46f93113d9aaba6a18a4894876b9b8ff902f18bbcf936e98f4bbe"
+    "sha256": "979399bed84e1209fccf937b8eb1b5cf7c4980dd1a5836026cebba571db727e7"
   },
   "rootless": {
-    "command": "CODEPILOT_DOCKER_LIVE=1 .venv/bin/python -m pytest -q tests/test_workspace_docker_live.py tests/test_b2_docker_live.py tests/test_b3_bounded_recovery_live.py tests/test_b4_docker_live.py tests/test_b5_docker_live.py tests/test_bounded_docker_live.py tests/test_network_broker.py --basetemp=/dev/shm/codepilot-network-docker-finished",
-    "passed": 70,
-    "seconds": 181.51,
+    "command": "CODEPILOT_DOCKER_LIVE=1 .venv/bin/python -m pytest -q tests/test_workspace_docker_live.py tests/test_b2_docker_live.py tests/test_b3_bounded_recovery_live.py tests/test_b4_docker_live.py tests/test_b5_docker_live.py tests/test_bounded_docker_live.py tests/test_network_broker.py --basetemp=/dev/shm/codepilot-network-tls-docker",
+    "passed": 71,
+    "seconds": 141.76,
     "tests_using_real_containers": 21,
-    "other_network_config_tls_tests": 49,
+    "other_network_config_tls_tests": 50,
     "image_id": "sha256:d834e1675f8104ae5c45819c29f9295f462ffa3339b31888b20a14952d5f0e8e",
     "managed_container_residuals": 0,
     "new_image_build": "not_run; current immutable worker/image protocol with new controller was tested"
@@ -74,7 +74,8 @@
     "controller-only scoped Bearer files",
     "approval fingerprint and post-queue validation",
     "bounded response and per-run attempts/bytes/lease",
-    "no automatic replay; pending sent requests require explicit network acknowledgement"
+    "no automatic replay; pending sent requests require explicit network acknowledgement",
+    "broker TLS ignores workspace CA and TLS key logging environment"
   ],
   "not_run": [
     "Windows/macOS",
@@ -83,7 +84,8 @@
     "transparent Git/pip/SSH egress",
     "remote MCP",
     "general short-lived process secrets",
-    "final B5 release gate"
+    "final B5 release gate",
+    "OS resolver thread termination under a real stalled NSS/DNS service"
   ],
   "release_ready": false,
   "credential_scan": {
@@ -93,5 +95,6 @@
     "known_provider_credential_available": true
   },
   "log_normalization": "Only trailing whitespace removed from retained failure log; diagnostics and counts unchanged",
-  "final_changes_after_live": "Chinese rationale comments only; executable behavior unchanged"
+  "final_changes_after_live": "TLS context now explicitly loads compiled system trust paths and ignores SSL_CERT_FILE/SSL_CERT_DIR/SSLKEYLOGFILE; model schemas unchanged; full offline/wheel/Rootless and real public HTTPS revalidated without extra model requests",
+  "tls_follow_up_base_commit": "d54fa9451fc8f2cedcf24662904dcad802e52a35"
 }
