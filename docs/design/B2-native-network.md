@@ -25,7 +25,7 @@
 
 ## 实际结果与限制
 
-最终命令、版本、计数、失败及产物哈希见 ../evidence/B2-native-network-checks.json。源码离线 448 passed/31 skipped；Rootless 联合 82 passed，最终原生 11 passed；官方 DeepSeek Flash 在 12 请求总上限内实际 10 请求/11 成功工具，独立断网验证两个不同仓库与非法目录通过，保护字节未变。模型自述/工具结果/Runtime/独立判据原样分别保存到 B2-native-model.json，生成脚本字节保存到 B2-native-candidate.txt。Python 3.11 仓库外 wheel 的最终计数以 checks 文件为准。
+最终命令、版本、计数、失败及产物哈希见 ../evidence/B2-native-network-checks.json。源码离线 450 passed/31 skipped；Rootless 联合 82 passed，最终原生 11 passed；官方 DeepSeek Flash 在 12 请求总上限内实际 10 请求/11 成功工具，独立断网验证两个不同仓库与非法目录通过，保护字节未变。模型自述/工具结果/Runtime/独立判据原样分别保存到 B2-native-model.json，生成脚本字节保存到 B2-native-candidate.txt。Python 3.11 仓库外 wheel 的最终计数以 checks 文件为准。
 
 GitHub 的直连在宿主也失败，不能静默继承代理环境绕过范围；匿名 Git 联合验收改为固定公开 GitLab 仓库，失败事实保留。真实 fetch/push 使用独立 TLS/git-http-backend 测试服务，测试仅替换 DNS/端口路由和客户端 CA，不给生产增加私网绕过选项；外部业务仓库未执行 push。依赖验收为 idna 3.20 单个纯 Python wheel 的锁定哈希安装与独立离线导入，不推广为所有构建脚本/平台 wheel 已兼容。
 
@@ -41,3 +41,10 @@ GitHub 的直连在宿主也失败，不能静默继承代理环境绕过范围�
 - docs/design、learning、evidence：分别保存契约、阅读理解与可追溯事实，不把文档或模型自述当产品完成。
 
 现有 codepilot 可执行文件是本源码的 editable 安装，实际 TTY test --network 已独立执行通过；新 wheel 为非 editable 安装验证。worker 镜像保持既有不可变 ID，固定桥由控制器冻结源码后传入 child，不能把组合通过写成新镜像构建通过。成熟发布和私有认证仍未通过。
+
+
+### 宿主解析器程序的工作区边界
+
+解析器进程不能沿用运行时可变的 sys.executable 软链接：当 .venv 位于 bind 工作区时，容器可能替换它，导致下一次宿主辅助进程执行工作区代码。模块在启动时 resolve 固定实际解释器，使用 -I -S 排除工作区/PYTHONPATH 和 site/.pth；真实解释器必须位于工作区外。应用在读取 Provider 凭据和创建状态/容器/Trace 前预检，HTTP/原生工具独立构造同样核验，doctor 将无效联网配置标为未就绪。
+
+测试实际提供可写标记的替身解释器，替换 sys.executable 后 marker 仍不存在；真实解释器落入工作区时原生与 HTTP 均拒绝且状态目录未建立。最终源码/非 editable wheel 450 passed/31 skipped、相关 Rootless 65 passed。未增加模型调用；此前模型十次请求的证据保持版本归属，不能声称它重新验过此补丁。

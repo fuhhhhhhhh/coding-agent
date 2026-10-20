@@ -7,7 +7,7 @@
 1. src/codepilot/app/service.py::_network_tools、ui/cli.py::build_parser 与 operations.test_command：先看正式模型与零模型入口如何复用同一 shell、权限、调度和会话。
 2. network/models.py::NativeNetworkConfig、permissions/action.py::build_action：理解独立的精确 TCP:443 授权、审批指纹、默认关闭与环境名声明。
 3. network/native.py::NativeShellTool.run：跟踪普通调用、临时容器、固定回环桥、共同清理与未知结算。这里是一次执行的生命周期所有者。
-4. network/egress.py::EgressBudget/ConnectProxy、broker.py::resolve_public：看转发前扣额、固定数字 IP、实际流关闭及可终止解析。
+4. network/egress.py::EgressBudget/ConnectProxy、broker.py::resolve_public：看转发前扣额、固定数字 IP、实际流关闭及可终止解析；解析器真实程序须在工作区外，启动时固定且使用 -I -S。
 5. network/leases.py::recover_lease、sessions/store.py::finish/native_leases/reconcile：看为什么主容器关闭不等于全部资源关闭，以及崩溃后为何不能直接续跑。
 6. tests/test_native_network.py、tests/test_native_docker_live.py，最后 docs/evidence/B2-native-network-checks.json 与 B2-native-model.json：分别核对确定性机制、真实容器/原生 Git/pip/故障和真实模型的四层结论。
 
@@ -21,6 +21,7 @@
 - 真正发出后超限/超时/取消：断开双向流并删除容器，保留网络未知。接受工作区不代表接受远端未知。
 - 桥启动失败：删除已经创建的容器；返回脱敏工具错误，不把异常正文给模型。
 - child 删除失败：socket 先撤销，清单 cleanup_failed；主容器即使关闭也不能让会话变 ready。正式 prune 精确核验后回收。
+- 解释器路径替换：实际 Python 在启动时固定；若位于工作区则在凭据/状态创建前拒绝，不能让获批容器修改 .venv 后诱导宿主执行。
 - SIGKILL 控制器：代理进程随之消失，容器无直接外网；新控制器持会话锁核验标签/镜像/ID/只读根/能力与 socket 身份再清理，不重放旧 shell。
 - create 返回 ID 前结果未知：随机名称已记录，但一次 inspect 找不到不证明 daemon 没接受；保持保守阻断。
 

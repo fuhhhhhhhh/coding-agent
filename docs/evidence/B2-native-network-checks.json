@@ -8,17 +8,17 @@
   "source_tests": {
     "command": ".venv/bin/python -m pytest -q -W error::pytest.PytestUnraisableExceptionWarning",
     "python": "3.14.7",
-    "passed": 448,
+    "passed": 450,
     "skipped": 31,
-    "seconds": 26.51
+    "seconds": 28.29
   },
   "installed_tests": {
     "cwd": "/tmp",
     "python": "3.11.16",
     "editable": false,
-    "passed": 448,
+    "passed": 450,
     "skipped": 31,
-    "seconds": 32.03,
+    "seconds": 32.05,
     "package_origin": "/dev/shm/codepilot-b5-wheel-env/lib/python3.11/site-packages/codepilot/__init__.py"
   },
   "rootless_joint": {
@@ -46,14 +46,14 @@
   "wheel": {
     "source_python_files": 117,
     "bytes_equal_to_source": true,
-    "sha256": "6a2c5703d7ba26be45ed972c5f4b1ed36be93a76bc0af61eb7ebd79240dce674"
+    "sha256": "3e1afa65fcf3045aed983653caa8587de362533d8960f02b20bed403e082a8d3"
   },
   "source_hashes": {
     "src/codepilot/__init__.py": "ea2c3e8f5db99d0e11f2ab332c8db15f1c2cf914919443049ad2e6f6634fb9cd",
     "src/codepilot/app/__init__.py": "38c48416b79a073fce9976d52be2551e701e0a68d9fd7b2e7d6cb0936c69144a",
     "src/codepilot/app/models.py": "c353988bfeb75dc7d1ddfbd465b6075ce929dd9ef7613b060424f388b53ab570",
-    "src/codepilot/app/operations.py": "6502872eff31e34a6f66a9484b7d02c327d40ce97319b4ab50944fdadd78bcf4",
-    "src/codepilot/app/service.py": "95cf707e55413afb6d8d78944ff55b5e4be4dce64cfa58a07c72f6230f777095",
+    "src/codepilot/app/operations.py": "eb00172d3168d6eb88d3342ac85dd93da44c8b236829a96abf1a042ec274ddfd",
+    "src/codepilot/app/service.py": "edf3e0bbd7c8c26171eec0f8512f1630b7992e088a457f78873364d8a2d366be",
     "src/codepilot/config.py": "3ce5ef3caa44b18351f3b39d7a81aaaf33913c2a923dc6552b26d2b343e39bd2",
     "src/codepilot/context/__init__.py": "f81f310f5d1300e8dce13f4433f44e9b8097ffa7a61ee24c682536534e86d45d",
     "src/codepilot/context/artifacts.py": "cecbf9879e063c9f700e4aaedeb8c67d522844196d65152227d866210aa5f5c4",
@@ -92,11 +92,11 @@
     "src/codepilot/m11_demo.py": "3499d3c21a46a46694ba0859df0f717be9ab428183de98c1c7cc53aebb7463a9",
     "src/codepilot/network/__init__.py": "43275f92669a5bfc16d358fa8fa2732b4ab92970670e9c519ab9a24058ba3dbd",
     "src/codepilot/network/bridge.py": "3834571c664b22c81a1e7f20c53dc9f159cd2bccc9eab8c92aa4db301f24b191",
-    "src/codepilot/network/broker.py": "8e96d5ec82b6cfee3f940ade30ffa1b80306f204ef123514ed227679648912e0",
+    "src/codepilot/network/broker.py": "cb38426f89f10052aa24a367b0053aba027f72c1cf83f842c18609565bca196c",
     "src/codepilot/network/egress.py": "71759169f592159057e57c43ee57721fde053dea14ccc2055ebbf94106efb487",
     "src/codepilot/network/leases.py": "63cd5a033d22e8f59cacfc7218fff95cc286f9660149f10fb8008f490088f501",
     "src/codepilot/network/models.py": "4462fa0e2cdc1480d7476b95cdaa06c78a0ca5c28471f2a3bac93a6b1abde4cc",
-    "src/codepilot/network/native.py": "6a72050639eb886f8df61166aa0834a2b76fc44248e367aaa580883ab7e54dd8",
+    "src/codepilot/network/native.py": "0ebea243ae429d15d98d48d319e31068146a5a61959f777a9810add1eb5c8688",
     "src/codepilot/observability/__init__.py": "b07cbce2a044225e7fcaa1fda2123b3bdfe8a2c12ac86985eeb8001ca0ee9df8",
     "src/codepilot/observability/trace.py": "0db6b1685ee57d9f05cee8795c475ddb94e5f01d9fd3ad10e3bf9c08a50d552a",
     "src/codepilot/permissions/__init__.py": "53cbd871a678ef6dfdd4e854d9d4301f747bbe59a9498d79a91a53fc3e71b5ef",
@@ -168,7 +168,7 @@
     "src/codepilot/workspace/worker.py": "ae5cc4215e4f0c961af43576d98c2eb621ec20b60fbb9d722cd61bacde49bcfc"
   },
   "test_hashes": {
-    "tests/test_native_network.py": "8c476c33688bf0c2d039f4311ab5f2896ddce0d0555d8678cdf02e5c294f8ba5",
+    "tests/test_native_network.py": "3136f0cf31418f3b89929fa45f6aa6cfeb3197f31fa080c9c6fb9c1471564a02",
     "tests/test_native_docker_live.py": "4e879f76a1fdf7d16c9f0e8842f0c3ba7f227c80335c36e5b2f009038413529d",
     "tests/test_network_broker.py": "17870c18e0c157d8a8ab6c4669842624fc74b0683754141a736d344cdd4e3aba",
     "tests/test_shell_tool.py": "402a623e02dd2ef5efbca0eb021cb8741e996c7ec8b84e71d2da2aa954a8935a"
@@ -208,7 +208,8 @@
     "observed_bidirectional_bytes": 1420560,
     "network_pending": {},
     "candidate_sha256": "0284a366ec4247c3d5a58805ef19a0fdc7499aeabc11b2bd5f531028b3f924ff",
-    "evidence": "B2-native-model.json"
+    "evidence": "B2-native-model.json",
+    "tested_code_stage": "61d7d42 before resolver-path hardening; no additional model calls"
   },
   "managed_container_residue": [],
   "user_test_repository": {
@@ -301,5 +302,21 @@
         "conclusion": "success"
       }
     ]
+  },
+  "resolver_hardening": {
+    "behavior": "freeze resolved real interpreter at module import; -I -S; reject interpreter inside workspace before credentials/state/container; doctor invalid configuration is not ready",
+    "regressions": [
+      "replaced interpreter alias cannot execute marker program",
+      "native and HTTP reject mutable interpreter before state exists"
+    ],
+    "source_passed": 450,
+    "installed_passed": 450,
+    "skipped": 31,
+    "related_rootless_passed": 65,
+    "related_rootless_seconds": 96.21,
+    "actual_container_cases": 15,
+    "deterministic_cases": 50,
+    "model_requests_added": 0,
+    "ci": "pending_push"
   }
 }

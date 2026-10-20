@@ -25,6 +25,9 @@ from codepilot.sessions.outputs import CURRENT_CALL
 from codepilot.tools.base import Tool, ToolFailure, ToolSpec
 from codepilot.tools.process import collect, settle, spawn, stop_process, workspace_environment
 
+# 启动时固定软链接最终目标，避免后续工作区改写 .venv/bin/python 后变成宿主执行入口。
+_DNS_EXECUTABLE = Path(sys.executable).resolve(strict=True)
+
 # 系统解析器可能卡在 NSS；独立进程可被取消和登记，不能遗留默认线程池中的阻塞解析。
 _DNS_PROGRAM = (
     "import json,socket,sys; "
@@ -66,11 +69,18 @@ def public_address(value: str) -> bool:
     )
 
 
+def check_resolver(workspace: Path) -> None:
+    """解释器必须位于工作区外，不能让获批容器替换控制器下一次启动的宿主程序。"""
+    # 固定路径仍需排除可写工作区本身；同一用户的工作区外运行环境属于可信宿主边界。
+    if _DNS_EXECUTABLE.is_relative_to(workspace.resolve()):
+        raise ValueError("network resolver interpreter must be outside workspace")
+
+
 async def resolve_public(host: str) -> str:
     """解析一次且拒绝任何非公开答案，后续连接固定数字地址避免二次 DNS。"""
     process = await spawn(
-        (sys.executable, "-I", "-c", _DNS_PROGRAM, host),
-        cwd=str(Path(sys.executable).parent),
+        (str(_DNS_EXECUTABLE), "-I", "-S", "-c", _DNS_PROGRAM, host),
+        cwd=str(_DNS_EXECUTABLE.parent),
         env=workspace_environment(),
     )
     try:
@@ -178,6 +188,7 @@ class HttpRequestTool(Tool[HttpArguments]):
         on_progress: Callable[[str, int, int], None] | None = None,
     ) -> None:
         """冻结一次 run 的作用域、额度与凭据文件版本，不加载秘密正文。"""
+        check_resolver(workspace)
         self.config = config
         self.on_progress = on_progress
         self.default_timeout = config.timeout_seconds

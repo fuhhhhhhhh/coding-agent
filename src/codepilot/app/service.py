@@ -28,7 +28,7 @@ from codepilot.contracts.stream import RuntimeEvent
 from codepilot.credentials import resolve_provider_api_key
 from codepilot.extensions.executor import ManagedExecutor, OperationBudget
 from codepilot.extensions.router import ExtensionRouter, InputArguments
-from codepilot.network.broker import HttpRequestTool
+from codepilot.network.broker import HttpRequestTool, check_resolver
 from codepilot.network.native import NativeShellTool
 from codepilot.observability import EventRecorder
 from codepilot.observability.trace import CURRENT_RECORDER, CURRENT_TURN
@@ -113,6 +113,9 @@ class CodePilotApplication:
         self.workspace = workspace.resolve(strict=True)
         if not self.workspace.is_dir():
             raise ValueError("workspace must be a directory")
+        # 联网的宿主辅助程序先核验，再解析凭据或创建会话/容器/Trace。
+        if config.network.enabled:
+            check_resolver(self.workspace)
         self.state_root = _state_root(config).absolute()
         if self.state_root.is_relative_to(self.workspace):
             raise ValueError("state directory must be outside workspace")

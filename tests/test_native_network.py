@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -383,3 +384,42 @@ def test_project_can_disable_inherited_native_network(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="只能禁用 network"):
         load_product_config(workspace=root, user_path=user)
+
+
+def test_dns_uses_frozen_real_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """启动后替换解释器别名不会执行工作区提供的宿主程序。"""
+    fake = tmp_path / "python"
+    marker = tmp_path / "escaped"
+    fake.write_text("#!/bin/sh\ntouch " + str(marker) + "\nprintf '[\"8.8.8.8\"]'\n")
+    fake.chmod(0o700)
+    monkeypatch.setattr(sys, "executable", str(fake))
+    monkeypatch.setattr(broker, "_DNS_PROGRAM", "print('[\"8.8.8.8\"]')")
+    assert asyncio.run(broker.resolve_public(HOST)) == "8.8.8.8"
+    assert not marker.exists()
+
+
+def test_network_preflight_rejects_interpreter_in_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """原生和 HTTP 都在凭据/状态/容器创建前拒绝可被工作区替换的解释器。"""
+    from codepilot.app import CodePilotApplication
+    from codepilot.network.broker import HttpRequestTool
+    from codepilot.network.models import Destination
+
+    root = tmp_path / "source"
+    root.mkdir()
+    monkeypatch.setattr(broker, "_DNS_EXECUTABLE", root / "bin" / "python")
+    for network in [
+        NetworkConfig(enabled=True, native=policy()),
+        NetworkConfig(enabled=True, destinations=(Destination(host=HOST),)),
+    ]:
+        config = ProductConfig(
+            state_directory=tmp_path / "state",
+            network=network,
+            backend=BackendConfig(kind="docker", docker_image="fixture"),
+        )
+        with pytest.raises(ValueError, match="outside workspace"):
+            CodePilotApplication(config, root)
+        with pytest.raises(ValueError, match="outside workspace"):
+            HttpRequestTool(network, root)
+    assert not (tmp_path / "state").exists()

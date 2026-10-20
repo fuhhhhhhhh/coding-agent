@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from codepilot.contracts import ToolCall
+from codepilot.network.broker import check_resolver
 from codepilot.network.egress import ConnectProxy, EgressBudget
 from codepilot.network.leases import cleanup_socket, save_lease
 from codepilot.network.models import NativeNetworkConfig
@@ -50,6 +51,7 @@ class NativeShellTool(Tool[NetworkShellArguments]):
         directory: Path,
     ) -> None:
         """绑定原后端、共享额度及会话，不在构造阶段创建 socket 或容器。"""
+        check_resolver(backend.root)
         self.backend, self.config, self.session = backend, config, session
         self.run_id, self.directory = run_id, directory
         self.budget = EgressBudget(config, self.progress)

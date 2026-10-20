@@ -162,6 +162,9 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
     }
     if config.network.native.enabled:
         required = required and checks["native_network"]["supported"]
+    # 本地联网能力配置无效时不能宣称 ready；不为诊断发实际业务请求。
+    if config.network.enabled:
+        required = required and checks["https_broker"]["valid"]
     return {
         "schema_version": 1,
         "ready": bool(required),
