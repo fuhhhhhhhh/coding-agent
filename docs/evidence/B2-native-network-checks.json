@@ -287,5 +287,19 @@
     "enterprise upstream proxy support, if added",
     "B5 repeated real repair and clean upgrade support matrix"
   ],
-  "remote_ci": "pending_push"
+  "remote_ci": {
+    "code_commit": "61d7d422d30e321e109ebf78092d0b6e28ee0676",
+    "url": "https://github.com/fuhhhhhhhh/coding-agent/actions/runs/39370886919",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "checks (3.14)",
+        "conclusion": "success"
+      },
+      {
+        "name": "checks (3.11)",
+        "conclusion": "success"
+      }
+    ]
+  }
 }
