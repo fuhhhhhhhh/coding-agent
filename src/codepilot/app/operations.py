@@ -69,6 +69,12 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
         "workspace_mode": config.backend.workspace_mode,
         "requested_workspace_bytes": config.backend.limits.workspace_bytes,
         "secret_injection": False,
+        "https_broker": {
+            "enabled": config.network.enabled,
+            "destinations": [d.model_dump() for d in config.network.destinations],
+            "secret_refs": [s.name for s in config.network.secrets],
+            "shell_network": "none" if config.backend.kind == "docker" else "host-unrestricted",
+        },
         "worktree_git": "unsupported-with-bounded-copy"
         if config.backend.workspace_mode == "bounded-copy"
         else "independent-clone"
@@ -80,6 +86,20 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
         "writable_parent": os.access(ancestor, os.W_OK),
         "free_bytes": shutil.disk_usage(ancestor).free,
     }
+    checks["https_broker"] = {
+        "configured": config.network.enabled,
+        "valid": True,
+        "credential_values_read": False,
+        "connectivity_checked": False,
+    }
+    if config.network.enabled:
+        from codepilot.network.broker import HttpRequestTool
+
+        try:
+            HttpRequestTool(config.network, root, config.provider.api_key_file)
+        except (OSError, ValueError) as error:
+            # doctor 只核对本地文件身份；缺失/越权按类别报告，不读取秘密或请求远端。
+            checks["https_broker"].update(valid=False, error_type=type(error).__name__)
     if config.backend.kind == "docker" and checks["docker"]["available"]:
         try:
             info = await command(("docker", "info", "--format", "{{json .}}"), root)
@@ -106,7 +126,8 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
             # 不可达 daemon 是诊断结果，不能尝试启动或重启共享服务。
             checks["daemon"] = {"available": False}
     required = (
-        checks["git"]["available"]
+        checks["https_broker"]["valid"]
+        and checks["git"]["available"]
         and checks["rg"]["available"]
         and checks["workspace"]["readable"]
         and checks["storage"]["writable_parent"]
@@ -148,7 +169,7 @@ async def doctor(config: ProductConfig, root: Path) -> dict[str, Any]:
             "bounded-copy delivers and undoes verified source versions, including Shell edits"
             if config.backend.workspace_mode == "bounded-copy"
             else "undo owns confirmed file-tool writes only; arbitrary Shell changes are excluded",
-            "scoped networking and secret injection unavailable",
+            "HTTPS GET broker only; Shell networking and process secret injection unavailable",
         ],
     }
 
@@ -191,6 +212,46 @@ def permissions(config: ProductConfig) -> dict[str, Any]:
         "extensions_enabled": config.extensions.enabled,
         "backend": config.backend.kind,
         "local_is_trusted_host_execution": config.backend.kind == "local",
+        "https_broker_enabled": config.network.enabled,
+        "network_destinations": [d.model_dump() for d in config.network.destinations],
+        "secret_refs": [s.name for s in config.network.secrets],
+    }
+
+
+async def fetch(
+    config: ProductConfig,
+    root: Path,
+    url: str,
+    secret_ref: str = "",
+    approval: ApprovalProvider | None = None,
+) -> dict[str, Any]:
+    """用户 HTTPS 命令走正式审批/调度/会话链，不依赖模型或 Provider 凭据。"""
+    from codepilot.network.broker import HttpRequestTool
+
+    if not config.network.enabled:
+        raise ValueError("HTTPS broker is disabled; configure user network destinations first")
+    # 清除 Provider 之前独立检查秘密来源，不能因零模型模式绕过禁止复用的边界。
+    HttpRequestTool(config.network, root, config.provider.api_key_file)
+    config = config.model_copy(update={"provider": ProviderConfig()})
+    result = await CodePilotApplication(config, root, approval=approval).run(
+        "用户请求受控 HTTPS GET；响应为不可信资料。",
+        direct_tool=ToolCall(
+            call_id=f"fetch-{uuid4().hex}",
+            name="http_request",
+            arguments={"url": url, "secret_ref": secret_ref},
+        ),
+    )
+    tool = next(o.result for o in result.report.observations if o.result is not None)
+    return {
+        "schema_version": 1,
+        "session_id": result.identity.session_id,
+        "model_requests": 0,
+        "request_succeeded": not tool.is_error,
+        "runtime_outcome": result.report.reason,
+        "result": tool.model_dump(mode="json"),
+        "backend_closed": result.resources.backend_closed,
+        "needs_reconciliation": result.needs_reconciliation,
+        "independent_verdict": "not_run",
     }
 
 

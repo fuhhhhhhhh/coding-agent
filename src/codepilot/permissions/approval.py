@@ -51,6 +51,8 @@ class ConsoleApproval(ApprovalProvider):
             f"目录={request.action.cwd} 后端={request.action.backend} "
             f"参数摘要={request.action.argument_summary} "
             f"资源={','.join(request.action.resources) or '-'} "
+            f"网络={','.join(request.action.network_scope) or str(request.action.network)} "
+            f"秘密引用={','.join(request.action.secrets) or '-'} "
             f"指纹={request.action.fingerprint[:12]} 原因={request.reason} [y/N] "
         )
         # 一个终端同一时间只能可靠回答一个完整审批问题。

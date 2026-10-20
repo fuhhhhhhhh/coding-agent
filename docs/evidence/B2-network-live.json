@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "base_commit": "82a5f36dc48f1978d9c500a62a7c3f0b95cf36dc",
+  "worktree_changes": true,
+  "protocol": "chat-completions",
+  "model": "deepseek-flash",
+  "frozen_model_request_cap": 8,
+  "frozen_network_request_cap": 2,
+  "model_requests": 5,
+  "provider_budget": {
+    "input": 20136,
+    "output": 538,
+    "pending": {},
+    "legacy_requests_without_usage": 0,
+    "attempt_prices": {},
+    "known_cost_usd": "0.0066864",
+    "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+  },
+  "workspace": "/dev/shm/codepilot-network-live-krjpm05q/source",
+  "model_claim": "已获取并写入 `robots-agents.txt`，共 6 行，仅包含以 `User-agent:` 开头的原文行。",
+  "tool_results": [
+    {
+      "call_id": "call_00_AGikFCdskRVvK7U8zSTH7440",
+      "content": "tool_error: network_secret_scope_denied",
+      "is_error": true
+    },
+    {
+      "call_id": "call_00_dvaJrhK7q1ZUa2pUfZcG6806",
+      "content": "{\"schema_version\": 1, \"source\": \"untrusted_https_response\", \"host\": \"www.python.org\", \"status\": 200, \"bytes\": 537, \"sha256\": \"18cb4cd525df8528491845e76f3af26c29c6795d02ea8133974d3b341a2ddd9f\", \"text\": \"# Directions for robots.  See this URL:\\n# http://www.robotstxt.org/robotstxt.html\\n# for a description of the file format.\\n\\nUser-agent: HTTrack\\nUser-agent: puf\\nUser-agent: MSIECrawler\\nDisallow: /\\n\\n# The Krugle web crawler (though based on Nutch) is OK.\\nUser-agent: Krugle\\nAllow: /\\nDisallow: /~guido/orlijn/\\nDisallow: /webstats/\\n\\n# No one should be crawling us with Nutch.\\nUser-agent: Nutch\\nDisallow: /\\n\\n# Hide old versions of the documentation and various large sets of files.\\nUser-agent: *\\nDisallow: /~guido/orlijn/\\nDisallow: /webstats/\\n\", \"complete\": true, \"requests_used\": 1, \"received_bytes\": 1772}",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_cVpXtLpzbPBYOcQiHHAQ4117",
+      "content": "written: path=robots-agents.txt bytes=111",
+      "is_error": false
+    },
+    {
+      "call_id": "call_00_PksoUgUlSPkjKMxihe7o8109",
+      "content": "{\"sha256\": \"5af31d9bbc90bbda6ee62fa3ebf56b9efd1ff80bb2557e10f096384869066026\", \"total_lines\": 6, \"file_bytes\": 111, \"start_line\": 1, \"start_offset\": 0, \"end_offset\": 111, \"content\": \"User-agent: HTTrack\\nUser-agent: puf\\nUser-agent: MSIECrawler\\nUser-agent: Krugle\\nUser-agent: Nutch\\nUser-agent: *\\n\", \"truncated\": false, \"next_cursor\": null}",
+      "is_error": false
+    }
+  ],
+  "runtime_outcome": "completed",
+  "independent_verdict": "passed",
+  "source_sha256": "18cb4cd525df8528491845e76f3af26c29c6795d02ea8133974d3b341a2ddd9f",
+  "expected_file": "User-agent: HTTrack\nUser-agent: puf\nUser-agent: MSIECrawler\nUser-agent: Krugle\nUser-agent: Nutch\nUser-agent: *\n",
+  "actual_file": "User-agent: HTTrack\nUser-agent: puf\nUser-agent: MSIECrawler\nUser-agent: Krugle\nUser-agent: Nutch\nUser-agent: *\n",
+  "protected_unchanged": true,
+  "backend_closed": true,
+  "secret_scope": "none; only synthetic secrets exercised by TLS tests",
+  "final_code_continuation": {
+    "frozen_total_cap": 8,
+    "remaining_before": 3,
+    "requests_this_run": 2,
+    "total_model_requests": 7,
+    "provider_budget": {
+      "input": 30148,
+      "output": 697,
+      "pending": {},
+      "legacy_requests_without_usage": 0,
+      "attempt_prices": {},
+      "known_cost_usd": "0.0098808",
+      "cost_status": "estimate_only; pending/legacy/unpriced usage remains unknown"
+    },
+    "tool_results": [
+      {
+        "call_id": "call_00_3nXfLYesyHP0v3J2Cn0h7912",
+        "content": "{\"schema_version\": 1, \"source\": \"untrusted_https_response\", \"host\": \"www.python.org\", \"status\": 200, \"bytes\": 537, \"sha256\": \"18cb4cd525df8528491845e76f3af26c29c6795d02ea8133974d3b341a2ddd9f\", \"text\": \"# Directions for robots.  See this URL:\\n# http://www.robotstxt.org/robotstxt.html\\n# for a description of the file format.\\n\\nUser-agent: HTTrack\\nUser-agent: puf\\nUser-agent: MSIECrawler\\nDisallow: /\\n\\n# The Krugle web crawler (though based on Nutch) is OK.\\nUser-agent: Krugle\\nAllow: /\\nDisallow: /~guido/orlijn/\\nDisallow: /webstats/\\n\\n# No one should be crawling us with Nutch.\\nUser-agent: Nutch\\nDisallow: /\\n\\n# Hide old versions of the documentation and various large sets of files.\\nUser-agent: *\\nDisallow: /~guido/orlijn/\\nDisallow: /webstats/\\n\", \"complete\": true, \"requests_used\": 1, \"received_bytes\": 1772}",
+        "is_error": false
+      }
+    ],
+    "runtime_outcome": "completed",
+    "independent_verdict": "passed",
+    "workspace_unchanged": true,
+    "network_pending": {},
+    "backend_closed": true,
+    "needs_reconciliation": false,
+    "model_claim": "是，包含 `User-agent` 行：共 6 行（HTTrack、puf、MSIECrawler、Krugle、Nutch、*）。未修改任何文件。"
+  }
+}

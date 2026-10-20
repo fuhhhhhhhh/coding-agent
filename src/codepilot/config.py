@@ -13,6 +13,7 @@ from codepilot.context import ContextLimits
 from codepilot.contracts.models import Contract
 from codepilot.contracts.run import RunLimits
 from codepilot.extensions.models import ExtensionConfig
+from codepilot.network.models import NetworkConfig
 from codepilot.providers.reliability import RetryPolicy
 from codepilot.workspace import BackendLimits
 
@@ -120,6 +121,7 @@ class ProductConfig(Contract):
     """描述统一产品入口装配一次 Agent 运行所需的全部非秘密参数。"""
 
     extensions: ExtensionConfig = ExtensionConfig()
+    network: NetworkConfig = NetworkConfig()
     sessions: SessionConfig = SessionConfig()
     provider: ProviderConfig = ProviderConfig()
     backend: BackendConfig = BackendConfig()
@@ -139,6 +141,9 @@ class ProductConfig(Contract):
     @model_validator(mode="after")
     def validate_workspace_mode(self) -> Self:
         """限容副本当前不组合另一个 Git worktree 或共享后台执行环境。"""
+        # Local 任意进程可绕过代理，因此不能以此模式宣称强制目的地限制。
+        if self.network.enabled and self.backend.kind != "docker":
+            raise ValueError("controlled HTTPS broker requires Docker network=none")
         if self.backend.workspace_mode == "bounded-copy":
             quota = self.backend.limits.workspace_bytes
             if quota is None or not 1024**2 <= quota <= 64 * 1024**2 or quota % 4096:
@@ -219,6 +224,10 @@ def load_product_config(
 
 def _validate_project_security(layer: Mapping[str, Any], current: Mapping[str, Any]) -> None:
     """阻止不可信工作区配置扩大 Provider、后端和权限边界。"""
+    network = layer.get("network")
+    # 工作区只能关闭能力；秘密路径和目的地必须由可信用户提供。
+    if network is not None and network != {"enabled": False}:
+        raise ValueError("工作区配置只能禁用 network，联网配置必须来自用户")
     extensions = layer.get("extensions")
     if extensions is not None and extensions != {"enabled": False}:
         # 工作区只能关闭执行扩展，不能借配置自动启动进程或扩大任务额度。

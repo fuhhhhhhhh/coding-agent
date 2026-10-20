@@ -142,6 +142,7 @@ class EventRenderer:
                     "kind": "product_result",
                     "execution_source": result.execution_source,
                     "session_budget": result.session_budget,
+                    "needs_reconciliation": result.needs_reconciliation,
                     **result.identity.model_dump(mode="json"),
                     "state": result.report.state.value,
                     "reason": result.report.reason,
@@ -200,6 +201,8 @@ class EventRenderer:
                 )
         if result.resources.trace_path is not None:
             self._line(f"[Trace] {result.resources.trace_path}")
+        if result.needs_reconciliation:
+            self._line("[需要协调] 尚有未知执行结果；用 sessions diagnose 查看，禁止自动重放。")
         if result.session_budget:
             budget = result.session_budget
             self._line(

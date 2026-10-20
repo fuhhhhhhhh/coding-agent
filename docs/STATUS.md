@@ -1,6 +1,6 @@
 # 开发状态
 
-当前开发主题：B3 跨控制器限容任务恢复（已通过明确支持范围验收）。B3 并非未开始，已有长任务/Provider/恢复受限验收；B2 的未完能力仍作为发布阻断单列。
+当前开发主题：B2 受控 HTTPS 与凭据代理（明确请求级支持范围已验收）。B3 限容恢复已交付；请求代理与透明 CLI 网络能力分开，后者仍是发布缺口。
 
 已验收范围：B1 可靠执行与持久会话基础已通过受限真实验收；B2 基础与安全交付回补已在明确范围验证，B3 在 Linux/官方 DeepSeek Flash 双协议范围通过受限验收，B4 在 Linux Local/Rootless Docker/官方 DeepSeek Flash Chat 范围通过受限验收，B5 终端操作与正式评测已在明确范围验收；成熟发布仍被 B2 遗留项阻断
 
@@ -13,7 +13,19 @@
 学习偏好：用户于 2026-10-13 明确要求不再留动手题，由 AI 直接完成修改。
 原 M01 命名修改已由 AI 实施并验证，不记作用户独立贡献。
 
-日期：2026-10-19（UTC）
+日期：2026-10-20（UTC）
+
+## 最新 B2：受控 HTTPS 与凭据代理（2026-10-20）
+
+- 完整请求级产品链：可信用户/显式配置目的地与秘密引用 → 主 Runner http_request / 零模型 fetch、/fetch → 现有 Action/审批/排队后复核 → 控制器 HTTPS → Context/会话/Trace/诊断。Docker Shell 始终 network=none。默认关闭，项目只能关闭，不允许 Local 宣称强制网络范围；不会给只读子 Runner 增加联网能力。
+- 仅 HTTPS:443、精确 DNS 名/路径段范围；所有 DNS 地址必须公开单播，连接固定数字 IP、TLS SNI 和证书仍核验原域名。匿名重定向逐跳复核和扣额；认证重定向拒绝；不继承宿主代理/Cookie，不接受任意 header/body/POST，无自动重试。共享请求/响应字节/总字节/租期上限，原生 asyncio TLS 取消关闭连接，h11 处理 HTTP 边界。
+- 秘密只从工作区外 owner-only 普通文件按引用读取，不能复用 Provider 文件；TLS 成功后读，O_NOFOLLOW 与 fd/读前读后身份核验，版本及配置进审批指纹。仅本次 Bearer 头使用，不向进程环境、模型、Trace/会话复制。有限正文完整收集后检查原文/base64/URL/hex 回显；认证错误正文、压缩、1xx/升级和非 UTF-8 不开放。不是任意编码泄露保证，也不替服务端签发/撤销短期令牌。
+- request_sending 在写 socket 前提交，只有完整响应能清除 network_pending。已发送但结果未知会阻断再次联网、自动源交付和下次 resume；配对错误/Runtime completed 不等于会话 ready。sessions diagnose、终端与 JSON 可见，--accept-workspace 不足，需额外 --accept-network-unknown 明确接受未知且不重放，旧事实保留。
+- 最终离线 Python 3.14：424 passed / 20 skipped / 25.48s；仓库外 Python 3.11 非 editable wheel：424 passed / 20 skipped / 28.81s。Ruff、206 文件格式、159 文件 mypy；wheel 113 Python 文件字节核验通过。Rootless 最终联合 70 passed / 181.51s（21 项使用实际容器，另 49 项为配置/协议/产品链确定性测试）；包括已发送但响应截断后的持久阻断、独立网络未知确认。管理容器残留 0。
+- 官方 DeepSeek Flash Chat：预冻总上限 8，首次文件任务 5 请求 + 同一会话最终代码续问 2，共 7；总输入 30,148 / 输出 697 Token，Provider pending 和 network_pending 为空。首次 4 工具含 1 次引用名 none 被拒（零联网），其余 HTTPS/写/读成功；续问 1 个 HTTPS 成功。两次 Runtime completed，独立正文行完全匹配、保护文件/续问源字节不变，容器关闭。参数说明已澄清匿名引用省略/空串；没有声称额外模型 A/B 优化。
+- 原始失败保留：初期测试工厂错误使用 Local 后端位置参数，修正夹具接口；公开 robots.txt 无 Sitemap 的预检查在零模型请求时失败，冻结为实际 User-agent 行后再调用；完整 Docker 首轮 67 passed / 2 failed，是证书失败用例内外 monkeypatch 还原顺序污染后续连接器，保留断言并修正测试隔离后全组 69 passed；最终又增加远端未知协调门槛并复验，不删除失败或把环境替换当公开网络证据。
+- Linux/Rootless 明确范围；合成秘密只在本机受控 TLS 中使用，公开 HTTPS 与真实模型没有业务秘密。最终使用既有固定 worker 镜像与新控制器组合，没有新镜像完整构建证据。Windows/macOS、真实业务认证、透明 Git/pip/SSH、远程 MCP、通用短期进程凭据、强制代理和最终 B5 发布门槛仍未验收，release_ready=false。
+- 修改与目录原因、正常/故障轨迹、推荐阅读顺序及三题答案见 design/B2 和 learning/B2 最新节；B2-network-* 保存四层结果、安装、失败与检查事实。学习掌握待确认，无动手题。
 
 ## 最新 B3：限容执行的持久恢复闭合（2026-10-19）
 

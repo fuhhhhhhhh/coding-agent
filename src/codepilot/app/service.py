@@ -28,6 +28,7 @@ from codepilot.contracts.stream import RuntimeEvent
 from codepilot.credentials import resolve_provider_api_key
 from codepilot.extensions.executor import ManagedExecutor, OperationBudget
 from codepilot.extensions.router import ExtensionRouter, InputArguments
+from codepilot.network.broker import HttpRequestTool
 from codepilot.observability import EventRecorder
 from codepilot.observability.trace import CURRENT_RECORDER, CURRENT_TURN
 from codepilot.permissions import (
@@ -120,6 +121,36 @@ class CodePilotApplication:
         self.approval = approval
         self.on_event = on_event
 
+    def _network_tools(self, session: SessionStore, run_id: str) -> tuple[HttpRequestTool, ...]:
+        """仅用户启用时装配控制器代理，绝不向容器或子 Runner 传递凭据。"""
+        if not self.config.network.enabled:
+            return ()
+
+        def progress(state: str, requests: int, received_bytes: int) -> None:
+            """共享会话锁下提交无秘密的网络额度，崩溃后不会抹掉已占用的尝试。"""
+            pending = session.get("network_pending", {})
+            key = f"{run_id}:{requests}"
+            if state in {"request_sending", "unknown"}:
+                pending[key] = {"run_id": run_id, "state": state, "received_bytes": received_bytes}
+            elif state in {"response_received", "response_rejected", "failed_before_send"}:
+                pending.pop(key, None)
+            session.commit(
+                "network_attempt",
+                {
+                    "run_id": run_id,
+                    "state": state,
+                    "requests": requests,
+                    "received_bytes": received_bytes,
+                },
+                network_pending=pending,
+            )
+
+        return (
+            HttpRequestTool(
+                self.config.network, self.workspace, self.config.provider.api_key_file, progress
+            ),
+        )
+
     async def run(
         self,
         task: str,
@@ -194,6 +225,7 @@ class CodePilotApplication:
                 budget = session.get("provider_budget", {})
                 return result.model_copy(
                     update={
+                        "needs_reconciliation": session.get("status") == "needs_reconciliation",
                         "session_budget": {
                             "request_attempts": session.get("request_attempts", 0),
                             "input_tokens": budget.get("input"),
@@ -201,7 +233,7 @@ class CodePilotApplication:
                             "pending_attempts": len(budget.get("pending", {})),
                             "known_cost_usd": budget.get("known_cost_usd"),
                             "cost_status": budget.get("cost_status", "unknown"),
-                        }
+                        },
                     }
                 )
             except BaseException:
@@ -300,6 +332,7 @@ class CodePilotApplication:
                     lambda name: _create_backend(
                         self.config, execution_workspace, backend_directory / name
                     ),
+                    extra_tools=self._network_tools(session, identity.run_id),
                 )
                 journal = ChangeJournal(
                     router,
@@ -481,7 +514,12 @@ class CodePilotApplication:
         journal.finish()
         bounded_delivery = None
         if bounded_workspace is not None:
-            eligible = report is not None and report.reason == "completed"
+            # 远端接受状态未知时只保存副本，不让模型结束顺带触发源目录自动交付。
+            eligible = (
+                report is not None
+                and report.reason == "completed"
+                and not session.get("network_pending", {})
+            )
             if direct_tool is not None and report is not None:
                 eligible = eligible and not any(
                     m.tool_result and m.tool_result.is_error for m in report.messages

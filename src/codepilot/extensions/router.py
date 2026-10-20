@@ -141,6 +141,7 @@ class ExtensionRouter:
         config: ExtensionConfig,
         manager: TaskManager,
         backend_factory: Callable[[str], ExecutionBackend],
+        extra_tools: tuple[Tool[Any], ...] = (),
     ) -> None:
         """发现资料并装配真实工具，可执行扩展关闭时不暴露执行入口。"""
         self.registry, self.config, self.manager = backend, config, manager
@@ -179,7 +180,7 @@ class ExtensionRouter:
         for tool in tools:
             if isinstance(tool, FunctionalTool) and tool.effect == "process":
                 tool.provenance = self._provenance
-        self.extras = ToolRegistry(tools)
+        self.extras = ToolRegistry((*tools, *extra_tools))
 
     def _provenance(self) -> str:
         """配置与仓库脚本版本进入审批指纹，审批中替换代码必须重新授权。"""

@@ -42,3 +42,4 @@ class ProductRunResult(Contract):
     bounded_delivery: dict[str, Any] | None = None
     execution_source: Literal["agent", "user_command"] = "agent"
     session_budget: dict[str, Any] = {}
+    needs_reconciliation: bool = False

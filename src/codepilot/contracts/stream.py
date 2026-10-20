@@ -61,6 +61,7 @@ class RuntimeEvent(Contract):
         "model_requested",
         "provider_attempt",
         "provider_retry",
+        "network_attempt",
         "text_delta",
         "tool_call_delta",
         "tool_call_ready",

@@ -1,0 +1,238 @@
+...................................................................FF    [100%]
+=================================== FAILURES ===================================
+______________ test_real_docker_public_https_broker_and_rejection ______________
+
+tmp_path = PosixPath('/dev/shm/codepilot-network-docker-final/test_real_docker_public_https_0')
+
+    @pytest.mark.skipif(
+        os.environ.get("CODEPILOT_DOCKER_LIVE") != "1", reason="显式真实 Rootless Docker"
+    )
+    def test_real_docker_public_https_broker_and_rejection(tmp_path: Path) -> None:
+        """真实 Docker 正式产品链读取公开 HTTPS，未授权域名不会请求且资源关闭。"""
+        source = tmp_path / "source"
+        source.mkdir()
+        config = ProductConfig(
+            network=NetworkConfig(
+                enabled=True,
+                destinations=(Destination(host="www.python.org", path_prefix="/robots.txt"),),
+            ),
+            state_directory=tmp_path / "state",
+            backend=BackendConfig(
+                kind="docker",
+                docker_image=os.environ.get("CODEPILOT_TEST_IMAGE", "codepilot-sandbox:0.1.0"),
+            ),
+        )
+
+        async def run() -> None:
+            """分别核验公开正文、未知域名拒绝和后台清理，不调用模型。"""
+            for url, success in [
+                ("https://www.python.org/robots.txt", True),
+                ("https://example.com/", False),
+            ]:
+                result = await CodePilotApplication(
+                    config, source, approval=ScriptedApproval([True])
+                ).run(
+                    "读取公开规则",
+                    direct_tool=ToolCall(call_id="https", name="http_request", arguments={"url": url}),
+                )
+                tool = next(o.result for o in result.report.observations if o.result)
+                assert tool.is_error != success, tool.content
+                assert result.resources.backend_closed
+                if success:
+                    data = json.loads(tool.content)
+                    assert data["complete"] and "User-agent" in data["text"]
+                else:
+                    assert "destination_denied" in tool.content
+
+>       asyncio.run(run())
+
+tests/test_network_broker.py:628:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+../../.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/asyncio/runners.py:205: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/asyncio/runners.py:128: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/asyncio/base_events.py:720: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_network_broker.py:613: in run
+    result = await CodePilotApplication(
+src/codepilot/app/service.py:214: in run
+    result = await self._execute(
+src/codepilot/app/service.py:477: in _execute
+    report = await _execute_direct(
+src/codepilot/app/service.py:737: in _execute_direct
+    result = await executor.execute(call)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/extensions/executor.py:67: in execute
+    result = await self.registry.execute(call)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/permissions/executor.py:125: in execute
+    return await self.registry.execute(call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/scheduler/executor.py:85: in execute
+    return await self.registry.execute(call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/context/manager.py:155: in execute
+    result = await self.registry.execute(call)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/workspace/changes.py:112: in execute
+    return await self.registry.execute(call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/extensions/router.py:218: in execute
+    return await self.extras.execute(call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/tools/registry.py:55: in execute
+    output = await self._run(tool, arguments)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/tools/registry.py:72: in _run
+    return await tool.run(cast(Any, arguments))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/network/broker.py:210: in run
+    raise ToolFailure("network_request_budget_exhausted")
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/network/broker.py:268: in _request
+    call_index=self.requests,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+host = '151.101.0.223', requested_port = 443
+kwargs = {'ssl': <ssl.SSLContext object at 0x789072cb1550>, 'server_hostname': 'www.python.org', 'ssl_handshake_timeout': 10.0, 'limit': 32768}
+
+    async def connect(
+        host: str, requested_port: int, **kwargs: Any
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        """证明代理连接核验后的数字 IP，同时保持原域名证书验证。"""
+>       assert host == "93.184.216.34" and requested_port == 443
+E       AssertionError: assert ('151.101.0.223' == '93.184.216.34'
+E
+E         - 93.184.216.34
+E         + 151.101.0.223)
+
+tests/test_network_broker.py:110: AssertionError
+____________ test_real_docker_synthetic_tls_secret_is_not_persisted ____________
+
+tmp_path = PosixPath('/dev/shm/codepilot-network-docker-final/test_real_docker_synthetic_tls0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7890717eb770>
+certificates = (<ssl.SSLContext object at 0x789072cb19d0>, <ssl.SSLContext object at 0x789072cb1b50>)
+
+    @pytest.mark.skipif(
+        os.environ.get("CODEPILOT_DOCKER_LIVE") != "1", reason="显式真实 Rootless Docker"
+    )
+    def test_real_docker_synthetic_tls_secret_is_not_persisted(
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        certificates: tuple[ssl.SSLContext, ssl.SSLContext],
+    ) -> None:
+        """真实 Docker/正式应用配合本机受控 TLS，合成秘密只进入获批连接且无持久回显。"""
+        source = tmp_path / "source"
+        source.mkdir()
+        path = tmp_path / "credential"
+        value = b"synthetic-live-credential-0123456789"
+        path.write_bytes(value)
+        path.chmod(0o600)
+        config = ProductConfig(
+            network=network(secrets=(SecretReference(name="fixture", host=HOST, file=path),)),
+            state_directory=tmp_path / "state",
+            backend=BackendConfig(
+                kind="docker",
+                docker_image=os.environ.get("CODEPILOT_TEST_IMAGE", "codepilot-sandbox:0.1.0"),
+            ),
+        )
+
+        async def run() -> None:
+            """第一次回显拒绝，第二次正确正文；服务端和私有存储分别独立检查。"""
+            for body, success in [(b"echo:" + value, False), (b"private fixture document", True)]:
+                async with tls_service(monkeypatch, certificates, response(body)) as requests:
+                    result = await CodePilotApplication(
+                        config, source, approval=ScriptedApproval([True])
+                    ).run(
+                        "读取受控资料",
+                        direct_tool=ToolCall(
+                            call_id="secret",
+                            name="http_request",
+                            arguments={"url": f"https://{HOST}/", "secret_ref": "fixture"},
+                        ),
+                    )
+                    tool = next(o.result for o in result.report.observations if o.result)
+                    assert tool.is_error != success and result.resources.backend_closed
+                    assert len(requests) == 1 and b"Authorization: Bearer " + value in requests[0]
+            for file in (tmp_path / "state").rglob("*"):
+                if file.is_file():
+                    assert value not in file.read_bytes()
+
+>       asyncio.run(run())
+
+tests/test_network_broker.py:676:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+../../.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/asyncio/runners.py:205: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/asyncio/runners.py:128: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/asyncio/base_events.py:720: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_network_broker.py:659: in run
+    result = await CodePilotApplication(
+src/codepilot/app/service.py:214: in run
+    result = await self._execute(
+src/codepilot/app/service.py:477: in _execute
+    report = await _execute_direct(
+src/codepilot/app/service.py:737: in _execute_direct
+    result = await executor.execute(call)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/extensions/executor.py:67: in execute
+    result = await self.registry.execute(call)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/permissions/executor.py:125: in execute
+    return await self.registry.execute(call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/scheduler/executor.py:85: in execute
+    return await self.registry.execute(call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/context/manager.py:155: in execute
+    result = await self.registry.execute(call)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/workspace/changes.py:112: in execute
+    return await self.registry.execute(call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/extensions/router.py:218: in execute
+    return await self.extras.execute(call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/tools/registry.py:55: in execute
+    output = await self._run(tool, arguments)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/tools/registry.py:72: in _run
+    return await tool.run(cast(Any, arguments))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/network/broker.py:210: in run
+    raise ToolFailure("network_request_budget_exhausted")
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/codepilot/network/broker.py:268: in _request
+    call_index=self.requests,
+tests/test_network_broker.py:113: in connect
+    return await original_connect("127.0.0.1", port, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+host = '127.0.0.1', requested_port = 44897
+kwargs = {'ssl': <ssl.SSLContext object at 0x789072cb1b50>, 'server_hostname': 'broker.example', 'ssl_handshake_timeout': 10.0, 'limit': 32768}
+
+    async def connect(
+        host: str, requested_port: int, **kwargs: Any
+    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        """证明代理连接核验后的数字 IP，同时保持原域名证书验证。"""
+>       assert host == "93.184.216.34" and requested_port == 443
+E       AssertionError: assert ('127.0.0.1' == '93.184.216.34'
+E
+E         - 93.184.216.34
+E         + 127.0.0.1)
+
+tests/test_network_broker.py:110: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_network_broker.py::test_real_docker_public_https_broker_and_rejection
+FAILED tests/test_network_broker.py::test_real_docker_synthetic_tls_secret_is_not_persisted
+2 failed, 67 passed in 142.79s (0:02:22)

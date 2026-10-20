@@ -516,7 +516,12 @@ class SessionStore:
             if message.tool_result is not None:
                 pending.discard(message.tool_result.call_id)
         reliable = report is None or report.reason != "persistence_error"
-        status = "ready" if clean and not pending and reliable else "needs_reconciliation"
+        # HTTP 已可能发送但未拿到完整响应时，配对的错误结果也不能证明远端没有副作用。
+        status = (
+            "ready"
+            if clean and not pending and reliable and not self.get("network_pending", {})
+            else "needs_reconciliation"
+        )
         calls = self.get("calls", {})
         for call_id in pending:
             calls[call_id] = "unknown"
@@ -549,10 +554,15 @@ class SessionStore:
 
         self.save_snapshot()
 
-    def reconcile(self, workspace: Path) -> None:
+    def reconcile(self, workspace: Path, *, accept_network_unknown: bool = False) -> None:
         """用户确认实际工作区后结束未知调用，保持旧事实且禁止重放。"""
         if self.get("workspace", [None])[0] != str(workspace):
             raise ValueError("workspace mismatch")
+        # 接受本地文件版本不能顺带接受远端结果，需用户明确确认不重放未知网络请求。
+        if self.get("network_pending", {}) and not accept_network_unknown:
+            raise ValueError(
+                "network outcome unknown; requires --accept-network-unknown; do not replay"
+            )
         # 限容活盘和未知源交付不能靠接受工作区绕过，先保存产物再协调旧调用。
         if any(
             item["state"] in {"active", "preparing", "applying", "undoing", "unreadable"}
@@ -613,7 +623,8 @@ class SessionStore:
                 record["state"] = "unknown"
         self.commit(
             "user_reconciled",
-            {},
+            {"network_unknown_acknowledged": self.get("network_pending", {})},
+            network_pending={},
             calls=calls,
             tasks=tasks,
             status="ready",
@@ -649,6 +660,7 @@ class SessionStore:
                     "run_id",
                     "request_attempts",
                     "provider_budget",
+                    "network_pending",
                     "workspace_changes",
                     "execution_facts",
                     "goal_revision",
@@ -700,6 +712,7 @@ class SessionStore:
             "calls": calls,
             "resources": self.get("resources", []),
             "provider_pending": self.get("provider_budget", {}).get("pending", {}),
+            "network_pending": self.get("network_pending", {}),
             "recovery": "explicit_reconcile_required"
             if self.get("status") in {"running", "needs_reconciliation"}
             else "check_workspace_before_resume",

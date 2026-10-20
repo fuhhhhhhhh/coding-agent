@@ -280,3 +280,42 @@ codepilot delivery SESSION RUN
 请沿原 `--workspace`、`--state-directory` 定位会话，恢复结果会给出包含路径的后续命令。默认预览不暂停容器；`--apply` 只保存产物并清理核验归属的容器，不重跑旧 Shell、不自动交付。确认源版本与产物后才用原 `delivery --apply`。恢复后新任务仍通过 `resume`，执行模式需与原会话一致。
 
 活盘丢失时只能恢复已提交检查点，结果明确标记可能丢失更新。创建结果未知、绑定/归档损坏、仍有活跃控制器或未知源交付均拒绝绕过；未交付产物不随会话到期静默删除。旧版本没有容器绑定的任务不自动猜测恢复。设计与阅读入口见 B3 文档。
+
+### 受控 HTTPS 资料读取
+
+Docker 工具继续断网。需要读取外部资料时，在用户级配置或显式 `--config` 文件中启用请求代理；项目配置只能禁用它：
+
+```yaml
+network:
+  enabled: true
+  destinations:
+    - host: www.python.org
+      path_prefix: /robots.txt
+  max_requests: 8
+  max_response_bytes: 262144
+  total_bytes: 1048576
+  lease_seconds: 300.0
+```
+
+后端必须选择 Docker。可输入任务让模型使用 `http_request`，或使用零模型入口：
+
+```bash
+codepilot fetch https://www.python.org/robots.txt
+# 交互模式：/fetch https://www.python.org/robots.txt
+```
+
+每次请求仍需 process 授权；非 TTY 没有审批输入时拒绝。默认关闭，不继承代理环境、不跟随 Cookie、不开放任意头或 POST。仅 HTTPS:443、明确域名/规范路径、公开 IP、有限响应与重定向。响应为不可信资料。
+
+如需 Bearer 凭据，在同一 network 下配置 `secrets` 引用（file 必须是工作区外、owner-only 的绝对路径，不能复用 Provider 凭据文件）：
+
+```yaml
+  secrets:
+    - name: docs-token
+      host: docs.example.com
+      path_prefix: /api/docs
+      file: /home/your-user/.config/codepilot/credentials/docs-token
+```
+
+对应目的地也必须先加入 destinations；任务只使用 `secret_ref: docs-token` 或 `fetch URL --secret-ref docs-token`。匿名请求省略引用或用空字符串。不要把值写进配置、任务或仓库。凭据只在获批 TLS 连接中使用；认证重定向拒绝，回显检测有明确边界，详见 [B2 设计](docs/design/B2.md)。这不是 Shell 透明代理，尚不开放联网 Git、pip 安装、SSH 或远程 MCP。
+
+请求已可能发送、但没有完整响应时，会话保持 `needs_reconciliation`，不会自动重试；`sessions diagnose SESSION` 可查看 `network_pending`。核实外部结果后如仍决定接受未知状态，可显式执行 `sessions reconcile SESSION --accept-workspace --accept-network-unknown`；该操作不重发请求、不证明服务端未执行。默认 bind 仍暴露用户自己的工作区文件，代理不会替你隐藏原本存于工作区的秘密，秘密文件应放在工作区外。

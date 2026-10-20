@@ -25,6 +25,7 @@ class Action(Contract):
     backend_id: Identifier
     resources: tuple[str, ...]
     network: bool = False
+    network_scope: tuple[str, ...] = ()
     secrets: tuple[str, ...] = ()
     environment_names: tuple[str, ...] = ()
     workspace_identity: tuple[int, int] | None = None

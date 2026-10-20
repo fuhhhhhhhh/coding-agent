@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-10-20",
+  "base_commit": "82a5f36dc48f1978d9c500a62a7c3f0b95cf36dc",
+  "source": "base commit plus this reviewed working tree; final commit records exact source",
+  "offline": {
+    "command": ".venv/bin/python -m pytest -q --basetemp=/dev/shm/codepilot-network-source-final",
+    "passed": 424,
+    "skipped": 20,
+    "seconds": 25.48,
+    "python": "3.14.7"
+  },
+  "wheel": {
+    "passed": 424,
+    "skipped": 20,
+    "seconds": 28.81,
+    "python": "3.11.16",
+    "non_editable": true,
+    "cwd": "/dev/shm",
+    "python_files_verified": 113,
+    "sha256": "235682b873b46f93113d9aaba6a18a4894876b9b8ff902f18bbcf936e98f4bbe"
+  },
+  "rootless": {
+    "command": "CODEPILOT_DOCKER_LIVE=1 .venv/bin/python -m pytest -q tests/test_workspace_docker_live.py tests/test_b2_docker_live.py tests/test_b3_bounded_recovery_live.py tests/test_b4_docker_live.py tests/test_b5_docker_live.py tests/test_bounded_docker_live.py tests/test_network_broker.py --basetemp=/dev/shm/codepilot-network-docker-finished",
+    "passed": 70,
+    "seconds": 181.51,
+    "tests_using_real_containers": 21,
+    "other_network_config_tls_tests": 49,
+    "image_id": "sha256:d834e1675f8104ae5c45819c29f9295f462ffa3339b31888b20a14952d5f0e8e",
+    "managed_container_residuals": 0,
+    "new_image_build": "not_run; current immutable worker/image protocol with new controller was tested"
+  },
+  "static": {
+    "ruff": "passed",
+    "formatted_files": 206,
+    "mypy_files": 159,
+    "docstring_comment_checks": "passed"
+  },
+  "model": {
+    "official_endpoint": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "protocol": "chat-completions",
+    "frozen_total_requests": 8,
+    "actual_total_requests": 7,
+    "input_tokens": 30148,
+    "output_tokens": 697,
+    "tool_calls": 5,
+    "successful_tools": 4,
+    "tool_errors": 1,
+    "runtime_outcomes": [
+      "completed",
+      "completed"
+    ],
+    "independent_verdicts": [
+      "passed",
+      "passed"
+    ],
+    "failure": "initial secret_ref none rejected before DNS; model corrected; wording improved; final continuation uses final code",
+    "business_secret_requests": 0,
+    "file_protection": "passed",
+    "provider_pending": {},
+    "network_pending": {}
+  },
+  "failure_history": [
+    "Local backend fixture initially used a positional audit_directory; corrected interface without weakening assertions (initial full run 419 passed/1 failed/17 skipped).",
+    "Robots Sitemap baseline was absent; preflight stopped before all model requests. User-agent task frozen before first real model call.",
+    "First combined Docker group: 67 passed/2 failed; nested monkeypatch restoration leaked a test connector. Fixed test isolation, same assertions; rerun 69 passed/137.20s.",
+    "Final sent-but-incomplete remote-outcome gate added, tested with real TLS and actual Rootless backend; final complete group 70 passed/181.51s."
+  ],
+  "enforced_boundaries": [
+    "exact HTTPS GET destinations and path scopes",
+    "all DNS answers public and numeric IP pinning with original hostname TLS",
+    "network none for Docker processes",
+    "controller-only scoped Bearer files",
+    "approval fingerprint and post-queue validation",
+    "bounded response and per-run attempts/bytes/lease",
+    "no automatic replay; pending sent requests require explicit network acknowledgement"
+  ],
+  "not_run": [
+    "Windows/macOS",
+    "fresh full image rebuild",
+    "real business-token authentication",
+    "transparent Git/pip/SSH egress",
+    "remote MCP",
+    "general short-lived process secrets",
+    "final B5 release gate"
+  ],
+  "release_ready": false,
+  "credential_scan": {
+    "files_scanned": 340,
+    "matches": 0,
+    "credential_values_printed": false,
+    "known_provider_credential_available": true
+  },
+  "log_normalization": "Only trailing whitespace removed from retained failure log; diagnostics and counts unchanged",
+  "final_changes_after_live": "Chinese rationale comments only; executable behavior unchanged"
+}

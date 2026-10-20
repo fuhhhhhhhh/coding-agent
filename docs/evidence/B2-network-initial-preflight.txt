@@ -1,0 +1,17 @@
+Traceback (most recent call last):
+  File "/home/fuxiangyu/project/coding-agent/scripts/verify_b2_network_live.py", line 136, in <module>
+    asyncio.run(main(arguments.config_context, arguments.output))
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/fuxiangyu/.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/asyncio/runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/fuxiangyu/.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/asyncio/runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/fuxiangyu/.local/share/uv/python/cpython-3.14.7-linux-x86_64-gnu/lib/python3.14/asyncio/base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/home/fuxiangyu/project/coding-agent/scripts/verify_b2_network_live.py", line 45, in main
+    assert expected.strip()
+           ~~~~~~~~~~~~~~^^
+AssertionError

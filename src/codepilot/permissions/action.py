@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from codepilot.contracts import ToolCall
 from codepilot.permissions.models import Action
@@ -31,7 +32,23 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
     summary = _argument_summary(arguments)
     # Local 进程具备宿主联网能力；不能把未注入网络参数误写成断网保证。
     network = backend_kind != "container" or getattr(backend, "network", "none") != "none"
-    environment_names = tuple(sorted(workspace_environment()))
+    secrets: tuple[str, ...] = ()
+    network_scope: tuple[str, ...] = ()
+    # 请求代理在控制器中联网，不能把容器断网状态误展示为此次调用不联网。
+    if spec.name == "http_request":
+        network = True
+        raw = arguments.get("url")
+        try:
+            target = urlsplit(raw if isinstance(raw, str) else "")
+            network_scope = (f"https://{target.hostname or '<invalid>'}:443",)
+        except ValueError:
+            network_scope = ("<invalid>",)
+        ref = arguments.get("secret_ref")
+        secrets = (ref,) if isinstance(ref, str) and ref else ()
+    # HTTPS 代理不启动进程或继承环境，不能把 Shell 的环境白名单展示成此次注入。
+    environment_names = (
+        () if spec.name == "http_request" else tuple(sorted(workspace_environment()))
+    )
     fingerprint = _fingerprint(
         spec.name,
         spec.effect,
@@ -45,6 +62,8 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
         identity,
         network,
         environment_names,
+        network_scope,
+        secrets,
     )
     return Action(
         tool_name=spec.name,
@@ -59,6 +78,8 @@ def build_action(spec: ToolSpec, call: ToolCall, backend: object | None) -> Acti
         fingerprint=fingerprint,
         workspace_identity=identity,
         network=network,
+        network_scope=network_scope,
+        secrets=secrets,
         environment_names=environment_names,
     )
 

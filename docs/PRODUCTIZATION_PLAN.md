@@ -1,6 +1,6 @@
 # CodePilot 产品化路线与成熟度门槛
 
-版本日期：2026-10-19（UTC）；阶段门槛保持，实际通过范围以 STATUS 和 evidence 为准。
+版本日期：2026-10-20（UTC）；阶段门槛保持，实际通过范围以 STATUS 和 evidence 为准。
 
 ## 1. 目标、事实与规划权威
 
@@ -20,14 +20,14 @@
 | Shell / 原生 Git | 全部 Git 子命令经 Shell 权限链；默认非 Git/脏目录直写 | P3 流式输出与环境边界；P5 变更归属及保守撤销；不重建 Git 子命令 wrapper |
 | 显式 worktree | 固定 commit、二进制补丁、新工作树重放、失败保留 | P3.6 修复 Docker 元数据边界；P5 恢复与安全交付，自动合并不默认启用 |
 | 权限 | allow/deny/ask、审批绑定 ToolCall、审计 | P3 可信配置、Action、网络/秘密；P7 扩展权限不能越过父级 |
-| Local / Docker | 真实 Rootless Docker、断网、资源约束、取消清理；显式 tmpfs 限容副本与源版本交付 | Local 是可信宿主执行；bind 无硬磁盘配额；受控网络/秘密、孤儿 tmpfs 自动导出恢复仍未开放 |
+| Local / Docker | 真实 Rootless Docker、断网、资源约束、取消清理；显式 tmpfs 限容副本与源版本交付 | Local 是可信宿主执行；bind 无硬磁盘配额；B3 已支持显式跨控制器恢复；B2 请求级 HTTPS/凭据代理见最新节，透明 CLI 联网仍未开放 |
 | Context | 大结果引用、近似预算、完整回合压缩；B1 已捕获截断前原文并持久保留引用 | P4 完整请求预算、滚动检查点、来源核验 |
 | Provider | fake、Chat Completions / Responses；DeepSeek 双协议真实修复、脱敏错误与安全有限重试 | P6 完整能力与费用矩阵；同协议不同站点不算第二协议，当前通过范围不推广到其他站点 |
 | Trace / 恢复 | 脱敏 JSONL；B1 SQLite 事务事件/索引、资源归属、跨进程续问、未知副作用阻断 | B3 迁移、滚动检查点和复杂崩溃协调；不承诺自动重放未知操作 |
 | 评测 | 临时仓库、失败反馈、独立验证器 | P3 起固定任务回归；P8 完成可复现 checkout、真实仓库、重复试验和发布门槛 |
 | Skills / Hooks / MCP / 子 Agent | B4 已接统一链：按需技能、受控 Hook、无状态 stdio MCP、只读子 Runner、后台/PTY | 仅 Linux 受限验收；远程/有状态 MCP、写 Agent/团队未通过；不以数量证明成熟 |
 
-真实 Provider 的当前边界：网关 qwen3.5-flash 有成功证据；该网关上的 qwen-turbo、qwen3-coder-plus 返回不完整/空流，结论只适用于“模型 + 网关流式接口”组合。官方 deepseek-chat 已成功调用 Shell Git。当前已接入安全有界重试，仅明确 429 拒绝及可证明未发送的建连失败允许重试；未知接受状态不重放。官方 DeepSeek Flash 的 Chat Completions 与 Responses 均通过真实读写、Shell 测试、resume 和压缩验收。Docker 默认断网，联网 fetch/push 未通过；显式 worktree + Docker 的 `.git` 指向容器外，容器内 Git 暂不可用。
+真实 Provider 的当前边界：网关 qwen3.5-flash 有成功证据；该网关上的 qwen-turbo、qwen3-coder-plus 返回不完整/空流，结论只适用于“模型 + 网关流式接口”组合。官方 deepseek-chat 已成功调用 Shell Git。当前已接入安全有界重试，仅明确 429 拒绝及可证明未发送的建连失败允许重试；未知接受状态不重放。官方 DeepSeek Flash 的 Chat Completions 与 Responses 均通过真实读写、Shell 测试、resume 和压缩验收。Docker Shell 默认断网，联网 Git fetch/push 未通过；显式 worktree + Docker 已使用独立完整 clone，不再暴露源元数据。请求级 HTTPS/秘密引用的能力和边界见 B2 最新设计，不能推广为透明 CLI 联网。
 
 ## 2. 阶段顺序、交付单位与完成判据
 
@@ -363,3 +363,10 @@ B5 不是“所有路线已成熟发布”。task_gate_passed 与 release_ready 
 ## 当前用户指定主题：B3 恢复深化（2026-10-19）
 
 B3 并非未开始：已有长任务预算、压缩、双协议、备份迁移与真实崩溃验收。此前 B2 回补是发布门槛治理，不代表按编号尚未进入 B3。用户要求下一大阶段推进 B3，本轮完成新限容模式的跨控制器恢复链，范围与故障见 design/B3 最新节。B2 网络/秘密保持未完成，不以更换主题解除发布阻断；不要求所有后续开发都等待该可选联网能力。
+
+
+## 2026-10-20 当前开发主题与网络交付边界
+
+B3 限容恢复上一组已通过，本轮按最早发布缺口推进 B2 受控 HTTPS 与凭据代理，产品链与验收契约写入 design/B2、learning/B2。主 Runner 的 http_request 与零模型 fetch / /fetch 共用审批/调度/会话/Trace；精确目的地/路径、DNS 全答案公开性、IP 固定 TLS、请求/响应/租期额度、引用凭据和取消清理为本组承诺。合成秘密不发往真实外部服务；真实模型只有公开 GET 和文件产出。
+
+这是一组完整的请求级能力，不等同于整个 P3.4 或 B2 闭合。计划中的透明强制网络代理、依赖安装与原生 Git 联网、短期进程凭据仍单列；选择不需要这些能力的断网基础版时，应先明确支持矩阵和发布条件，不能静默删除门槛。后续 B5 复验需同时覆盖默认断网、启用代理、拒绝、取消、秘密不落盘、安装与恢复。新 TUI/写 Agent/远程 MCP 不混入本组。

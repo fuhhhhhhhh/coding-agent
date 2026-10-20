@@ -41,6 +41,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="codepilot", description="CodePilot 终端 Coding Agent")
     _add_shared_arguments(parser)
     commands = parser.add_subparsers(dest="command")
+    fetch = commands.add_parser("fetch", help="零模型 HTTPS GET，需用户配置目的地和逐次审批")
+    _add_shared_arguments(fetch, suppress_defaults=True)
+    fetch.add_argument("url")
+    fetch.add_argument("--secret-ref", default="")
     comparison = commands.add_parser("eval-compare", help="比较同条件完整评测，漂移则拒绝")
     _add_shared_arguments(comparison, suppress_defaults=True)
     comparison.add_argument("first", type=Path)
@@ -133,6 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
     reconcile = actions.add_parser("reconcile", help="独立核验资源后接受当前工作区，不重放未知调用")
     reconcile.add_argument("session_id")
     reconcile.add_argument("--accept-workspace", action="store_true", required=True)
+    reconcile.add_argument(
+        "--accept-network-unknown",
+        action="store_true",
+        help="明确接受远端结果仍未知，不重放旧请求；仅接受本地工作区不会清除此阻断",
+    )
     delete = actions.add_parser("delete", help="删除已结束会话及私有正文")
     delete.add_argument("session_id")
     return parser
@@ -265,7 +274,13 @@ async def _run(arguments: argparse.Namespace, config: ProductConfig) -> int:
         result.bounded_delivery is not None
         and result.bounded_delivery["state"] not in {"applied", "empty"}
     )
-    return 0 if result.report.reason == "completed" and not delivery_failed else 1
+    return (
+        0
+        if result.report.reason == "completed"
+        and not delivery_failed
+        and not result.needs_reconciliation
+        else 1
+    )
 
 
 def _interactive(arguments: argparse.Namespace, config: ProductConfig) -> int:
@@ -371,7 +386,8 @@ def _read_interactive_task(prompt: str) -> str:
                 # 只在用户明确开始斜杠命令时显示，普通自然语言输入不被打扰。
                 sys.stdout.write(
                     "\n  /help /status /model /sessions /tasks /context /compact "
-                    "/doctor /diff /changes /undo /delivery /recover /permissions /test /exit\n❯ /"
+                    "/doctor /diff /changes /undo /delivery /recover /permissions "
+                    "/fetch /test /exit\n❯ /"
                 )
                 menu_shown = True
             sys.stdout.flush()
@@ -394,7 +410,19 @@ def _handle_slash_command(
             "/doctor 诊断 /diff 变更 /changes RUN 归属 /undo RUN [--apply] 撤销 "
             "/delivery RUN [--apply] 受限副本交付 /permissions 权限 /test 命令 /exit 退出"
             " /recover RUN [--apply] 恢复限容产物"
+            " /fetch URL [--secret-ref NAME] 受控 HTTPS"
         )
+        return True
+    if command == "/fetch":
+        from codepilot.app.operations import fetch
+
+        parts = shlex.split(task)
+        if len(parts) not in {2, 4} or (len(parts) == 4 and parts[2] != "--secret-ref"):
+            raise ValueError("用法：/fetch URL [--secret-ref NAME]")
+        data = asyncio.run(
+            fetch(config, arguments.workspace, parts[1], parts[3] if len(parts) == 4 else "")
+        )
+        print(json.dumps(data, ensure_ascii=False))
         return True
     if command == "/recover":
         from codepilot.app.operations import recover
@@ -494,7 +522,7 @@ def _looks_like_cli_command(task: str) -> bool:
     """识别用户误输入到交互提示符中的 CodePilot 子命令。"""
     return bool(
         re.match(
-            r"^codepilot(?:\s+(?:run|resume|sessions|compact|context|tasks|doctor|diff|permissions|test|resources|eval|eval-compare)\b|\s*$)",
+            r"^codepilot(?:\s+(?:run|resume|sessions|compact|context|tasks|doctor|diff|permissions|fetch|test|resources|eval|eval-compare)\b|\s*$)",
             task,
         )
     )
@@ -565,7 +593,10 @@ def _sessions(arguments: argparse.Namespace, config: ProductConfig) -> int:
         return 0
     with SessionStore(root, arguments.session_id, create=False) as session:
         if action == "reconcile":
-            session.reconcile(arguments.workspace.resolve(strict=True))
+            session.reconcile(
+                arguments.workspace.resolve(strict=True),
+                accept_network_unknown=arguments.accept_network_unknown,
+            )
             print("已核验并接受当前工作区；未知调用已标记，未重放任何工具。")
         elif action == "delete":
             session.ensure_deletable()
@@ -588,6 +619,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             explicit_path=arguments.config,
             overrides=_overrides(arguments),
         )
+        if arguments.command == "fetch":
+            from codepilot.app.operations import fetch
+
+            data = asyncio.run(fetch(config, workspace, arguments.url, arguments.secret_ref))
+            print(json.dumps(data, ensure_ascii=False))
+            return (
+                0
+                if data["request_succeeded"]
+                and data["backend_closed"]
+                and not data["needs_reconciliation"]
+                else 1
+            )
         if arguments.command == "recover":
             from codepilot.app.operations import recover
 
